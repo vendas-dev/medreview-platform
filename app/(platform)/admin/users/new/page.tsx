@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
-import { createUser } from '../actions'
+import { createUser } from '@/app/(platform)/admin/actions'
 
 export default async function NewUserPage() {
   const supabase = await createClient()
