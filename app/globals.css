@@ -1,26 +1,53 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-background: 0 0% 100%;
+    --color-foreground: 224 10% 10%;
+    --color-card: 0 0% 100%;
+    --color-primary: 231 72% 55%;
+    --color-primary-foreground: 0 0% 100%;
+    --color-secondary: 220 14% 96%;
+    --color-muted: 220 14% 96%;
+    --color-muted-foreground: 220 9% 46%;
+    --color-border: 220 13% 91%;
+    --color-input: 220 13% 91%;
+    --color-destructive: 0 84% 60%;
+    --color-ring: 231 72% 55%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --color-background: 224 15% 8%;
+    --color-foreground: 220 14% 94%;
+    --color-card: 224 15% 10%;
+    --color-primary: 231 72% 62%;
+    --color-secondary: 224 15% 14%;
+    --color-muted: 224 15% 14%;
+    --color-muted-foreground: 220 9% 55%;
+    --color-border: 224 15% 16%;
+    --color-input: 224 15% 16%;
+    --color-destructive: 0 72% 51%;
+    --color-ring: 231 72% 62%;
+  }
+
+  * {
+    border-color: hsl(var(--color-border));
+  }
+
+  body {
+    background-color: hsl(var(--color-background));
+    color: hsl(var(--color-foreground));
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
