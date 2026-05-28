@@ -19,7 +19,8 @@ export async function createUser(formData: FormData) {
     .eq('id', currentUser.id)
     .single()
 
-  if (profile?.role !== 'superadmin') {
+  const profileRole = (profile as any)?.role
+  if (profileRole !== 'superadmin') {
     throw new Error('Sem permissão')
   }
 
