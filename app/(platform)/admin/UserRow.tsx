@@ -81,7 +81,7 @@ export function UserRow({ user, currentUserId }: { user: Profile; currentUserId:
 
       {/* Editar */}
       <Link
-        href={`/admin/users/${user.id}`}
+        href={`/admin/users/edit?id=${user.id}`}
         style={{
           width: 32, height: 32, borderRadius: 8, flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
