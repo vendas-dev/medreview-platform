@@ -6,6 +6,7 @@ import { MobileDrawer } from '@/components/shell/MobileDrawer'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { MedLogoSVG } from '@/components/MedLogo'
 
+
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)

@@ -8,26 +8,35 @@ export default async function CopilotPage() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase
-    .from('profiles').select('name, team').eq('id', user.id).single()
+    .from('profiles').select('name, avatar_url').eq('id', user.id).single()
 
-  // Histórico de conversas
+  const userName    = (profile as any)?.name ?? 'usuário'
+  const userAvatarUrl = (profile as any)?.avatar_url ?? null
+
+  const { data: settings } = await supabase
+    .from('onboarding_settings')
+    .select('welcome_message')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .single()
+
+  const welcomeMessage = (settings as any)?.welcome_message
+    ?? `Olá, ${userName}! 👋 Sou o Med.AI, seu assistente de onboarding da MedReview. Como posso te ajudar hoje?`
+
   const { data: conversations } = await supabase
     .from('onboarding_conversations')
     .select('id, title, created_at')
     .eq('user_id', user.id)
     .order('updated_at', { ascending: false })
-    .limit(20)
-
-  // Boas-vindas
-  const { data: settings } = await supabase
-    .from('onboarding_settings').select('welcome_message')
-    .eq('id', '00000000-0000-0000-0000-000000000001').single()
+    .limit(30)
 
   return (
-    <CopilotChat
-      userName={(profile as any)?.name ?? 'usuário'}
-      welcomeMessage={(settings as any)?.welcome_message ?? 'Olá! Bem-vindo ao Copilot de Onboarding!'}
-      conversations={conversations ?? []}
-    />
+    <div style={{ height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}>
+      <CopilotChat
+        userName={userName}
+        userAvatarUrl={userAvatarUrl}
+        welcomeMessage={welcomeMessage}
+        conversations={conversations ?? []}
+      />
+    </div>
   )
 }

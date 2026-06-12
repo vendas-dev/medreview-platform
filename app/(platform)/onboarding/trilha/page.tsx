@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import { StepManager } from './StepManager'
-import { StepList } from './StepList'
+import { TrilhaClient } from './TrilhaClient'
 
 export default async function TrilhaPage() {
   const supabase = await createClient()
@@ -9,34 +9,45 @@ export default async function TrilhaPage() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+    .from('profiles').select('role, team').eq('id', user.id).single()
   const isAdmin = (profile as any)?.role === 'superadmin'
+  const userTeam = (profile as any)?.team
 
-  const { data: steps } = await supabase
-    .from('onboarding_steps')
-    .select(`
-      id, title, description, estimated_minutes, team, order_index,
-      onboarding_materials(count),
-      onboarding_faqs(count),
-      onboarding_questions(count)
-    `)
-    .eq('is_active', true)
-    .order('order_index')
+  const client = isAdmin ? createAdminClient() : supabase
+  const teamFilter = userTeam ? [userTeam, 'ambos'] : ['ambos']
+
+  const stepsQuery = isAdmin
+    ? client.from('onboarding_steps')
+        .select(`*, onboarding_materials(count), onboarding_faqs(count), onboarding_questions(count)`)
+        .eq('is_active', true)
+        .order('day_number', { ascending: true, nullsFirst: false })
+        .order('order_index')
+    : client.from('onboarding_steps')
+        .select(`*, onboarding_materials(count), onboarding_faqs(count), onboarding_questions(count)`)
+        .eq('is_active', true)
+        .in('team', teamFilter)
+        .order('day_number', { ascending: true, nullsFirst: false })
+        .order('order_index')
+
+  const { data: steps } = await stepsQuery
+
+  let userProgress: any[] = []
+  let trailMode = 'livre'
+  if (!isAdmin) {
+    const { data: prog } = await supabase
+      .from('onboarding_progress').select('step_id, status, quiz_score').eq('user_id', user.id)
+    userProgress = prog ?? []
+    const { data: settings } = await supabase
+      .from('onboarding_settings').select('trail_mode').eq('id', '00000000-0000-0000-0000-000000000001').single()
+    trailMode = (settings as any)?.trail_mode ?? 'livre'
+  }
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 6px' }}>
-            Trilha de Aprendizado
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>
-            {steps?.length ?? 0} etapas cadastradas
-          </p>
-        </div>
-        {isAdmin && <StepManager mode="create" />}
-      </div>
-      <StepList steps={steps ?? []} isAdmin={isAdmin} />
-    </div>
+    <TrilhaClient
+      initialSteps={steps ?? []}
+      isAdmin={isAdmin}
+      userProgress={userProgress}
+      trailMode={trailMode}
+    />
   )
 }
