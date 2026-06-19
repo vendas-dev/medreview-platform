@@ -5,6 +5,11 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   let response = NextResponse.next({ request })
 
+  // Rotas públicas — não requerem autenticação
+  if (pathname.startsWith('/api/public')) {
+    return response
+  }
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -32,5 +37,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/public).*)'],
 }
