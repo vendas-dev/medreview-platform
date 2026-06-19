@@ -10,14 +10,25 @@ export default async function TemplatesPage() {
 
   const { data: profile } = await supabase
     .from('profiles').select('role, team').eq('id', user.id).single()
-  const isAdmin = (profile as any)?.role === 'superadmin'
+  const isAdmin  = (profile as any)?.role === 'superadmin'
   const userTeam = (profile as any)?.team
 
-  let query = isAdmin
-    ? createAdminClient().from('templates').select('*').order('created_at', { ascending: false })
-    : supabase.from('templates').select('*').eq('is_active', true).order('created_at', { ascending: false })
+  const client = isAdmin ? createAdminClient() : supabase
+
+  let query = client.from('templates').select('*').eq('is_active', true).order('created_at', { ascending: false })
+
+  // Usuário comum: filtra pelo time
+  if (!isAdmin && userTeam) {
+    query = query.in('team', [userTeam, 'ambos'])
+  }
 
   const { data: templates } = await query
 
-  return <TemplatesView templates={templates ?? []} isAdmin={isAdmin} userTeam={userTeam} />
+  return (
+    <TemplatesView
+      templates={templates ?? []}
+      isAdmin={isAdmin}
+      userTeam={userTeam}
+    />
+  )
 }

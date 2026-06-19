@@ -1,0 +1,33 @@
+/* ── Responsividade global MedReview ───────────────────────── */
+
+/* Grids das páginas */
+@media (max-width: 1024px) {
+  .sd-row2 { grid-template-columns: 1fr !important; }
+  .sd-row3 { grid-template-columns: 1fr !important; }
+  .user-dash-grid { grid-template-columns: 1fr !important; }
+  .mission-grid   { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 768px) {
+  .sd-kpi { grid-template-columns: repeat(2, 1fr) !important; }
+  .kpi-mini { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+@media (max-width: 480px) {
+  .sd-kpi { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* Sidebar overlay no mobile já tratado no layout.tsx */
+
+/* Scrollbar fina */
+.scrollbar-hide::-webkit-scrollbar { width: 4px; height: 4px; }
+.scrollbar-hide::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-hide::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+
+/* Variáveis de tamanho de fonte responsivas */
+:root {
+  --fs-hero: clamp(20px, 4vw, 32px);
+  --fs-h1: clamp(18px, 3vw, 24px);
+  --fs-h2: clamp(16px, 2.5vw, 20px);
+  --pad-page: clamp(14px, 3vw, 28px);
+}

@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Considera online quem fez heartbeat nos últimos 3 minutos
-const ONLINE_THRESHOLD_MS = 3 * 60 * 1000
+const ONLINE_THRESHOLD_MS = 10 * 60 * 1000
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()

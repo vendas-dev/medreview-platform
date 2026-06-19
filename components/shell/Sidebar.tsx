@@ -14,21 +14,22 @@ import { canAccessModule } from '@/lib/rbac/permissions'
 import { useTheme } from '@/components/ThemeProvider'
 import { MedLogoSVG } from '@/components/MedLogo'
 import { usePresence } from '@/hooks/usePresence'
+import { useActiveModuleKeys } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
 interface NavChild { label: string; icon: any; href: string; children?: NavChild[] }
 interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; children?: NavChild[] }
 
 const buildNav = (isAdmin: boolean): NavItem[] => [
-  { key: 'dashboard',   label: 'Dashboard',    icon: LayoutDashboard, href: '/dashboard', always: true },
+  { key: 'dashboard',    label: 'Dashboard',      icon: LayoutDashboard, href: '/dashboard',    always: true },
   {
     key: 'onboarding', label: 'Onboarding', icon: GraduationCap, href: '/onboarding', always: true,
     children: isAdmin ? [
-      { label: 'Visão geral', icon: Home,     href: '/onboarding' },
-      { label: 'Trilha',      icon: List,     href: '/onboarding/trilha' },
-      { label: 'Videoaulas',  icon: Video,    href: '/onboarding/videoaulas' },
-      { label: 'Config. IA',  icon: Bot,      href: '/onboarding/config' },
-      { label: 'Dashboard',   icon: BarChart2,href: '/onboarding/dashboard' },
+      { label: 'Visão geral', icon: Home,      href: '/onboarding' },
+      { label: 'Trilha',      icon: List,      href: '/onboarding/trilha' },
+      { label: 'Videoaulas',  icon: Video,     href: '/onboarding/videoaulas' },
+      { label: 'Config. IA',  icon: Bot,       href: '/onboarding/config' },
+      { label: 'Dashboard',   icon: BarChart2, href: '/onboarding/dashboard' },
     ] : [
       { label: 'Início',        icon: Home,       href: '/onboarding' },
       { label: 'Minha Trilha',  icon: List,       href: '/onboarding/trilha' },
@@ -37,10 +38,11 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
       { label: 'Meu Progresso', icon: TrendingUp, href: '/onboarding/progresso' },
     ],
   },
-  { key: 'telao',       label: 'Telão',         icon: Monitor,   href: '/telao' },
-  { key: 'calculadora', label: 'Calculadora',   icon: Calculator,href: '/calculadora' },
-  { key: 'disparos',    label: 'Disparos',      icon: Zap,       href: '/disparos' },
-  { key: 'templates',   label: 'Templates',     icon: FileText,  href: '/templates', always: true },
+  { key: 'telao',        label: 'Telão',          icon: Monitor,    href: '/telao' },
+  { key: 'calculadora',  label: 'Calculadora',    icon: Calculator, href: '/calculadora' },
+  { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator, href: '/calculadora2' }, // ← NOVO
+  { key: 'disparos',     label: 'Disparos',       icon: Zap,        href: '/disparos' },
+  { key: 'templates',    label: 'Templates',      icon: FileText,   href: '/templates',    always: true },
   {
     key: 'admin', label: 'Administração', icon: Users, href: '/admin', adminOnly: true,
     children: [
@@ -123,16 +125,21 @@ function NavNode({ item, depth = 0, collapsed }: { item: any; depth?: number; co
 }
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  const { profile, modules } = useCurrentUser()
+  const { profile, modules } = useCurrentUser()            // permissões do usuário
+  const activeKeys = useActiveModuleKeys()                     // realtime: null enquanto carrega
   const { theme, setTheme } = useTheme()
   const isDark = theme === 'dark'
   const isAdmin = profile?.role === 'superadmin'
   const nav = buildNav(isAdmin)
-  const visible = nav.filter(i =>
-    i.adminOnly ? isAdmin : (i.always || canAccessModule(profile?.role ?? 'consultor', modules, i.key as ModuleKey))
-  )
+  const visible = nav.filter(i => {
+    if (i.adminOnly) return isAdmin
+    if (i.always)    return true
+    // Enquanto activeKeys é null (carregando), não esconde nada
+    // Depois de carregar, só exibe módulos que estão ativos no banco
+    if (activeKeys !== null && !activeKeys.includes(i.key)) return false
+    return canAccessModule(profile?.role ?? 'consultor', modules, i.key as ModuleKey)
+  })
 
-  // Rastreia presença online de todos os usuários automaticamente
   usePresence()
 
   return (

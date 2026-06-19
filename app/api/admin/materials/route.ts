@@ -2,10 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 
-// onboarding_materials colunas reais:
-// id, step_id, title, description, url, type, order_index, content_text, embedding_id, created_at
-// NÃO TEM: thumbnail_url, day_number, updated_at
-
 async function assertAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -14,9 +10,13 @@ async function assertAdmin() {
   return (p as any)?.role === 'superadmin' ? user : null
 }
 
+// onboarding_materials colunas: step_id, title, description, url, type, order_index
+// NÃO TEM: thumbnail_url, day_number, updated_at
+
 export async function POST(req: NextRequest) {
   const user = await assertAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const body  = await req.json()
   const admin = createAdminClient()
 
@@ -37,16 +37,14 @@ export async function POST(req: NextRequest) {
     })
     .select().single()
 
-  if (error) {
-    console.error('materials POST error:', error)
-    return NextResponse.json({ error: error.message }, { status: 400 })
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ material: data })
 }
 
 export async function PATCH(req: NextRequest) {
   const user = await assertAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const body  = await req.json()
   const admin = createAdminClient()
 
@@ -57,22 +55,19 @@ export async function PATCH(req: NextRequest) {
       description: body.description ?? null,
       url:         body.url,
       type:        body.type ?? 'outro',
-      step_id:     body.step_id ?? undefined,
+      step_id:     body.step_id,
     })
     .eq('id', body.id).select().single()
 
-  if (error) {
-    console.error('materials PATCH error:', error)
-    return NextResponse.json({ error: error.message }, { status: 400 })
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ material: data })
 }
 
 export async function DELETE(req: NextRequest) {
   const user = await assertAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const { id } = await req.json()
-  const admin = createAdminClient()
-  await admin.from('onboarding_materials').delete().eq('id', id)
+  await createAdminClient().from('onboarding_materials').delete().eq('id', id)
   return NextResponse.json({ ok: true })
 }

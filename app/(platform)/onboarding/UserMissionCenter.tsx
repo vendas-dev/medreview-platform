@@ -183,7 +183,7 @@ export function UserMissionCenter({
       </div>
 
       {/* ── Layout de 2 colunas ─────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
+      <div className="mission-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
 
         {/* COLUNA ESQUERDA: Missões */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -396,7 +396,12 @@ export function UserMissionCenter({
         </div>
       </div>
 
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @media (max-width: 1024px) {
+          .mission-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   )
 }

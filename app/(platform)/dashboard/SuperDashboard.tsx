@@ -201,7 +201,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay }: Props)
       </div>
 
       {/* KPIs — grid de 4 + 4 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(200px,100%),1fr))', gap: 12, marginBottom: 20 }}>
+      <div className="sd-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard icon={Users}         label="Usuários ativos"        value={stats.totalUsers}           sub={`${onlineList.length} online agora`}        grad="linear-gradient(135deg,#3b82f6,#4f46e5)"   color="#3b82f6"  href="/admin"                  spark={sparkData} />
         <KpiCard icon={GraduationCap} label="Trilhas criadas"        value={stats.totalSteps}           sub={`${stats.totalMaterials} materiais`}         grad="linear-gradient(135deg,#8b5cf6,#a855f7)"   color="#8b5cf6"  href="/onboarding/trilha"       />
         <KpiCard icon={Activity}      label="Onboardings ativos"     value={stats.activeOnboarding}     sub="em andamento"                               grad="linear-gradient(135deg,#f59e0b,#ef4444)"   color="#f59e0b"  href="/onboarding/dashboard"    />
@@ -213,7 +213,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay }: Props)
       </div>
 
       {/* Row 2: Atividade semanal + Online agora */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, marginBottom: 16 }}>
+      <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, marginBottom: 16 }}>
 
         {/* Gráfico de atividade semanal */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
@@ -299,7 +299,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay }: Props)
       </div>
 
       {/* Row 3: Atividade recente + Progresso individual */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="sd-row3" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 16 }}>
 
         {/* Feed de atividade recente */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
@@ -404,6 +404,16 @@ export function SuperDashboard({ userName, stats, users, progressByDay }: Props)
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
         @keyframes spin  { to{transform:rotate(360deg)} }
+        @media (max-width: 1024px) {
+          .sd-row2 { grid-template-columns: 1fr !important; }
+          .sd-row3 { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 768px) {
+          .sd-kpi  { grid-template-columns: repeat(2,1fr) !important; }
+        }
+        @media (max-width: 480px) {
+          .sd-kpi  { grid-template-columns: 1fr 1fr !important; }
+        }
       `}</style>
     </div>
   )

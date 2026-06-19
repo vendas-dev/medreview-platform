@@ -191,7 +191,7 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
       </div>
 
       {/* ── GRID PRINCIPAL ──────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
+      <div className="user-dash-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
 
         {/* ESQUERDA */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -308,7 +308,7 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           {/* KPIs pessoais */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="kpi-mini" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
               { label: 'Concluídas', value: completed, color: '#22c55e', grad: 'linear-gradient(90deg,#22c55e,#16a34a)', icon: '🏆' },
               { label: 'Restantes',  value: pending.length, color: '#6366f1', grad: 'linear-gradient(90deg,#4f46e5,#7c3aed)', icon: '🎯' },
@@ -382,7 +382,12 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
         </div>
       </div>
 
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @media (max-width: 1024px) {
+          .user-dash-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   )
 }
