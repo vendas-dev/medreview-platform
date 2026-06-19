@@ -1,4 +1,21 @@
-import { ModuleFrame } from '@/components/ModuleFrame'
-export default function Page() {
-  return <div style={{ height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}><ModuleFrame url="https://telao-medreview.lovable.app" title="Telão ao Vivo" /></div>
+import { createClient } from '@/lib/supabase/server'
+import { redirect }     from 'next/navigation'
+import { LiveWall }     from './LiveWall'
+
+export default async function TelaoPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  // Verificar se é admin
+  const { data: roleRow } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'admin')
+    .single()
+
+  const isAdmin = !!roleRow
+
+  return <LiveWall isAdmin={isAdmin} />
 }
