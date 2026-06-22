@@ -1,4 +1,12 @@
-import { ModuleFrame } from '@/components/ModuleFrame'
-export default function Page() {
-  return <div style={{ height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}><ModuleFrame url="https://med-review-disparos.lovable.app" title="Dashboard de Disparos" /></div>
+import { createClient } from '@/lib/supabase/server'
+import { redirect }     from 'next/navigation'
+import { DisparosClient } from './DisparosClient'
+
+export default async function DisparosPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  const isAdmin = (profile as any)?.role === 'superadmin'
+  return <DisparosClient isAdmin={isAdmin} />
 }

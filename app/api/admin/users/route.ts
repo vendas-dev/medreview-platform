@@ -14,20 +14,20 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  // Lê como FormData (suporta arquivo)
-  const formData = await req.formData()
-  const mode     = formData.get('mode') as string
-  const name     = formData.get('name') as string
-  const email    = formData.get('email') as string
-  const password = formData.get('password') as string
-  const role     = formData.get('role') as string
-  const job_role = (formData.get('job_role') as string) || null
-  const team     = (formData.get('team') as string) || null
-  const modules  = JSON.parse((formData.get('modules') as string) || '[]') as string[]
-  const userId   = formData.get('userId') as string | null
-  const avatar   = formData.get('avatar') as File | null
+  const formData  = await req.formData()
+  const mode      = formData.get('mode') as string
+  const name      = formData.get('name') as string
+  const email     = formData.get('email') as string
+  const password  = formData.get('password') as string
+  const role      = formData.get('role') as string
+  const job_role  = (formData.get('job_role') as string) || null
+  const team      = (formData.get('team') as string) || null
+  const hubspot_id = (formData.get('hubspot_id') as string) || null  // ← novo
+  const modules   = JSON.parse((formData.get('modules') as string) || '[]') as string[]
+  const userId    = formData.get('userId') as string | null
+  const avatar    = formData.get('avatar') as File | null
 
-  // ── Faz upload do avatar se houver ──
+  // Upload de avatar
   let avatar_url: string | undefined
   if (avatar && avatar.size > 0) {
     const ext = avatar.name.split('.').pop() ?? 'jpg'
@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
     const { error: uploadErr } = await admin.storage
       .from('avatars')
       .upload(path, bytes, { contentType: avatar.type, upsert: true })
-
     if (!uploadErr) {
       const { data: urlData } = admin.storage.from('avatars').getPublicUrl(path)
       avatar_url = urlData.publicUrl
@@ -53,8 +52,16 @@ export async function POST(req: NextRequest) {
     await admin.from('profiles').insert({
       id: authData.user.id, name, email, role,
       job_role, team,
+      hubspot_id,                              // ← salva o HubSpot ID
       ...(avatar_url ? { avatar_url } : {}),
     } as any)
+
+    // Também salva o hubspot_id no closer correspondente (se existir)
+    if (hubspot_id && job_role === 'closer') {
+      await admin.from('closers')
+        .update({ hubspot_id })
+        .eq('hubspot_id', hubspot_id)
+    }
 
     if (modules.length > 0) {
       await admin.from('user_module_permissions').insert(
@@ -64,9 +71,9 @@ export async function POST(req: NextRequest) {
       )
     }
   } else {
-    // Se fez upload, caminho antigo pode ser removido — só atualiza a URL
     await admin.from('profiles').update({
       name, email, role, job_role, team,
+      hubspot_id,                              // ← atualiza o HubSpot ID
       ...(avatar_url ? { avatar_url } : {}),
     } as any).eq('id', userId!)
 

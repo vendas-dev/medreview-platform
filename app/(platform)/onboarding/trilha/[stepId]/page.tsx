@@ -1,9 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient }      from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
-import { StepDetail } from './StepDetail'
+import { redirect }          from 'next/navigation'
+import Link                  from 'next/link'
+import { ArrowLeft }         from 'lucide-react'
+import { StepDetail }        from './StepDetail'
 
 export default async function StepDetailPage({
   params,
@@ -57,7 +57,7 @@ export default async function StepDetailPage({
     .eq('step_id', stepId)
     .maybeSingle()
 
-  // Checks de materiais desta etapa
+  // Checks de materiais
   const materialIds = (materials ?? []).map((m: any) => m.id)
   const { data: matViews } = materialIds.length > 0
     ? await supabase.from('onboarding_material_views')
@@ -69,7 +69,7 @@ export default async function StepDetailPage({
     (matViews ?? []).filter((v: any) => v.completed).map((v: any) => v.material_id)
   )
 
-  // Config do onboarding (trail_mode / track_mode)
+  // Config do onboarding (track_mode)
   const { data: settings } = await supabase
     .from('onboarding_settings')
     .select('track_mode')
@@ -77,12 +77,10 @@ export default async function StepDetailPage({
     .single()
   const trailMode = (settings as any)?.track_mode ?? 'livre'
 
-  // Todas as etapas do time para navegação sequencial
+  // Todas as etapas visíveis para este usuário (para navegação e bloqueio)
   const teamFilter = userTeam ? [userTeam, 'ambos'] : ['ambos']
-  const { data: allSteps } = await (isAdmin
-    ? createAdminClient()
-    : supabase
-  ).from('onboarding_steps')
+  const { data: allSteps } = await (isAdmin ? createAdminClient() : supabase)
+    .from('onboarding_steps')
     .select('id, title, day_number, order_index, team')
     .eq('is_active', true)
     .order('day_number', { ascending: true, nullsFirst: false })
@@ -92,8 +90,36 @@ export default async function StepDetailPage({
     ? (allSteps ?? [])
     : (allSteps ?? []).filter((s: any) => teamFilter.includes(s.team))
 
-  const currentIdx   = visibleSteps.findIndex((s: any) => s.id === stepId)
-  const nextStep     = currentIdx >= 0 && currentIdx < visibleSteps.length - 1
+  // ── PROTEÇÃO SERVER-SIDE: bloquear acesso direto por URL ───────
+  if (!isAdmin && trailMode === 'sequencial') {
+    const currentIdx = visibleSteps.findIndex((s: any) => s.id === stepId)
+
+    if (currentIdx > 0) {
+      // Buscar todo o progresso do usuário
+      const { data: allProgress } = await supabase
+        .from('onboarding_progress')
+        .select('step_id, status')
+        .eq('user_id', user.id)
+
+      const completedIds = new Set(
+        (allProgress ?? [])
+          .filter((p: any) => p.status === 'concluido')
+          .map((p: any) => p.step_id)
+      )
+
+      // Verificar se todas as etapas anteriores estão concluídas
+      for (let i = 0; i < currentIdx; i++) {
+        if (!completedIds.has(visibleSteps[i].id)) {
+          // Etapa bloqueada — redirecionar para a trilha
+          redirect('/onboarding/trilha')
+        }
+      }
+    }
+  }
+  // ────────────────────────────────────────────────────────────────
+
+  const currentIdx = visibleSteps.findIndex((s: any) => s.id === stepId)
+  const nextStep   = currentIdx >= 0 && currentIdx < visibleSteps.length - 1
     ? visibleSteps[currentIdx + 1]
     : null
 
@@ -101,7 +127,7 @@ export default async function StepDetailPage({
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 860, margin: '0 auto' }}>
       <Link href="/onboarding/trilha"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 22, fontSize: 13, fontWeight: 600, color: 'var(--muted-foreground)', textDecoration: 'none' }}>
-        <div style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-xs)' }}>
+        <div style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <ArrowLeft size={13} />
         </div>
         Voltar para trilha

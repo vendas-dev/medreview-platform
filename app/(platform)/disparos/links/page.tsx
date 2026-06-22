@@ -1,15 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
-import { CalculadoraView } from './CalculadoraView'
+import { LinksClient }  from '../LinksClient'
 
-export default async function Calculadora2Page() {
+export default async function LinksPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   const isAdmin = (profile as any)?.role === 'superadmin'
-
-  return <CalculadoraView isAdmin={isAdmin} />
+  return <LinksClient isAdmin={isAdmin} />
 }

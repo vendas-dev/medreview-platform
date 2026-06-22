@@ -2,12 +2,13 @@
 import { useState, useRef } from 'react'
 import { Camera, Sparkles, UserPlus } from 'lucide-react'
 import Link from 'next/link'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 import type { Profile, Module } from '@/types/database'
 
 interface Props {
   modules: Module[]
   mode: 'create' | 'edit'
-  user?: Profile & { job_role?: string; team?: string }
+  user?: Profile & { job_role?: string; team?: string; hubspot_id?: string }
   grantedModuleIds?: string[]
   isSelf?: boolean
 }
@@ -28,30 +29,32 @@ const sectionTitle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
 }
 
-function StyledSelect({ name, defaultValue, value, onChange, children, disabled }: any) {
-  return (
-    <div style={{ position: 'relative' }}>
-      <select name={name} defaultValue={defaultValue} value={value} onChange={onChange ? e => onChange(e.target.value) : undefined} disabled={disabled}
-        style={{ ...inputStyle, paddingRight: 36, appearance: 'none', cursor: disabled ? 'not-allowed' : 'pointer', WebkitAppearance: 'none', opacity: disabled ? 0.5 : 1 }}
-        onFocus={e => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-        onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }}>
-        {children}
-      </select>
-      <svg style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--muted-foreground)' }}
-        width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-    </div>
-  )
-}
+const JOB_OPTIONS = [
+  { value: '',           label: 'Selecione o cargo...' },
+  { value: 'closer',     label: 'Closer' },
+  { value: 'supervisor', label: 'Supervisor' },
+  { value: 'gerente',    label: 'Gerente' },
+  { value: 'outro',      label: 'Outro' },
+]
+const TEAM_OPTIONS = [
+  { value: '',    label: 'Selecione o time...' },
+  { value: 'OAO', label: '🔵 Time OAO' },
+  { value: 'R1',  label: '🟣 Time R1' },
+]
+const ROLE_OPTIONS = [
+  { value: 'consultor',   label: 'Consultor' },
+  { value: 'superadmin',  label: 'Superadmin' },
+]
 
 export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = false }: Props) {
-  const [preview, setPreview] = useState<string | null>(user?.avatar_url ?? null)
-  const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [jobRole, setJobRole] = useState(user?.job_role ?? '')
-  const [checkedModules, setCheckedModules] = useState<string[]>(
+  const [preview,        setPreview]    = useState<string | null>(user?.avatar_url ?? null)
+  const [avatarFile,     setAvatarFile] = useState<File | null>(null)
+  const [loading,        setLoading]    = useState(false)
+  const [error,          setError]      = useState('')
+  const [jobRole,        setJobRole]    = useState(user?.job_role ?? '')
+  const [team,           setTeam]       = useState(user?.team ?? '')
+  const [role,           setRole]       = useState(user?.role ?? 'consultor')
+  const [checkedModules, setChecked]    = useState<string[]>(
     mode === 'edit'
       ? grantedModuleIds
       : modules.filter(m => m.key === 'telao' || m.key === 'calculadora').map(m => m.id)
@@ -60,8 +63,7 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
   const initials = user?.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() ?? ''
 
   function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     setAvatarFile(file)
     const reader = new FileReader()
     reader.onload = ev => setPreview(ev.target?.result as string)
@@ -69,48 +71,40 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
   }
 
   function toggleModule(id: string) {
-    setCheckedModules(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id])
+    setChecked(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id])
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true); setError('')
-    const form = e.currentTarget
+    e.preventDefault(); setLoading(true); setError('')
+    const form     = e.currentTarget
+    const getValue = (n: string) => (form.elements.namedItem(n) as HTMLInputElement)?.value ?? ''
     const formData = new FormData()
-    formData.append('mode', mode)
-    formData.append('name', (form.elements.namedItem('name') as HTMLInputElement)?.value ?? '')
-    formData.append('email', (form.elements.namedItem('email') as HTMLInputElement)?.value ?? '')
-    formData.append('password', (form.elements.namedItem('password') as HTMLInputElement)?.value ?? '')
-    formData.append('role', (form.elements.namedItem('role') as HTMLSelectElement)?.value ?? 'consultor')
-    formData.append('job_role', (form.elements.namedItem('job_role') as HTMLSelectElement)?.value ?? '')
-    formData.append('team', (form.elements.namedItem('team') as HTMLSelectElement)?.value ?? '')
-    formData.append('modules', JSON.stringify(checkedModules))
+    formData.append('mode',       mode)
+    formData.append('name',       getValue('name'))
+    formData.append('email',      getValue('email'))
+    formData.append('password',   getValue('password'))
+    formData.append('role',       role)
+    formData.append('job_role',   jobRole)
+    formData.append('team',       team)
+    formData.append('hubspot_id', getValue('hubspot_id'))
+    formData.append('modules',    JSON.stringify(checkedModules))
     if (mode === 'edit' && user) formData.append('userId', user.id)
     if (avatarFile) formData.append('avatar', avatarFile)
-
     try {
       const res = await fetch('/api/admin/users', { method: 'POST', body: formData })
       const data = await res.json()
       if (res.ok) window.location.href = '/admin'
-      else { setError(data.error ?? 'Erro ao salvar. Tente novamente.'); setLoading(false) }
-    } catch {
-      setError('Erro de conexão. Tente novamente.'); setLoading(false)
-    }
+      else { setError(data.error ?? 'Erro ao salvar.'); setLoading(false) }
+    } catch { setError('Erro de conexão.'); setLoading(false) }
   }
 
-  const focusFn = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
-    e.target.style.borderColor = '#6366f1'
-    e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)'
-  }
-  const blurFn = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
-    e.target.style.borderColor = 'var(--border)'
-    e.target.style.boxShadow = 'none'
-  }
+  const focusFn = (e: React.FocusEvent<HTMLInputElement>) => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }
+  const blurFn  = (e: React.FocusEvent<HTMLInputElement>) => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }
 
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 22, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
 
-      {/* Banner motivacional */}
+      {/* Banner */}
       <div style={{ background: mode === 'create' ? 'linear-gradient(135deg,#2e1065,#3730a3,#4f46e5)' : 'linear-gradient(135deg,#1e3a5f,#1e40af,#3b82f6)', padding: '24px 28px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
         <div style={{ position: 'relative', zIndex: 1 }}>
@@ -121,16 +115,10 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
             </span>
           </div>
           <h2 style={{ fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 0 6px', letterSpacing: '-0.02em' }}>
-            {mode === 'create'
-              ? 'Boas-vindas ao time! 🎉'
-              : `Editando: ${user?.name ?? 'usuário'}`
-            }
+            {mode === 'create' ? 'Boas-vindas ao time! 🎉' : `Editando: ${user?.name ?? 'usuário'}`}
           </h2>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', margin: 0, lineHeight: 1.5 }}>
-            {mode === 'create'
-              ? 'Cadastre o novo membro e ele já recebe acesso na hora. Quanto mais rápido, mais rápido ele começa a brilhar.'
-              : 'Mantenha os dados atualizados. Um perfil completo faz toda a diferença.'
-            }
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', margin: 0 }}>
+            {mode === 'create' ? 'Cadastre o novo membro e ele já recebe acesso na hora.' : 'Mantenha os dados atualizados.'}
           </p>
         </div>
       </div>
@@ -147,12 +135,8 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
           </button>
         </div>
         <div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 3px' }}>
-            {mode === 'create' ? 'Foto do novo membro' : user?.name}
-          </p>
-          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>
-            {avatarFile ? `✓ ${avatarFile.name}` : 'JPG, PNG ou WebP · máx. 2MB'}
-          </p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 3px' }}>{mode === 'create' ? 'Foto do novo membro' : user?.name}</p>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>{avatarFile ? `✓ ${avatarFile.name}` : 'JPG, PNG ou WebP · máx. 2MB'}</p>
         </div>
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhoto} style={{ display: 'none' }} />
       </div>
@@ -178,26 +162,46 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
             <input name="email" type="email" required defaultValue={user?.email} placeholder="maria@medreview.com"
               style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
           </div>
+
+          {/* Cargo — CustomSelect */}
           <div>
             <label style={labelStyle}>Cargo</label>
-            <StyledSelect name="job_role" value={jobRole} onChange={setJobRole}>
-              <option value="">Selecione o cargo...</option>
-              <option value="closer">Closer</option>
-              <option value="supervisor">Supervisor</option>
-              <option value="gerente">Gerente</option>
-              <option value="outro">Outro</option>
-            </StyledSelect>
+            <CustomSelect
+              value={jobRole}
+              onChange={setJobRole}
+              options={JOB_OPTIONS}
+              placeholder="Selecione o cargo..."
+            />
           </div>
+
           {jobRole === 'closer' && (
-            <div>
-              <label style={labelStyle}>Time *</label>
-              <StyledSelect name="team" defaultValue={user?.team ?? ''}>
-                <option value="">Selecione o time...</option>
-                <option value="OAO">🔵 Time OAO</option>
-                <option value="R1">🟣 Time R1</option>
-              </StyledSelect>
-            </div>
+            <>
+              {/* Time — CustomSelect */}
+              <div>
+                <label style={labelStyle}>Time *</label>
+                <CustomSelect
+                  value={team}
+                  onChange={setTeam}
+                  options={TEAM_OPTIONS}
+                  placeholder="Selecione o time..."
+                />
+              </div>
+
+              {/* HubSpot ID */}
+              <div>
+                <label style={labelStyle}>ID no HubSpot</label>
+                <input name="hubspot_id" type="text" defaultValue={user?.hubspot_id ?? ''}
+                  placeholder="Ex: 123456789" style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
+                <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 6, lineHeight: 1.5 }}>
+                  💡 Vincula automaticamente este usuário às vendas no telão.
+                  Encontre em <strong>HubSpot → Usuários → URL da página</strong>.
+                </p>
+              </div>
+            </>
           )}
+
+          {/* Campo oculto se não for closer */}
+          {jobRole !== 'closer' && <input name="hubspot_id" type="hidden" defaultValue={user?.hubspot_id ?? ''} />}
         </div>
 
         <div style={{ height: 1, background: 'var(--border)', margin: '0 0 26px' }} />
@@ -212,12 +216,16 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
               style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
             {mode === 'edit' && <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 5 }}>Em branco = mantém a senha atual.</p>}
           </div>
+
+          {/* Nível de acesso — CustomSelect */}
           <div>
             <label style={labelStyle}>Nível de acesso</label>
-            <StyledSelect name="role" defaultValue={user?.role ?? 'consultor'} disabled={isSelf}>
-              <option value="consultor">Consultor</option>
-              <option value="superadmin">Superadmin</option>
-            </StyledSelect>
+            <CustomSelect
+              value={role}
+              onChange={setRole}
+              options={ROLE_OPTIONS}
+              disabled={isSelf}
+            />
           </div>
         </div>
 
@@ -253,8 +261,8 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
             </button>
           </Link>
           <button type="submit" disabled={loading}
-            style={{ flex: 2, height: 46, borderRadius: 11, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', fontSize: 14, fontWeight: 800, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loading ? 0.7 : 1, transition: 'all 0.15s', boxShadow: '0 4px 16px rgba(79,70,229,0.35)', letterSpacing: '-0.01em' }}>
-            {loading ? 'Adicionando ao time...' : mode === 'create' ? '🚀 Adicionar ao time' : '✓ Salvar alterações'}
+            style={{ flex: 2, height: 46, borderRadius: 11, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', fontSize: 14, fontWeight: 800, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loading ? 0.7 : 1, transition: 'all 0.15s', boxShadow: '0 4px 16px rgba(79,70,229,0.35)' }}>
+            {loading ? 'Salvando...' : mode === 'create' ? '🚀 Adicionar ao time' : '✓ Salvar alterações'}
           </button>
         </div>
       </form>

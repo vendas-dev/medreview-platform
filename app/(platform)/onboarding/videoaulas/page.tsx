@@ -16,7 +16,7 @@ export default async function VideoaulasPage() {
 
   const client = isAdmin ? createAdminClient() : supabase
 
-  // Etapas visíveis
+  // Todas as etapas (para o select e para filtros)
   const { data: allStepsRaw } = await client
     .from('onboarding_steps')
     .select('id, title, day_number, team')
@@ -25,7 +25,11 @@ export default async function VideoaulasPage() {
     .order('order_index')
 
   const allSteps = (allStepsRaw ?? []) as { id: string; title: string; day_number: number | null; team: string }[]
-  const visibleSteps = isAdmin ? allSteps : allSteps.filter(s => teamFilter.includes(s.team))
+
+  const visibleSteps = isAdmin
+    ? allSteps
+    : allSteps.filter(s => s.team === 'ambos' || teamFilter.includes(s.team))
+
   const stepIds = visibleSteps.map(s => s.id)
 
   // Materiais de vídeo vinculados a etapas (Da Trilha)
@@ -38,7 +42,7 @@ export default async function VideoaulasPage() {
         .order('order_index')
     : { data: [] }
 
-  // Vídeos avulsos
+  // Vídeos avulsos (onboarding_videos)
   const { data: avulsosRaw } = isAdmin
     ? await client.from('onboarding_videos').select('*').eq('is_active', true).order('order_index')
     : await client.from('onboarding_videos').select('*').eq('is_active', true).in('team', teamFilter).order('order_index')
@@ -51,7 +55,8 @@ export default async function VideoaulasPage() {
 
   const matChecked = new Set((matViews ?? []).filter((v: any) => v.completed).map((v: any) => v.material_id))
   const vidChecked = new Set((vidViews ?? []).filter((v: any) => v.completed).map((v: any) => v.video_id))
-  const stepMap    = Object.fromEntries(visibleSteps.map(s => [s.id, s]))
+
+  const stepMap = Object.fromEntries(visibleSteps.map(s => [s.id, s]))
 
   const trailVideos = (stepMaterials ?? []).map((m: any) => ({
     ...m,

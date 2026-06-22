@@ -6,7 +6,7 @@ const inp: React.CSSProperties = {
   width: '100%', height: 42, padding: '0 14px', borderRadius: 10,
   border: '1.5px solid var(--border)', background: 'var(--background)',
   color: 'var(--foreground)', fontSize: 14, fontFamily: 'inherit', outline: 'none',
-  transition: 'border-color 0.15s',
+  transition: 'border-color 0.15s, box-shadow 0.15s',
 }
 const lbl: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)',
@@ -45,7 +45,8 @@ function getThumb(url: string): string {
 interface Step { id: string; title: string; day_number: number | null; team: string }
 
 export function VideoManager({ steps = [], onCreated }: {
-  steps?: Step[]; onCreated?: (v: any) => void
+  steps?: Step[]
+  onCreated?: (v: any) => void
 }) {
   const [open,    setOpen]    = useState(false)
   const [loading, setLoading] = useState(false)
@@ -53,7 +54,7 @@ export function VideoManager({ steps = [], onCreated }: {
   const [url,     setUrl]     = useState('')
   const [thumbPv, setThumbPv] = useState('')
   const [team,    setTeam]    = useState('ambos')
-  const [selStep, setSelStep] = useState('avulso')
+  const [selStep, setSelStep] = useState('avulso') // 'avulso' = sem etapa
 
   const sorted = [...steps].sort((a, b) => {
     if (a.day_number === b.day_number) return a.title.localeCompare(b.title)
@@ -71,11 +72,13 @@ export function VideoManager({ steps = [], onCreated }: {
     const isAvulso = selStep === 'avulso'
     const chosen  = isAvulso ? null : steps.find(s => s.id === selStep)
 
-    let res: Response, data: any
+    let res: Response
+    let data: any
 
     if (isAvulso) {
-      // Avulso → salva em onboarding_videos (sem step_id, sem day_number)
-      res  = await fetch('/api/admin/videos', {
+      // ── AVULSO: salva em onboarding_videos ──────────────────
+      // onboarding_videos: title, description, url, thumbnail_url, team, duration_min
+      res = await fetch('/api/admin/videos', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title:         fd.get('title'),
@@ -89,11 +92,17 @@ export function VideoManager({ steps = [], onCreated }: {
       data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Erro ao salvar'); setLoading(false); return }
 
-      // Retorna como avulso — vai para lista de avulsos
-      onCreated?.({ ...data.video, checked: false, stepInfo: null })
+      // Retorna como avulso (sem stepInfo)
+      onCreated?.({
+        ...data.video,
+        checked:  false,
+        stepInfo: null,
+      })
     } else {
-      // Vinculado à etapa → salva em onboarding_materials (sem thumbnail_url, sem day_number)
-      res  = await fetch('/api/admin/materials', {
+      // ── DA TRILHA: salva em onboarding_materials ─────────────
+      // onboarding_materials: step_id, title, description, url, type, order_index
+      // NÃO TEM thumbnail_url nem day_number
+      res = await fetch('/api/admin/materials', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           step_id:     selStep,
@@ -106,12 +115,17 @@ export function VideoManager({ steps = [], onCreated }: {
       data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Erro ao salvar'); setLoading(false); return }
 
-      // Retorna como vídeo da trilha — vai para lista "Da Trilha"
+      // Retorna como vídeo da trilha (com stepInfo)
       onCreated?.({
         ...data.material,
-        checked:       false,
-        thumbnail_url: thumbPv || getThumb(url) || null,
-        stepInfo:      chosen ? { id: chosen.id, title: chosen.title, day_number: chosen.day_number, team: chosen.team } : null,
+        checked:  false,
+        thumbnail_url: thumbPv || getThumb(url) || null, // só local, não salvo no banco
+        stepInfo: chosen ? {
+          id:         chosen.id,
+          title:      chosen.title,
+          day_number: chosen.day_number,
+          team:       chosen.team,
+        } : null,
       })
     }
 
@@ -138,7 +152,7 @@ export function VideoManager({ steps = [], onCreated }: {
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 900, color: '#fff', margin: 0 }}>Nova videoaula</h2>
                 <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', margin: '3px 0 0' }}>
-                  {selStep === 'avulso' ? 'Ficará na seção Avulsos' : `Vinculada a: ${curStep?.title ?? ''}`}
+                  {selStep === 'avulso' ? 'Ficará na seção Avulsos' : `Será vinculada à etapa selecionada`}
                 </p>
               </div>
               <button onClick={close} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
@@ -147,9 +161,13 @@ export function VideoManager({ steps = [], onCreated }: {
             </div>
 
             <form onSubmit={handleSubmit} style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 13 }}>
-              {error && <div style={{ padding: '10px 14px', borderRadius: 9, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}><p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>⚠ {error}</p></div>}
+              {error && (
+                <div style={{ padding: '10px 14px', borderRadius: 9, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>⚠ {error}</p>
+                </div>
+              )}
 
-              {/* Select concatenado: define onde salva */}
+              {/* Select concatenado — define onde vai salvar */}
               <div>
                 <label style={lbl}>Vincular à trilha</label>
                 <SS value={selStep} onChange={setSelStep}>
@@ -160,10 +178,16 @@ export function VideoManager({ steps = [], onCreated }: {
                     </option>
                   ))}
                 </SS>
-                {selStep === 'avulso'
-                  ? <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4 }}>Aparecerá na seção "Avulsos" da biblioteca.</p>
-                  : curStep?.day_number && <p style={{ fontSize: 11, color: '#6366f1', marginTop: 4, fontWeight: 600 }}>📅 Será vinculada como material de vídeo — Dia {curStep.day_number}</p>
-                }
+                {curStep?.day_number != null && (
+                  <p style={{ fontSize: 11, color: '#6366f1', marginTop: 4, fontWeight: 600 }}>
+                    📅 Será salvo como material de vídeo da etapa (Dia {curStep.day_number})
+                  </p>
+                )}
+                {selStep === 'avulso' && (
+                  <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4 }}>
+                    Aparecerá na seção "Avulsos" da biblioteca.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -180,9 +204,15 @@ export function VideoManager({ steps = [], onCreated }: {
                 <label style={lbl}>URL do vídeo *</label>
                 <input name="url" required type="url" value={url} onChange={e => handleUrl(e.target.value)}
                   placeholder="YouTube, Vimeo, Loom, Google Drive..." style={inp} onFocus={foc} onBlur={blr} />
-                {thumbPv && <img src={thumbPv} alt="thumb" style={{ width: '100%', maxHeight: 120, objectFit: 'cover', borderRadius: 9, marginTop: 8, border: '1px solid var(--border)' }} />}
+                {thumbPv && (
+                  <img src={thumbPv} alt="thumb" style={{ width: '100%', maxHeight: 120, objectFit: 'cover', borderRadius: 9, marginTop: 8, border: '1px solid var(--border)' }} />
+                )}
+                <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 5 }}>
+                  Thumbnail extraída automaticamente do YouTube, Vimeo e Loom.
+                </p>
               </div>
 
+              {/* Campos extras só para avulso */}
               {selStep === 'avulso' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
@@ -201,8 +231,12 @@ export function VideoManager({ steps = [], onCreated }: {
               )}
 
               <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
-                <button type="button" onClick={close} style={{ flex: 1, height: 42, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
-                <button type="submit" disabled={loading} style={{ flex: 2, height: 42, borderRadius: 10, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', fontSize: 14, fontWeight: 800, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
+                <button type="button" onClick={close}
+                  style={{ flex: 1, height: 42, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={loading}
+                  style={{ flex: 2, height: 42, borderRadius: 10, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', fontSize: 14, fontWeight: 800, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
                   {loading ? 'Salvando...' : 'Adicionar videoaula'}
                 </button>
               </div>

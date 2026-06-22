@@ -6,7 +6,7 @@ const inp: React.CSSProperties = {
   width: '100%', height: 42, padding: '0 14px', borderRadius: 10,
   border: '1.5px solid var(--border)', background: 'var(--background)',
   color: 'var(--foreground)', fontSize: 14, fontFamily: 'inherit', outline: 'none',
-  transition: 'border-color 0.15s',
+  transition: 'border-color 0.15s, box-shadow 0.15s',
 }
 const lbl: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)',
@@ -15,11 +15,10 @@ const lbl: React.CSSProperties = {
 const foc = (e: React.FocusEvent<any>) => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }
 const blr = (e: React.FocusEvent<any>) => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }
 
-function SS({ name, value, defaultValue, onChange, children }: any) {
+function SS({ name, defaultValue, children }: { name: string; defaultValue?: string | number; children: React.ReactNode }) {
   return (
     <div style={{ position: 'relative' }}>
-      <select name={name} value={value} defaultValue={value === undefined ? defaultValue : undefined}
-        onChange={onChange ? e => onChange(e.target.value) : undefined}
+      <select name={name} defaultValue={defaultValue ?? ''}
         style={{ ...inp, paddingRight: 34, appearance: 'none', WebkitAppearance: 'none', cursor: 'pointer' }}
         onFocus={foc} onBlur={blr}>
         {children}
@@ -32,7 +31,7 @@ function SS({ name, value, defaultValue, onChange, children }: any) {
   )
 }
 
-interface Step {
+interface NewStep {
   id: string; title: string; description: string | null
   estimated_minutes: number | null; team: string; day_number: number | null
   completion_criteria: string; min_quiz_score: number
@@ -42,22 +41,29 @@ interface Step {
 interface Props {
   mode: 'create' | 'edit'
   step?: any
-  onCreated?: (step: Step) => void
-  onUpdated?: (step: Partial<Step> & { id: string }) => void
+  onCreated?: (step: NewStep) => void
+  onUpdated?: (step: Partial<NewStep> & { id: string }) => void
 }
+
+const phrases = [
+  'Mais uma etapa, mais um passo rumo ao time perfeito! 🚀',
+  'O conhecimento certo na hora certa faz toda diferença. 💡',
+  'Monte a trilha ideal e veja seu time decolar! 🎯',
+  'Cada etapa bem construída é um vendedor mais preparado. 💪',
+]
 
 export function StepManager({ mode, step, onCreated, onUpdated }: Props) {
   const [open,    setOpen]    = useState(false)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const phrase = phrases[Math.floor(Math.random() * phrases.length)]
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true); setError('')
 
-    const fd   = new FormData(e.currentTarget)
-    const body = {
-      id:                  step?.id,
+    const fd  = new FormData(e.currentTarget)
+    const body: any = {
       title:               fd.get('title'),
       description:         (fd.get('description') as string) || null,
       team:                fd.get('team') || 'ambos',
@@ -67,6 +73,7 @@ export function StepManager({ mode, step, onCreated, onUpdated }: Props) {
       min_quiz_score:      fd.get('min_quiz_score') || 70,
       max_attempts:        fd.get('max_attempts') || null,
     }
+    if (mode === 'edit') body.id = step?.id
 
     const res  = await fetch('/api/onboarding/steps', {
       method:  mode === 'create' ? 'POST' : 'PATCH',
@@ -77,8 +84,8 @@ export function StepManager({ mode, step, onCreated, onUpdated }: Props) {
 
     if (!res.ok) { setError(data.error ?? 'Erro ao salvar'); setLoading(false); return }
 
-    // data.step tem o ID real do banco — atualiza a lista sem F5
-    const saved: Step = {
+    // data.step vem com ID real do banco — atualiza UI sem F5
+    const saved: NewStep = {
       ...data.step,
       onboarding_materials: step?.onboarding_materials ?? [],
       onboarding_faqs:      step?.onboarding_faqs      ?? [],
@@ -106,16 +113,25 @@ export function StepManager({ mode, step, onCreated, onUpdated }: Props) {
           onClick={e => e.target === e.currentTarget && setOpen(false)}>
           <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 22, width: '100%', maxWidth: 540, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 28px 64px rgba(0,0,0,0.25)' }}>
 
-            <div style={{ background: 'linear-gradient(135deg,#2e1065,#3730a3,#4f46e5)', borderRadius: '22px 22px 0 0', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Sparkles size={14} style={{ color: '#fbbf24' }} />
-                <h2 style={{ fontSize: 16, fontWeight: 900, color: '#fff', margin: 0 }}>
-                  {mode === 'create' ? 'Nova etapa da trilha' : 'Editar etapa'}
-                </h2>
+            <div style={{ background: 'linear-gradient(135deg,#2e1065,#3730a3,#4f46e5)', borderRadius: '22px 22px 0 0', padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: -20, right: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
+              <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                    <Sparkles size={13} style={{ color: '#fbbf24' }} />
+                    <span style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      {mode === 'create' ? 'Nova etapa' : 'Editando etapa'}
+                    </span>
+                  </div>
+                  <h2 style={{ fontSize: 17, fontWeight: 900, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.02em' }}>
+                    {mode === 'create' ? 'Monte mais um passo da jornada! 🗺️' : 'Atualize e deixe ainda mais top! ✨'}
+                  </h2>
+                  <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', margin: 0 }}>{phrase}</p>
+                </div>
+                <button onClick={() => setOpen(false)} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                  <X size={14} />
+                </button>
               </div>
-              <button onClick={() => setOpen(false)} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'rgba(255,255,255,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                <X size={14} />
-              </button>
             </div>
 
             <form onSubmit={handleSubmit} style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -126,9 +142,9 @@ export function StepManager({ mode, step, onCreated, onUpdated }: Props) {
               )}
 
               <div>
-                <label style={lbl}>Título *</label>
+                <label style={lbl}>Título da etapa *</label>
                 <input name="title" required defaultValue={step?.title} placeholder="Ex: Conhecendo a MedReview"
-                  style={inp} onFocus={foc} onBlur={blr} autoFocus />
+                  style={inp} onFocus={foc} onBlur={blr} />
               </div>
 
               <div>
@@ -189,7 +205,9 @@ export function StepManager({ mode, step, onCreated, onUpdated }: Props) {
 
               <div style={{ display: 'flex', gap: 10, paddingTop: 6 }}>
                 <button type="button" onClick={() => setOpen(false)}
-                  style={{ flex: 1, height: 44, borderRadius: 11, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  style={{ flex: 1, height: 44, borderRadius: 11, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--foreground)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
                   Cancelar
                 </button>
                 <button type="submit" disabled={loading}

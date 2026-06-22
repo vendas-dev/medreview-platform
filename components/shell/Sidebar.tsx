@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
-  Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText,
+  Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2,
 } from 'lucide-react'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -14,7 +14,7 @@ import { canAccessModule } from '@/lib/rbac/permissions'
 import { useTheme } from '@/components/ThemeProvider'
 import { MedLogoSVG } from '@/components/MedLogo'
 import { usePresence } from '@/hooks/usePresence'
-import { useActiveModuleKeys } from '@/hooks/useModules'
+import { useActiveModuleKeys, useActiveModules } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
 interface NavChild { label: string; icon: any; href: string; children?: NavChild[] }
@@ -41,7 +41,13 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
   { key: 'telao',        label: 'Telão',          icon: Monitor,    href: '/telao' },
   { key: 'calculadora',  label: 'Calculadora',    icon: Calculator, href: '/calculadora' },
   { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator, href: '/calculadora2' }, // ← NOVO
-  { key: 'disparos',     label: 'Disparos',       icon: Zap,        href: '/disparos' },
+  { key: 'milestones',   label: 'Milestones',     icon: CalendarDays, href: '/milestones', always: true },
+  { key: 'disparos', label: 'Disparos', icon: Send, href: '/disparos',
+    children: [
+      { label: 'Copys',            icon: Send,  href: '/disparos' },
+      { label: 'Links de Pagamento', icon: Link2, href: '/disparos/links' },
+    ]
+  },
   { key: 'templates',    label: 'Templates',      icon: FileText,   href: '/templates',    always: true },
   {
     key: 'admin', label: 'Administração', icon: Users, href: '/admin', adminOnly: true,
@@ -52,7 +58,7 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
   },
 ]
 
-function NavNode({ item, depth = 0, collapsed }: { item: any; depth?: number; collapsed: boolean }) {
+function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; depth?: number; collapsed: boolean; activeModules: any[] | null }) {
   const pathname = usePathname()
   const Icon = item.icon
   const hasChildren = item.children?.length > 0
@@ -84,7 +90,7 @@ function NavNode({ item, depth = 0, collapsed }: { item: any; depth?: number; co
             onMouseLeave={e => { if (!isActive && !anyChildActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' } }}>
             <Icon size={ic} style={{ flexShrink: 0 }} />
             <AnimatePresence initial={false}>
-              {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</motion.span>}
+              {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeModules?.find(m => m.key === item.key)?.label ?? item.label}</motion.span>}
             </AnimatePresence>
           </button>
         ) : (
@@ -94,7 +100,7 @@ function NavNode({ item, depth = 0, collapsed }: { item: any; depth?: number; co
               onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted-foreground)' } }}>
               <Icon size={ic} style={{ flexShrink: 0 }} />
               <AnimatePresence initial={false}>
-                {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</motion.span>}
+                {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeModules?.find(m => m.key === item.key)?.label ?? item.label}</motion.span>}
               </AnimatePresence>
             </div>
           </Link>
@@ -115,7 +121,7 @@ function NavNode({ item, depth = 0, collapsed }: { item: any; depth?: number; co
         {hasChildren && !collapsed && open && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.15 }} style={{ overflow: 'hidden' }}>
             <div style={{ marginLeft: 14, paddingLeft: 10, borderLeft: '2px solid var(--border)', marginTop: 1, marginBottom: 2 }}>
-              {item.children.map((c: any) => <NavNode key={c.href} item={c} depth={depth + 1} collapsed={collapsed} />)}
+              {item.children.map((c: any) => <NavNode key={c.href} item={c} depth={depth + 1} collapsed={collapsed} activeModules={activeModules} />)}
             </div>
           </motion.div>
         )}
@@ -126,7 +132,8 @@ function NavNode({ item, depth = 0, collapsed }: { item: any; depth?: number; co
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { profile, modules } = useCurrentUser()            // permissões do usuário
-  const activeKeys = useActiveModuleKeys()                     // realtime: null enquanto carrega
+  const activeKeys   = useActiveModuleKeys()                    // realtime: null enquanto carrega
+  const activeModules = useActiveModules()                        // com labels do banco
   const { theme, setTheme } = useTheme()
   const isDark = theme === 'dark'
   const isAdmin = profile?.role === 'superadmin'
@@ -182,7 +189,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '8px 6px', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 0 }} className="scrollbar-hide">
-        {visible.map(item => <NavNode key={item.key} item={item} depth={0} collapsed={collapsed} />)}
+        {visible.map(item => <NavNode key={item.key} item={item} depth={0} collapsed={collapsed} activeModules={activeModules} />)}
       </nav>
 
       {/* Footer */}
