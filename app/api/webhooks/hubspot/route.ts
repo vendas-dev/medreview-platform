@@ -1,95 +1,72 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
-
-// Verificar assinatura do HubSpot para segurança
-function verifySignature(req: NextRequest, body: string): boolean {
-  const secret    = process.env.HUBSPOT_CLIENT_SECRET
-  const signature = req.headers.get('x-hubspot-signature-v3') ?? 
-                    req.headers.get('x-hubspot-signature')
-  if (!secret || !signature) return false
-
-  const hash = crypto
-    .createHmac('sha256', secret)
-    .update(body)
-    .digest('hex')
-
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(hash)
-  )
-}
 
 export async function POST(req: NextRequest) {
-  const rawBody = await req.text()
+  // Proteção por token opcional
+  const token = req.headers.get('x-webhook-token')
+  if (process.env.WEBHOOK_SECRET && token !== process.env.WEBHOOK_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  // Validar assinatura (descomente em produção)
-  // if (!verifySignature(req, rawBody)) {
-  //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  // }
-
-  let events: any[]
+  let body: any
   try {
-    events = JSON.parse(rawBody)
-    if (!Array.isArray(events)) events = [events]
+    body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
+  const { deal_id, deal_name, owner_id, deal_stage, pipeline, created_at_hs, vertical } = body
 
-  for (const event of events) {
-    const { subscriptionType, objectId, propertyName, propertyValue } = event
-
-    // ── Deal criado ───────────────────────────────────────────
-    if (subscriptionType === 'deal.creation') {
-      // Buscar detalhes do deal na API do HubSpot
-      try {
-        const hsRes = await fetch(
-          `https://api.hubapi.com/crm/v3/objects/deals/${objectId}?properties=dealname,hubspot_owner_id,dealstage,pipeline,createdate`,
-          { headers: { Authorization: `Bearer ${process.env.HUBSPOT_ACCESS_TOKEN}` } }
-        )
-        if (!hsRes.ok) continue
-
-        const deal = await hsRes.json()
-        const p    = deal.properties
-
-        // Só armazena se tiver proprietário preenchido
-        if (!p.hubspot_owner_id) continue
-
-        await admin.from('hubspot_leads').upsert({
-          deal_id:       String(objectId),
-          deal_name:     p.dealname ?? null,
-          owner_id:      p.hubspot_owner_id,
-          deal_stage:    p.dealstage ?? null,
-          pipeline:      p.pipeline  ?? null,
-          created_at_hs: p.createdate ? new Date(p.createdate).toISOString() : null,
-          updated_at:    new Date().toISOString(),
-        }, { onConflict: 'deal_id' })
-      } catch (e) {
-        console.error('HubSpot webhook - deal.creation error:', e)
-      }
-    }
-
-    // ── Propriedade alterada (owner ou stage) ─────────────────
-    if (subscriptionType === 'deal.propertyChange') {
-      if (propertyName === 'hubspot_owner_id') {
-        // Roletamento: atualiza o proprietário
-        if (propertyValue) {
-          await admin.from('hubspot_leads')
-            .update({ owner_id: propertyValue, updated_at: new Date().toISOString() })
-            .eq('deal_id', String(objectId))
-        }
-      }
-
-      if (propertyName === 'dealstage') {
-        // Atualiza etapa
-        await admin.from('hubspot_leads')
-          .update({ deal_stage: propertyValue, updated_at: new Date().toISOString() })
-          .eq('deal_id', String(objectId))
-      }
-    }
+  if (!deal_id) {
+    return NextResponse.json({ error: 'deal_id obrigatório' }, { status: 400 })
   }
 
-  return NextResponse.json({ received: true })
+  // Ignorar deals sem proprietário (selfcheckout, etc)
+  if (!owner_id) {
+    return NextResponse.json({ skipped: true, reason: 'sem proprietário' })
+  }
+
+  const admin = createAdminClient()
+
+  // Verificar se o deal já existe
+  const { data: existing } = await admin
+    .from('hubspot_leads')
+    .select('deal_id')
+    .eq('deal_id', String(deal_id))
+    .single()
+
+  if (existing) {
+    // Atualizar apenas os campos presentes no body
+    const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+    if (owner_id   !== undefined) updates.owner_id   = String(owner_id)
+    if (deal_stage !== undefined) updates.deal_stage = deal_stage
+    if (deal_name  !== undefined) updates.deal_name  = deal_name
+    if (pipeline   !== undefined) updates.pipeline   = pipeline
+    if (vertical   !== undefined) updates.vertical   = vertical
+
+    const { error } = await admin
+      .from('hubspot_leads')
+      .update(updates)
+      .eq('deal_id', String(deal_id))
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ updated: true, deal_id: String(deal_id) })
+  }
+
+  // Novo deal — insert
+  const { error } = await admin
+    .from('hubspot_leads')
+    .insert({
+      deal_id:       String(deal_id),
+      deal_name:     deal_name     ?? null,
+      owner_id:      String(owner_id),
+      deal_stage:    deal_stage    ?? null,
+      pipeline:      pipeline      ?? null,
+      vertical:      vertical      ?? null,
+      created_at_hs: created_at_hs ?? new Date().toISOString(),
+      updated_at:    new Date().toISOString(),
+    })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ created: true, deal_id: String(deal_id) })
 }

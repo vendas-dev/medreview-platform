@@ -20,18 +20,15 @@ export async function GET(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  // Buscar todos os closers
-  const { data: closers } = await admin
-    .from('profiles')
-    .select('id, name, team, hubspot_id')
-    .neq('role', 'superadmin')
-    .order('name')
-
-  // Buscar metas do mês
-  const { data: goals } = await admin
-    .from('closer_goals')
-    .select('*')
-    .eq('month', month)
+  const [{ data: closers }, { data: goals }] = await Promise.all([
+    admin.from('profiles')
+      .select('id, name, team')
+      .neq('role', 'superadmin')
+      .order('name'),
+    admin.from('closer_goals')
+      .select('*')
+      .eq('month', month),
+  ])
 
   const goalsMap = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
 
@@ -43,7 +40,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ closers: result, month })
 }
 
-// POST /api/intel/goals — salvar meta de um closer
+// POST /api/intel/goals
 export async function POST(req: NextRequest) {
   const user = await assertAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -58,15 +55,19 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('closer_goals')
-    .upsert({
-      user_id,
-      month,
-      goal_sales:         goal_sales         ?? 0,
-      goal_ambassador:    goal_ambassador     ?? 0,
-      goals_by_vertical:  goals_by_vertical   ?? {},
-      updated_at:         new Date().toISOString(),
-    }, { onConflict: 'user_id,month' })
-    .select().single()
+    .upsert(
+      {
+        user_id,
+        month,
+        goal_sales:        goal_sales        ?? 0,
+        goal_ambassador:   goal_ambassador    ?? 0,
+        goals_by_vertical: goals_by_vertical  ?? {},
+        updated_at:        new Date().toISOString(),
+      },
+      { onConflict: 'user_id,month' }
+    )
+    .select()
+    .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ goal: data })
