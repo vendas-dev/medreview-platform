@@ -16,14 +16,9 @@ export default async function ConfigPage() {
     .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
-  // Mapeia track_mode (nome no banco) → trail_mode (nome usado no ConfigForm)
-  const mappedSettings = settings
-    ? { ...settings, trail_mode: (settings as any).track_mode }
-    : null
-
   return (
     <div style={{ padding: 'clamp(16px,3vw,32px)', maxWidth: 720, margin: '0 auto' }}>
-      <ConfigForm settings={mappedSettings as any} />
+      <ConfigForm settings={settings as any} />
     </div>
   )
 }

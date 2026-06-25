@@ -8,8 +8,9 @@ export default async function Calculadora2Page() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  const isAdmin = (profile as any)?.role === 'superadmin'
+    .from('profiles').select('role, team').eq('id', user.id).single()
+  const isAdmin  = (profile as any)?.role === 'superadmin'
+  const userTeam = (profile as any)?.team ?? null
 
-  return <CalculadoraView isAdmin={isAdmin} />
+  return <CalculadoraView isAdmin={isAdmin} userTeam={userTeam} />
 }

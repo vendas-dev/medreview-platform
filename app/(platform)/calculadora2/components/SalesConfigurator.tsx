@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useEffect } from 'react'
 import { PriceRow, PaymentMode } from '../lib/types'
 import { fmt, rateForVertical } from '../lib/pricing'
 import { AppSettings } from '../lib/types'
@@ -49,6 +49,128 @@ interface Props {
   selectedRow:  PriceRow | null
 }
 
+// ── InstallmentSelect — dropdown customizado com opções estilizadas ──
+const INSTALLMENT_OPTS = [
+  {value:1,  label:'1x',  desc:'Pagamento único'},
+  {value:2,  label:'2x',  desc:'Curto prazo'},
+  {value:3,  label:'3x',  desc:'Curto prazo'},
+  {value:4,  label:'4x',  desc:'Curto prazo'},
+  {value:5,  label:'5x',  desc:'Médio prazo'},
+  {value:6,  label:'6x',  desc:'Médio prazo'},
+  {value:7,  label:'7x',  desc:'Médio prazo'},
+  {value:8,  label:'8x',  desc:'Médio prazo'},
+  {value:9,  label:'9x',  desc:'Longo prazo'},
+  {value:10, label:'10x', desc:'Longo prazo'},
+  {value:11, label:'11x', desc:'Longo prazo'},
+  {value:12, label:'12x', desc:'Longo prazo'},
+  {value:18, label:'18x', desc:'Especial'},
+  {value:24, label:'24x', desc:'Especial'},
+]
+
+function InstallmentSelect({ value, onChange }: { value:number; onChange:(v:number)=>void }) {
+  const [open, setOpen] = useState(false)
+  const ref    = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos,  setPos]  = useState<React.CSSProperties>({})
+  const sel = INSTALLMENT_OPTS.find(o=>o.value===value)
+
+  useEffect(()=>{
+    if(!open) return
+    const h=(e:MouseEvent)=>{ if(!ref.current?.contains(e.target as Node)&&!btnRef.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown',h)
+    return ()=>document.removeEventListener('mousedown',h)
+  },[open])
+
+  function handleOpen(){
+    if(!btnRef.current) return
+    const r=btnRef.current.getBoundingClientRect()
+    const opts=INSTALLMENT_OPTS.length
+    const dropH=Math.min(opts*48+8,320)
+    const below=window.innerHeight-r.bottom-8
+    setPos({
+      position:'fixed',left:r.left,width:r.width,zIndex:9999,
+      ...(below<dropH&&r.top>dropH?{bottom:window.innerHeight-r.top+4}:{top:r.bottom+4}),
+    })
+    setOpen(o=>!o)
+  }
+
+  const isSpecial = value===18||value===24
+  return (
+    <div style={{position:'relative'}}>
+      <button ref={btnRef} type="button" onClick={handleOpen}
+        style={{
+          width:'100%',height:44,borderRadius:12,cursor:'pointer',
+          border:`1.5px solid ${open?'#6366f1':'var(--border)'}`,
+          background:open?'color-mix(in srgb,rgba(99,102,241,.06),var(--background))':'var(--background)',
+          boxShadow:open?'0 0 0 3px rgba(99,102,241,.1)':'none',
+          display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,
+          padding:'0 14px',fontFamily:'inherit',transition:'all .15s',
+        }}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:18,fontWeight:900,color:isSpecial?'#f59e0b':'#6366f1',minWidth:36,textAlign:'left',letterSpacing:'-0.02em'}}>{sel?.label}</span>
+          <span style={{fontSize:12,color:'var(--muted-foreground)',fontWeight:400}}>{isSpecial?'⭐ '+sel?.desc:sel?.desc}</span>
+        </div>
+        <svg style={{flexShrink:0,color:open?'#6366f1':'var(--muted-foreground)',transition:'transform .2s',transform:open?'rotate(180deg)':'none'}}
+          width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      {open&&(
+        <div ref={ref} style={{...pos,background:'var(--card)',border:'1.5px solid rgba(99,102,241,.2)',borderRadius:14,
+          boxShadow:'0 20px 60px rgba(0,0,0,.15),0 4px 12px rgba(99,102,241,.1)',overflow:'hidden',maxHeight:320,overflowY:'auto'}}>
+          <style>{`@keyframes instDrop{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
+          <div style={{animation:'instDrop .14s ease',padding:'4px 0'}}>
+            {/* Separador especial */}
+            <div style={{padding:'6px 14px 4px',fontSize:9,fontWeight:800,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'.1em'}}>Parcelamento padrão</div>
+            {INSTALLMENT_OPTS.filter(o=>o.value<=12).map(opt=>{
+              const isSel=opt.value===value
+              return (
+                <button key={opt.value} type="button" onClick={()=>{onChange(opt.value);setOpen(false)}}
+                  style={{
+                    width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,
+                    background:isSel?'linear-gradient(135deg,rgba(99,102,241,.12),rgba(124,58,237,.07))':'transparent',
+                    border:'none',cursor:'pointer',fontFamily:'inherit',transition:'background .1s',
+                  }}
+                  onMouseEnter={e=>{if(!isSel)(e.currentTarget as HTMLElement).style.background='rgba(99,102,241,.06)'}}
+                  onMouseLeave={e=>{if(!isSel)(e.currentTarget as HTMLElement).style.background='transparent'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <span style={{fontSize:15,fontWeight:900,color:isSel?'#6366f1':'var(--foreground)',minWidth:32,letterSpacing:'-0.02em'}}>{opt.label}</span>
+                    <span style={{fontSize:11,color:'var(--muted-foreground)'}}>{opt.desc}</span>
+                  </div>
+                  {isSel&&<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
+                </button>
+              )
+            })}
+            <div style={{margin:'4px 14px',borderTop:'1px solid var(--border)'}}/>
+            <div style={{padding:'6px 14px 4px',fontSize:9,fontWeight:800,color:'#f59e0b',textTransform:'uppercase',letterSpacing:'.1em'}}>⭐ Parcelamento especial</div>
+            {INSTALLMENT_OPTS.filter(o=>o.value>12).map(opt=>{
+              const isSel=opt.value===value
+              return (
+                <button key={opt.value} type="button" onClick={()=>{onChange(opt.value);setOpen(false)}}
+                  style={{
+                    width:'100%',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,
+                    background:isSel?'linear-gradient(135deg,rgba(245,158,11,.1),rgba(234,179,8,.06))':'transparent',
+                    border:'none',cursor:'pointer',fontFamily:'inherit',transition:'background .1s',
+                  }}
+                  onMouseEnter={e=>{if(!isSel)(e.currentTarget as HTMLElement).style.background='rgba(245,158,11,.06)'}}
+                  onMouseLeave={e=>{if(!isSel)(e.currentTarget as HTMLElement).style.background='transparent'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <span style={{fontSize:15,fontWeight:900,color:isSel?'#f59e0b':'var(--foreground)',minWidth:32,letterSpacing:'-0.02em'}}>{opt.label}</span>
+                    <span style={{fontSize:11,color:'var(--muted-foreground)'}}>⭐ {opt.desc}</span>
+                  </div>
+                  {isSel&&<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 export function SalesConfigurator(props: Props) {
   const {
     rows, settings, vertical, setVertical, produto, setProduto,
@@ -66,16 +188,25 @@ export function SalesConfigurator(props: Props) {
   const tipos      = useMemo(() => toOpts(unique(rows.filter(r => (!vertical||r.vertical===vertical)&&(!produto||r.produto===produto)&&(!tempo||r.tempoAcesso===tempo)).map(r => r.tipoAluno))), [rows, vertical, produto, tempo])
   const canais     = useMemo(() => toOpts(unique(rows.filter(r => (!vertical||r.vertical===vertical)&&(!produto||r.produto===produto)&&(!tempo||r.tempoAcesso===tempo)&&(!tipoAluno||r.tipoAluno===tipoAluno)).map(r => r.canalVenda))), [rows, vertical, produto, tempo, tipoAluno])
 
-  // Upsell: produtos da mesma vertical, excluindo o selecionado
-  const upsellOptions = useMemo(() => toOpts(unique(
-    rows.filter(r =>
-      r.vertical === vertical &&
-      r.produto  !== produto &&
-      (!tempo     || r.tempoAcesso === tempo) &&
-      (!tipoAluno || r.tipoAluno   === tipoAluno) &&
-      (!canal     || r.canalVenda  === canal)
-    ).map(r => r.produto)
-  )), [rows, vertical, produto, tempo, tipoAluno, canal])
+  // Upsell: todos os produtos (da vertical do time) exceto o selecionado.
+  // Mostra a vertical na label quando for diferente do produto atual.
+  // Não filtra por tempo/tipoAluno/canal — upsell é para mostrar complementos.
+  const upsellOptions = useMemo(() => {
+    const seen = new Set<string>()
+    return rows
+      .filter(r => r.produto !== produto)
+      .reduce<{value:string;label:string}[]>((acc, r) => {
+        if (!seen.has(r.produto)) {
+          seen.add(r.produto)
+          const lbl = r.vertical && r.vertical !== vertical
+            ? `${r.produto} — ${r.vertical}`
+            : r.produto
+          acc.push({ value: r.produto, label: lbl })
+        }
+        return acc
+      }, [])
+      .sort((a,b) => a.label.localeCompare(b.label))
+  }, [rows, produto, vertical])
 
   const MODES: { mode: PaymentMode; label: string; desc: string; internal?: boolean }[] = [
     { mode: 'parcelado', label: 'Parcelado', desc: `até 12x c/ juros` },
@@ -206,8 +337,7 @@ export function SalesConfigurator(props: Props) {
           <div style={{ padding: '0 20px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted-foreground)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Nº de parcelas</label>
-              <input type="number" min={1} max={60} value={manualN} onChange={e => setManualN(parseInt(e.target.value) || 1)}
-                style={{ width: '100%', height: 48, padding: '0 16px', borderRadius: 13, border: '1.5px solid var(--border)', background: 'var(--background)', color: 'var(--foreground)', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+              <InstallmentSelect value={manualN} onChange={setManualN}/>
             </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted-foreground)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Taxa mensal (%)</label>

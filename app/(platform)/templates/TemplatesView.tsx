@@ -1,6 +1,5 @@
 'use client'
-import { useState, useMemo, useRef } from 'react'
-import { CustomSelect } from '@/components/ui/CustomSelect'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Plus, X, Copy, Check, Pencil, Trash2, Filter,
   Upload, Download, Search, ChevronDown, Sparkles, FileText
@@ -18,6 +17,16 @@ const VERTICAL_CONFIG: Record<string, { color: string; bg: string; border: strin
 const VERTICALS_OAO   = ['Anest-Review', 'Oft-Review', 'Ortop-Review']
 const VERTICALS_R1    = ['Med-Review R1']
 const VERTICALS_AMBOS = ['Med-Review R1', 'Anest-Review', 'Oft-Review', 'Ortop-Review']
+
+const TEMPLATE_CATEGORIES = [
+  'Reativação', 'Campanha', 'Captação', 'Conversão', 'Relacionamento',
+  'Fidelização', 'Pós-venda', 'Cobrança', 'Suporte', 'Comunicação Geral',
+]
+const CATEGORY_EMOJI: Record<string,string> = {
+  'Reativação':'🔄','Campanha':'📣','Captação':'🎯','Conversão':'✅',
+  'Relacionamento':'🤝','Fidelização':'💎','Pós-venda':'🛡️',
+  'Cobrança':'💰','Suporte':'🆘','Comunicação Geral':'📢',
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 function extractVars(content: string): string[] {
@@ -55,18 +64,94 @@ const lbl: React.CSSProperties = {
 const foc = (e: React.FocusEvent<any>) => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }
 const blr = (e: React.FocusEvent<any>) => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }
 
-function SS({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) {
+interface DropOpt { value: string; label: string }
+function FilterDropdown({ value, onChange, options, placeholder, minW = 160 }: {
+  value: string; onChange:(v:string)=>void; options:DropOpt[]; placeholder?:string; minW?:number
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<React.CSSProperties>({})
+  const sel = options.find(o=>o.value===value)
+
+  useEffect(()=>{
+    if(!open) return
+    const handler = (e:MouseEvent)=>{
+      if(ref.current?.contains(e.target as Node)) return
+      if(btnRef.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return ()=>document.removeEventListener('mousedown', handler)
+  },[open])
+
+  function handleOpen(){
+    if(!btnRef.current) return
+    const r = btnRef.current.getBoundingClientRect()
+    const dropH = Math.min(options.length*44+8, 300)
+    const below = window.innerHeight - r.bottom - 8
+    setPos({
+      position:'fixed', left:r.left, width:Math.max(r.width,minW), zIndex:9999,
+      ...(below < dropH && r.top > dropH ? {bottom:window.innerHeight-r.top+4} : {top:r.bottom+4}),
+    })
+    setOpen(o=>!o)
+  }
+
+  const active = !!value && value !== 'todos' && value !== ''
   return (
-    <div style={{ position: 'relative' }}>
-      <select value={value} onChange={e => onChange(e.target.value)}
-        style={{ ...inp, paddingRight: 32, appearance: 'none', WebkitAppearance: 'none', cursor: 'pointer' }}
-        onFocus={foc} onBlur={blr}>
-        {children}
-      </select>
-      <svg style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--muted-foreground)' }}
-        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
+    <div style={{position:'relative'}}>
+      <button ref={btnRef} type="button" onClick={handleOpen}
+        style={{
+          display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
+          height:38, padding:'0 12px 0 14px', borderRadius:10, cursor:'pointer',
+          border:`1.5px solid ${open?'#6366f1':active?'rgba(99,102,241,.4)':'var(--border)'}`,
+          background: open?'color-mix(in srgb,rgba(99,102,241,.07),var(--background))':
+                      active?'color-mix(in srgb,rgba(99,102,241,.04),var(--background))':'var(--background)',
+          color: active?'var(--foreground)':'var(--muted-foreground)',
+          fontSize:13, fontWeight:active?600:400, fontFamily:'inherit',
+          minWidth:minW, whiteSpace:'nowrap',
+          boxShadow: open?'0 0 0 3px rgba(99,102,241,.1)':'none',
+          transition:'all .15s',
+        }}>
+        <span style={{flex:1,textAlign:'left',overflow:'hidden',textOverflow:'ellipsis'}}>
+          {sel?.label ?? placeholder ?? 'Selecionar...'}
+        </span>
+        <svg style={{flexShrink:0,color:open||active?'#6366f1':'var(--muted-foreground)',
+          transition:'transform .2s',transform:open?'rotate(180deg)':'none'}}
+          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      {open && typeof document!=='undefined' && (
+        <div ref={ref} style={{...pos, background:'var(--card)', border:'1.5px solid rgba(99,102,241,.2)',
+          borderRadius:13, boxShadow:'0 16px 48px rgba(0,0,0,.15),0 4px 12px rgba(99,102,241,.1)',
+          overflow:'hidden', maxHeight:300, overflowY:'auto'}}>
+          <style>{`@keyframes fdDrop{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
+          <div style={{animation:'fdDrop .15s ease'}}>
+          {options.map((opt,i)=>{
+            const isS = opt.value===value
+            return (
+              <button key={opt.value} type="button"
+                onClick={()=>{onChange(opt.value);setOpen(false)}}
+                style={{
+                  width:'100%', padding:'10px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
+                  background:isS?'linear-gradient(135deg,rgba(99,102,241,.1),rgba(124,58,237,.07))':'transparent',
+                  border:'none', borderBottom:i<options.length-1?'1px solid color-mix(in srgb,var(--border) 50%,transparent)':'none',
+                  cursor:'pointer', textAlign:'left', fontFamily:'inherit',
+                  fontSize:13, fontWeight:isS?700:400, color:isS?'#6366f1':'var(--foreground)',
+                  transition:'background .1s',
+                }}
+                onMouseEnter={e=>{if(!isS)(e.currentTarget as HTMLElement).style.background='color-mix(in srgb,rgba(99,102,241,.07),transparent)'}}
+                onMouseLeave={e=>{if(!isS)(e.currentTarget as HTMLElement).style.background='transparent'}}>
+                <span>{opt.label}</span>
+                {isS && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
+              </button>
+            )
+          })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -80,6 +165,7 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
   const [hubspot,    setHubspot]    = useState(template?.hubspot_name ?? '')
   const [content,    setContent]    = useState(template?.content ?? '')
   const [team,       setTeam]       = useState(template?.team ?? 'ambos')
+  const [categoria,  setCategoria]  = useState(template?.categoria ?? '')
   const [verticals,  setVerticals]  = useState<string[]>(template?.vertical ?? [])
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState('')
@@ -102,8 +188,9 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
 
   async function handleSave() {
     if (!name.trim() || !content.trim()) { setError('Nome e conteúdo são obrigatórios'); return }
+    if (!categoria) { setError('Selecione uma categoria'); return }
     setLoading(true); setError('')
-    const body = { id: template?.id, name, hubspot_name: hubspot, content, team, vertical: verticals }
+    const body = { id: template?.id, name, hubspot_name: hubspot, content, team, vertical: verticals, categoria }
     const res  = await fetch('/api/templates', {
       method: mode === 'create' ? 'POST' : 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -156,14 +243,20 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
           {/* Time */}
           <div>
             <label style={lbl}>Time *</label>
-            <CustomSelect value={team} onChange={handleTeamChange}
+            <FilterDropdown value={team} onChange={handleTeamChange}
               options={[
-                { value:'ambos', label:'Ambos (todos os times)' },
-                { value:'OAO',   label:'Time OAO' },
-                { value:'R1',    label:'Time R1' },
-              ]} />
+                {value:'ambos',label:'✨ Ambos os times'},
+                {value:'OAO', label:'🔵 Time OAO'},
+                {value:'R1',  label:'🟣 Time R1'},
+              ]}/>
           </div>
 
+          {/* Categoria */}
+          <div>
+            <label style={lbl}>Categoria * {!categoria && <span style={{color:'#ef4444',fontWeight:800}}>— obrigatório</span>}</label>
+            <FilterDropdown value={categoria} onChange={setCategoria} placeholder="Selecione a categoria..."
+              options={[{value:'',label:'— Selecione a categoria...'},...TEMPLATE_CATEGORIES.map(cat=>({value:cat,label:`${CATEGORY_EMOJI[cat]} ${cat}`}))]}/>
+          </div>
           {/* Verticais */}
           <div>
             <label style={lbl}>Vertical *</label>
@@ -296,6 +389,11 @@ function TemplateCard({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boole
             {t.team === 'ambos' ? 'Ambos' : `Time ${t.team}`}
           </span>
           {(t.vertical ?? []).map((v: string) => <VerticalTag key={v} vertical={v} />)}
+          {t.categoria && (
+            <span style={{ fontSize:9, fontWeight:700, padding:'2px 7px', borderRadius:999, background:'rgba(99,102,241,0.08)', color:'#6366f1', border:'1px solid rgba(99,102,241,0.2)' }}>
+              {CATEGORY_EMOJI[t.categoria]} {t.categoria}
+            </span>
+          )}
           {(t.variables ?? []).length > 0 && (
             <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(99,102,241,0.08)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)' }}>
               {t.variables.length} variável{t.variables.length !== 1 ? 'is' : ''}
@@ -486,7 +584,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
   const [templates,  setTemplates]  = useState(initial)
   const [search,     setSearch]     = useState('')
   const [filterTeam, setFilterTeam] = useState('todos')
-  const [filterVert, setFilterVert] = useState('todos')
+  const [filterVert,      setFilterVert]      = useState('todos')
+  const [filterCategoria, setFilterCategoria] = useState('todos')
   const [modal,      setModal]      = useState<null | 'create' | 'edit' | 'csv'>(null)
   const [editTarget, setEditTarget] = useState<any>(null)
 
@@ -502,9 +601,10 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
   const filtered = useMemo(() => templates.filter(t => {
     if (search     && !t.name.toLowerCase().includes(search.toLowerCase()) && !t.content.toLowerCase().includes(search.toLowerCase())) return false
     if (filterTeam !== 'todos' && t.team !== filterTeam) return false
-    if (filterVert !== 'todos' && !(t.vertical ?? []).includes(filterVert)) return false
+    if (filterVert     !== 'todos' && !(t.vertical ?? []).includes(filterVert)) return false
+    if (filterCategoria !== 'todos' && t.categoria !== filterCategoria) return false
     return true
-  }), [templates, search, filterTeam, filterVert])
+  }), [templates, search, filterTeam, filterVert, filterCategoria])
 
   function handleCreated(t: any)  { setTemplates(prev => [t, ...prev]) }
   function handleUpdated(t: any)  { setTemplates(prev => prev.map(x => x.id === t.id ? t : x)) }
@@ -559,21 +659,28 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
 
         {/* Filtro time (só admin) */}
         {isAdmin && (
-          <CustomSelect value={filterTeam} onChange={setFilterTeam} minWidth={155}
+          <FilterDropdown value={filterTeam} onChange={setFilterTeam} placeholder="Todos os times"
             options={[
-              { value:'todos', label:'Todos os times' },
-              { value:'OAO',   label:'Time OAO' },
-              { value:'R1',    label:'Time R1' },
-              { value:'ambos', label:'Ambos' },
-            ]} />
+              {value:'todos',label:'👥 Todos os times'},
+              {value:'OAO', label:'🔵 Time OAO'},
+              {value:'R1',  label:'🟣 Time R1'},
+              {value:'ambos',label:'✨ Ambos os times'},
+            ]} minW={160}/>
         )}
 
         {/* Filtro vertical */}
-        <CustomSelect value={filterVert} onChange={setFilterVert} minWidth={180}
-          options={availableVerticalsForFilter.map(v => ({ value:v, label: v==='todos'?'Todas as verticais':v }))} />
+        <FilterDropdown value={filterVert} onChange={setFilterVert} placeholder="Todas as verticais"
+          options={availableVerticalsForFilter.map(v=>({
+            value:v, label:v==='todos'?'🌐 Todas as verticais':v
+          }))} minW={175}/>
 
-        {(search || filterTeam !== 'todos' || filterVert !== 'todos') && (
-          <button onClick={() => { setSearch(''); setFilterTeam('todos'); setFilterVert('todos') }}
+        {/* Filtro de categoria */}
+        <FilterDropdown value={filterCategoria} onChange={setFilterCategoria} placeholder="📋 Todas as categorias"
+          options={[{value:'todos',label:'📋 Todas as categorias'},...TEMPLATE_CATEGORIES.map(cat=>({value:cat,label:`${CATEGORY_EMOJI[cat]} ${cat}`}))]}
+          minW={185}/>
+
+        {(search || filterTeam !== 'todos' || filterVert !== 'todos' || filterCategoria !== 'todos') && (
+          <button onClick={() => { setSearch(''); setFilterTeam('todos'); setFilterVert('todos'); setFilterCategoria('todos') }}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
             <X size={11} /> Limpar
           </button>

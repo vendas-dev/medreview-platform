@@ -7,8 +7,7 @@ import {
   CheckCircle2, Circle, Lock, ArrowRight, Plus
 } from 'lucide-react'
 import { MaterialsManager, FaqManager, QuizManager } from './MaterialsManager'
-import { submitQuiz }                          from '../../actions'
-import { deleteQuizQuestion, updateQuizQuestion } from './quizActions'
+import { submitQuiz } from '../../actions'
 
 // ── Embed helpers ─────────────────────────────────────────────
 function getEmbedUrl(url: string): string | null {
@@ -270,144 +269,6 @@ function FaqCard({ faq, isAdmin, expanded, onToggle, onDeleted, onUpdated }: any
   )
 }
 
-// ── QuizAdminSection: admin pode criar/editar/excluir perguntas em tempo real ──
-function QuizAdminSection({ questions, stepId, onCreated, onUpdated, onDeleted }: {
-  questions: any[]; stepId: string
-  onCreated:(q:any)=>void; onUpdated:(q:any)=>void; onDeleted:(id:string)=>void
-}) {
-  const [editingId, setEditingId] = useState<string|null>(null)
-  const [deletingId,setDeletingId]= useState<string|null>(null)
-  const [saving,    setSaving]    = useState(false)
-  // Edit form state
-  const [editQ,     setEditQ]     = useState('')
-  const [editAns,   setEditAns]   = useState<string[]>(['','','',''])
-  const [correctIdx,setCorrectIdx]= useState(0)
-
-  function startEdit(q: any) {
-    setEditingId(q.id)
-    setEditQ(q.question)
-    const sorted = [...(q.onboarding_answers??[])].sort((a:any,b:any)=>a.order_index-b.order_index)
-    setEditAns(sorted.map((a:any)=>a.answer_text??a.answer??''))
-    setCorrectIdx(sorted.findIndex((a:any)=>a.is_correct))
-  }
-
-  async function saveEdit(q: any) {
-    if (!editQ.trim()) return
-    setSaving(true); setApiError('')
-    try {
-      const answers = editAns.map((t,i) => ({ answer_text: t, is_correct: i===correctIdx }))
-      const result  = await updateQuizQuestion(q.id, editQ, answers)
-      if (result?.question) { onUpdated(result.question); setEditingId(null) }
-    } catch(e: any) {
-      setApiError('Erro ao salvar: ' + (e.message ?? 'Falha desconhecida'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const [apiError, setApiError] = useState('')
-
-  async function deleteQ(id: string) {
-    setSaving(true); setApiError('')
-    try {
-      await deleteQuizQuestion(id)   // server action — roda no servidor com admin client
-      onDeleted(id); setDeletingId(null)
-    } catch(e: any) {
-      setApiError('Erro ao excluir: ' + (e.message ?? 'Falha desconhecida'))
-      setDeletingId(null)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const INP: React.CSSProperties = { width:'100%', height:38, padding:'0 12px', borderRadius:9, border:'1.5px solid var(--border)', background:'var(--background)', color:'var(--foreground)', fontSize:13, fontFamily:'inherit', outline:'none' }
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-      {apiError && <div style={{ padding:'10px 14px', borderRadius:9, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)' }}><p style={{ fontSize:12, color:'#ef4444', margin:0 }}>⚠ {apiError} <button onClick={()=>setApiError('')} style={{ marginLeft:8, background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:11 }}>✕</button></p></div>}
-      {/* Botão criar — sempre visível */}
-      <div style={{ display:'flex', justifyContent:'flex-end' }}>
-        <QuizManager stepId={stepId} mode="create" onCreated={onCreated}/>
-      </div>
-
-      {questions.map((q:any, qi:number) => {
-        if (editingId === q.id) return (
-          <div key={q.id} style={{ background:'var(--card)', border:'1.5px solid rgba(99,102,241,.3)', borderRadius:13, padding:'14px 16px', boxShadow:'0 4px 14px rgba(79,70,229,.08)' }}>
-            <p style={{ fontSize:11, fontWeight:800, color:'#6366f1', marginBottom:10, textTransform:'uppercase', letterSpacing:'.07em' }}>✏️ Editando pergunta #{qi+1}</p>
-            <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
-              <div>
-                <label style={{ fontSize:10, fontWeight:700, color:'var(--muted-foreground)', display:'block', marginBottom:4, textTransform:'uppercase', letterSpacing:'.06em' }}>Pergunta *</label>
-                <textarea value={editQ} onChange={e=>setEditQ(e.target.value)} rows={2}
-                  style={{ ...INP, height:'auto', padding:'8px 12px', resize:'vertical', lineHeight:1.5 }}/>
-              </div>
-              <p style={{ fontSize:10, fontWeight:800, color:'#6366f1', margin:'4px 0 0', textTransform:'uppercase', letterSpacing:'.07em' }}>Alternativas (clique no círculo para marcar a correta)</p>
-              {editAns.map((a,i) => (
-                <div key={i} style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <button type="button" onClick={()=>setCorrectIdx(i)}
-                    style={{ width:26, height:26, borderRadius:'50%', border:`2px solid ${correctIdx===i?'#059669':'var(--border)'}`, background:correctIdx===i?'#059669':'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    {correctIdx===i && <span style={{ fontSize:10, color:'#fff', fontWeight:900 }}>✓</span>}
-                  </button>
-                  <input value={a} onChange={e=>{ const n=[...editAns];n[i]=e.target.value;setEditAns(n) }}
-                    placeholder={`Alternativa ${String.fromCharCode(65+i)}`} style={INP}/>
-                </div>
-              ))}
-              <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:4 }}>
-                <button onClick={()=>setEditingId(null)} style={{ height:32, padding:'0 13px', borderRadius:8, border:'1.5px solid var(--border)', background:'transparent', color:'var(--muted-foreground)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Cancelar</button>
-                <button onClick={()=>saveEdit(q)} disabled={saving||!editQ.trim()}
-                  style={{ height:32, padding:'0 14px', borderRadius:8, border:'none', background:'linear-gradient(135deg,#4f46e5,#7c3aed)', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:saving?.6:1 }}>
-                  {saving?'...':'Salvar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-
-        if (deletingId === q.id) return (
-          <div key={q.id} style={{ background:'rgba(239,68,68,.05)', border:'1.5px solid rgba(239,68,68,.2)', borderRadius:12, padding:'12px 14px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-            <p style={{ flex:1, fontSize:13, color:'var(--foreground)', margin:0 }}>Excluir a pergunta <strong>"{q.question.slice(0,50)}{q.question.length>50?'...':''}"</strong>?</p>
-            <div style={{ display:'flex', gap:7 }}>
-              <button onClick={()=>setDeletingId(null)} style={{ height:30, padding:'0 12px', borderRadius:7, border:'1.5px solid var(--border)', background:'transparent', color:'var(--muted-foreground)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Cancelar</button>
-              <button onClick={()=>deleteQ(q.id)} disabled={saving} style={{ height:30, padding:'0 12px', borderRadius:7, border:'none', background:'#ef4444', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:saving?.6:1 }}>Excluir</button>
-            </div>
-          </div>
-        )
-
-        return (
-          <div key={q.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:13, padding:'14px 16px', boxShadow:'var(--shadow-xs)' }}>
-            <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, marginBottom:10 }}>
-              <p style={{ fontSize:14, fontWeight:700, color:'var(--foreground)', margin:0, flex:1 }}>{qi+1}. {q.question}</p>
-              <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                <button onClick={()=>startEdit(q)}
-                  style={{ width:28, height:28, borderRadius:7, border:'1px solid var(--border)', background:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted-foreground)', transition:'all .12s' }}
-                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(99,102,241,.1)';e.currentTarget.style.color='#6366f1';e.currentTarget.style.borderColor='rgba(99,102,241,.3)'}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='var(--muted-foreground)';e.currentTarget.style.borderColor='var(--border)'}}>
-                  <Pencil size={12}/>
-                </button>
-                <button onClick={()=>setDeletingId(q.id)}
-                  style={{ width:28, height:28, borderRadius:7, border:'1px solid var(--border)', background:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted-foreground)', transition:'all .12s' }}
-                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(239,68,68,.08)';e.currentTarget.style.color='#ef4444';e.currentTarget.style.borderColor='rgba(239,68,68,.3)'}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='var(--muted-foreground)';e.currentTarget.style.borderColor='var(--border)'}}>
-                  <Trash2 size={12}/>
-                </button>
-              </div>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              {[...(q.onboarding_answers??[])].sort((a:any,b:any)=>a.order_index-b.order_index).map((a:any)=>(
-                <div key={a.id} style={{ padding:'7px 12px', borderRadius:8, fontSize:13, background:a.is_correct?'rgba(34,197,94,.08)':'var(--secondary)', color:a.is_correct?'#16a34a':'var(--muted-foreground)', border:`1px solid ${a.is_correct?'rgba(34,197,94,.2)':'var(--border)'}` }}>
-                  {a.is_correct?'✓ ':''}{a.answer_text??a.answer}
-                </div>
-              ))}
-            </div>
-            {q.explanation && <p style={{ fontSize:12, color:'var(--muted-foreground)', margin:'8px 0 0', padding:'7px 12px', background:'var(--secondary)', borderRadius:8 }}>💡 {q.explanation}</p>}
-          </div>
-        )
-      })}
-      {questions.length === 0 && <p style={{ textAlign:'center', padding:24, color:'var(--muted-foreground)', fontSize:13 }}>Nenhuma pergunta ainda. Clique em "Nova Questão" para começar.</p>}
-    </div>
-  )
-}
-
-
 // ── StepDetail principal ──────────────────────────────────────
 export function StepDetail({
   step, materials: initMaterials, faqs: initFaqs, questions: initQuestions,
@@ -432,8 +293,8 @@ export function StepDetail({
 
   const alreadyPassed  = userProgress?.status === 'concluido' || userProgress?.quiz_score >= s.min_quiz_score
   // FIX: etapas sem questões não bloqueiam o avanço
-  const hasNoContent    = initMaterials.length === 0 && (initQuestions?.length ?? 0) === 0
-  const noQuestionsQuiz = (initQuestions?.length ?? 0) === 0
+  const hasNoContent    = initMaterials.length === 0 && questions.length === 0
+  const noQuestionsQuiz = questions.length === 0  // quiz não bloqueará se não há perguntas
   const [quizFinished, setQuizFinished] = useState(alreadyPassed || noQuestionsQuiz)
   const [quizScore,    setQuizScore]    = useState(noQuestionsQuiz ? (s.min_quiz_score ?? 70) : (userProgress?.quiz_score ?? 0))
   const [quizStarted,  setQuizStarted]  = useState(false)
@@ -447,14 +308,7 @@ export function StepDetail({
     setMaterials((prev: any) => prev.map((m: any) => m.id === id ? { ...m, checked } : m))
   }
 
-  // Respeitar o critério de conclusão configurado na etapa
-  const criteria       = s.completion_criteria ?? 'visualizar'
-  const noQuiz         = (initQuestions?.length ?? 0) === 0
-  const materiaisOk    = criteria === 'visualizar' || criteria === 'quiz'
-                         || materials.length === 0 || allMaterialsChecked
-  const quizOk         = criteria === 'visualizar' || criteria === 'materiais'
-                         || noQuiz || (quizFinished && quizScore >= s.min_quiz_score)
-  const canAdvance     = !isSequential || (materiaisOk && quizOk)
+  const canAdvance = !isSequential || (allMaterialsChecked && quizFinished && quizScore >= s.min_quiz_score)
 
   function selectAnswer(qId: string, aId: string) { setSelectedAns(prev => ({ ...prev, [qId]: aId })); setShowExpl(true) }
 
@@ -606,13 +460,7 @@ export function StepDetail({
         <div>
           {isAdmin && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-              <MaterialsManager stepId={stepId} allSteps={allSteps} onCreated={(m: any) => {
-                // Só adiciona ao state local se o material foi criado NESTA etapa
-                if (m.step_id === stepId) {
-                  setMaterials((prev: any) => [...prev, { ...m, checked: false }])
-                }
-                // Se foi para outra etapa, não mostra aqui (mas foi salvo corretamente no banco)
-              }} />
+              <MaterialsManager stepId={stepId} allSteps={allSteps} onCreated={(m: any) => setMaterials((prev: any) => [...prev, { ...m, checked: false }])} />
             </div>
           )}
           {materials.length === 0
@@ -653,13 +501,40 @@ export function StepDetail({
       {activeTab === 'quiz' && (
         <div>
           {isAdmin ? (
-            <QuizAdminSection
-              questions={localQuestions}
-              stepId={stepId}
-              onCreated={q => setLocalQuestions(prev => [...prev, q])}
-              onUpdated={q => setLocalQuestions(prev => prev.map(x => x.id === q.id ? q : x))}
-              onDeleted={id => setLocalQuestions(prev => prev.filter(x => x.id !== id))}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* CORREÇÃO 2: QuizManager SEMPRE visível, não só quando vazio */}
+              {/* CORREÇÃO 3: onCreated adiciona ao estado local imediatamente */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                <QuizManager stepId={stepId} mode="create"
+                  onCreated={(q: any) => setLocalQuestions((prev: any) => [...prev, q])} />
+              </div>
+              {localQuestions.map((q: any, qi: number) => (
+                <div key={q.id} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 13, padding: '14px 16px', boxShadow: 'var(--shadow-xs)' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>{qi + 1}. {q.question}</p>
+                    {/* Botão de remover questão em tempo real */}
+                    <button onClick={async () => {
+                      await fetch('/api/admin/questions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id }) })
+                      setLocalQuestions((prev: any) => prev.filter((x: any) => x.id !== q.id))
+                    }} style={{ width: 26, height: 26, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', flexShrink: 0, transition: 'all 0.12s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = '#ef4444' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}
+                      title="Remover questão">
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {q.onboarding_answers?.map((a: any) => (
+                      <div key={a.id} style={{ padding: '7px 12px', borderRadius: 8, fontSize: 13, background: a.is_correct ? 'rgba(34,197,94,0.08)' : 'var(--secondary)', color: a.is_correct ? '#16a34a' : 'var(--muted-foreground)', border: `1px solid ${a.is_correct ? 'rgba(34,197,94,0.2)' : 'var(--border)'}` }}>
+                        {a.is_correct ? '✓ ' : ''}{a.answer_text}
+                      </div>
+                    ))}
+                  </div>
+                  {q.explanation && <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '8px 0 0', padding: '7px 12px', background: 'var(--secondary)', borderRadius: 8 }}>💡 {q.explanation}</p>}
+                </div>
+              ))}
+              {localQuestions.length === 0 && <div style={{ textAlign: 'center', padding: '32px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14 }}><p style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>Nenhuma questão ainda. Use o botão acima para adicionar a primeira.</p></div>}
+            </div>
           ) : localQuestions.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '32px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14 }}><p style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>Quiz ainda não disponível para esta etapa.</p></div>
           ) : quizFinished ? (
@@ -681,9 +556,9 @@ export function StepDetail({
               <p style={{ fontSize: 14, color: 'var(--muted-foreground)', marginBottom: 8 }}>{localQuestions.length} questões · Nota mínima: {s.min_quiz_score}%</p>
               {isSequential && !allMaterialsChecked && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 9, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: 20, fontSize: 12, color: '#d97706', fontWeight: 600 }}><Lock size={12} /> Conclua todos os materiais antes de fazer o quiz</div>}
               <br />
-              <button onClick={() => setQuizStarted(true)} disabled={(criteria === 'materiais_e_quiz' || criteria === 'materiais') && !allMaterialsChecked}
+              <button onClick={() => setQuizStarted(true)} disabled={isSequential && !allMaterialsChecked}
                 style={{ height: 48, padding: '0 36px', borderRadius: 13, background: isSequential && !allMaterialsChecked ? 'var(--secondary)' : 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: isSequential && !allMaterialsChecked ? 'var(--muted-foreground)' : '#fff', fontSize: 15, fontWeight: 800, border: 'none', cursor: isSequential && !allMaterialsChecked ? 'not-allowed' : 'pointer', fontFamily: 'inherit', boxShadow: isSequential && !allMaterialsChecked ? 'none' : '0 6px 20px rgba(79,70,229,0.4)', marginTop: 8 }}>
-                {(criteria === 'materiais_e_quiz' || criteria === 'materiais') && !allMaterialsChecked ? '🔒 Conclua os materiais primeiro' : 'Iniciar Quiz 🚀'}
+                {isSequential && !allMaterialsChecked ? '🔒 Bloqueado' : 'Iniciar Quiz 🚀'}
               </button>
             </div>
           ) : (

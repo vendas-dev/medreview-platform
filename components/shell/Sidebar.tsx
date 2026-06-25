@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
-  Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2,
+  Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
+  Brain, Target,
 } from 'lucide-react'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -25,30 +26,42 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
   {
     key: 'onboarding', label: 'Onboarding', icon: GraduationCap, href: '/onboarding', always: true,
     children: isAdmin ? [
-      { label: 'Visão geral', icon: Home,      href: '/onboarding' },
-      { label: 'Trilha',      icon: List,      href: '/onboarding/trilha' },
-      { label: 'Videoaulas',  icon: Video,     href: '/onboarding/videoaulas' },
-      { label: 'Config. IA',  icon: Bot,       href: '/onboarding/config' },
-      { label: 'Dashboard',   icon: BarChart2, href: '/onboarding/dashboard' },
+      { label: 'Visão geral', icon: Home,           href: '/onboarding' },
+      { label: 'Trilha',      icon: List,           href: '/onboarding/trilha' },
+      { label: 'Videoaulas',  icon: Video,          href: '/onboarding/videoaulas' },
+      { label: 'Config. IA',  icon: Bot,            href: '/onboarding/config' },
+      { label: 'Dashboard',   icon: BarChart2,      href: '/onboarding/dashboard' },
+      { label: 'Simulados',   icon: FlaskConical,   href: '/admin/simulados' },
     ] : [
-      { label: 'Início',        icon: Home,       href: '/onboarding' },
-      { label: 'Minha Trilha',  icon: List,       href: '/onboarding/trilha' },
-      { label: 'Med.AI',        icon: Bot,        href: '/onboarding/copilot' },
-      { label: 'Videoaulas',    icon: Video,      href: '/onboarding/videoaulas' },
-      { label: 'Meu Progresso', icon: TrendingUp, href: '/onboarding/progresso' },
+      { label: 'Início',         icon: Home,          href: '/onboarding' },
+      { label: 'Minha Trilha',   icon: List,          href: '/onboarding/trilha' },
+      { label: 'Med.AI',         icon: Bot,           href: '/onboarding/copilot' },
+      { label: 'Videoaulas',     icon: Video,         href: '/onboarding/videoaulas' },
+      { label: 'Meu Progresso',  icon: TrendingUp,    href: '/onboarding/progresso' },
+      { label: 'Simulado Final', icon: FlaskConical,  href: '/onboarding/simulado' },
     ],
   },
   { key: 'telao',        label: 'Telão',          icon: Monitor,    href: '/telao' },
   { key: 'calculadora',  label: 'Calculadora',    icon: Calculator, href: '/calculadora' },
-  { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator, href: '/calculadora2' }, // ← NOVO
+  { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator, href: '/calculadora2' },
   { key: 'milestones',   label: 'Milestones',     icon: CalendarDays, href: '/milestones', always: true },
   { key: 'disparos', label: 'Disparos', icon: Send, href: '/disparos',
     children: [
-      { label: 'Copys',            icon: Send,  href: '/disparos' },
+      { label: 'Copys',              icon: Send,  href: '/disparos' },
       { label: 'Links de Pagamento', icon: Link2, href: '/disparos/links' },
     ]
   },
   { key: 'templates',    label: 'Templates',      icon: FileText,   href: '/templates',    always: true },
+  // ── Inteligência Comercial — nova seção ──
+  {
+    key: 'intel', label: 'Inteligência Comercial', icon: Brain, href: '/intel', always: true,
+    children: isAdmin ? [
+      { label: 'Visão Geral',       icon: BarChart2,  href: '/intel' },
+      { label: 'Metas dos Closers', icon: Target,     href: '/intel/goals' },
+    ] : [
+      { label: 'Meu Painel', icon: BarChart2, href: '/intel' },
+    ],
+  },
   {
     key: 'admin', label: 'Administração', icon: Users, href: '/admin', adminOnly: true,
     children: [
@@ -63,12 +76,12 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
   const Icon = item.icon
   const hasChildren = item.children?.length > 0
   const isActive = depth === 0
-    ? ['/','/dashboard','/onboarding','/admin'].includes(item.href)
+    ? ['/','/dashboard','/onboarding','/admin','/intel'].includes(item.href)
         ? pathname === item.href
         : pathname.startsWith(item.href)
     : pathname === item.href
   const anyChildActive = hasChildren && item.children.some((c: any) =>
-    pathname === c.href || (c.href !== '/onboarding' && pathname.startsWith(c.href))
+    pathname === c.href || (c.href !== '/onboarding' && c.href !== '/intel' && pathname.startsWith(c.href))
   )
   const [open, setOpen] = useState(anyChildActive)
 
@@ -131,9 +144,9 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
 }
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  const { profile, modules } = useCurrentUser()            // permissões do usuário
-  const activeKeys   = useActiveModuleKeys()                    // realtime: null enquanto carrega
-  const activeModules = useActiveModules()                        // com labels do banco
+  const { profile, modules } = useCurrentUser()
+  const activeKeys    = useActiveModuleKeys()
+  const activeModules = useActiveModules()
   const { theme, setTheme } = useTheme()
   const isDark = theme === 'dark'
   const isAdmin = profile?.role === 'superadmin'
@@ -141,8 +154,6 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const visible = nav.filter(i => {
     if (i.adminOnly) return isAdmin
     if (i.always)    return true
-    // Enquanto activeKeys é null (carregando), não esconde nada
-    // Depois de carregar, só exibe módulos que estão ativos no banco
     if (activeKeys !== null && !activeKeys.includes(i.key)) return false
     return canAccessModule(profile?.role ?? 'consultor', modules, i.key as ModuleKey)
   })
@@ -153,17 +164,8 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
     <motion.aside
       animate={{ width: collapsed ? 56 : 248 }}
       transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-      style={{
-        height: '100vh',
-        background: 'var(--card)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex', flexDirection: 'column',
-        flexShrink: 0, overflow: 'hidden', zIndex: 20,
-        boxShadow: isDark
-          ? '2px 0 20px rgba(0,0,0,0.4)'
-          : '2px 0 20px rgba(17,24,39,0.06), 1px 0 0 var(--border)',
-      }}
-    >
+      style={{ height: '100vh', background: 'var(--card)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden', zIndex: 20, boxShadow: isDark ? '2px 0 20px rgba(0,0,0,0.4)' : '2px 0 20px rgba(17,24,39,0.06), 1px 0 0 var(--border)' }}>
+
       {/* Logo */}
       <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 0 }}>
@@ -171,12 +173,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
             <MedLogoSVG size={18} color="#fff" />
           </div>
           <AnimatePresence initial={false}>
-            {!collapsed && (
-              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}
-                style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap', letterSpacing: '-0.025em' }}>
-                MedReview
-              </motion.span>
-            )}
+            {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap', letterSpacing: '-0.025em' }}>MedReview</motion.span>}
           </AnimatePresence>
         </div>
         <button onClick={onToggle}

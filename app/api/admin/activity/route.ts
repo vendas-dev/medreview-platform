@@ -21,7 +21,9 @@ export async function GET() {
     { data: completions },   // etapas concluídas
     { data: quizPasses },    // quizzes passados
     { data: videoWatches },  // vídeos assistidos
-    { data: stepCreations }, // etapas criadas
+    { data: stepCreations },
+    { data: simuladoAttempts },
+    { data: matViews }, // etapas criadas
   ] = await Promise.all([
     admin.from('onboarding_progress')
       .select('user_id, step_id, completed_at, status')
@@ -48,6 +50,18 @@ export async function GET() {
       .select('id, title, created_at')
       .gte('created_at', since)
       .order('created_at', { ascending: false })
+      .limit(20),
+
+    admin.from('simulado_attempts')
+      .select('user_id, simulado_numero, score, passed, completed_at')
+      .gte('completed_at', since)
+      .order('completed_at', { ascending: false })
+      .limit(20),
+
+    admin.from('onboarding_material_views')
+      .select('user_id, material_id, viewed_at')
+      .gte('viewed_at', since)
+      .order('viewed_at', { ascending: false })
       .limit(10),
   ])
 
@@ -120,6 +134,16 @@ export async function GET() {
   })
 
   // Ordena por tempo decrescente e pega os 30 mais recentes
+  ;(simuladoAttempts ?? []).forEach((s: any) => {
+    const name = profileMap[s.user_id] ?? 'Usuário'
+    activities.push({
+      type:'simulado', user:name,
+      subject:`Simulado Final ${s.simulado_numero}`,
+      time:s.completed_at, icon:s.passed?'🏅':'📋',
+      color:s.passed?'#22c55e':'#f59e0b', detail:`${s.score}%`
+    })
+  })
+
   activities.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
 
   return NextResponse.json({ activities: activities.slice(0, 30) })

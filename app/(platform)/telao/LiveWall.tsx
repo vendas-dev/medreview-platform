@@ -275,7 +275,7 @@ function Celebration({ ev, closer, onDone }: { ev:TelaoEvent; closer:Closer|null
 }
 
 // ── FilterBar CORRIGIDO - closers dos eventos ─────────────────
-function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical }: { filter:FilterState; onChange:(f:FilterState)=>void; closers:Closer[]; events:TelaoEvent[]; isAdmin:boolean; activeVertical:VerticalId|null }) {
+function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical, isDark=true }: { filter:FilterState; onChange:(f:FilterState)=>void; closers:Closer[]; events:TelaoEvent[]; isAdmin:boolean; activeVertical:VerticalId|null; isDark?:boolean }) {
   const [open,setOpen]=useState(false)
   const [draft,setDraft]=useState(filter)
   const count=(filter.start?1:0)+(filter.end?1:0)+filter.closerKeys.length
@@ -299,7 +299,61 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical 
     return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name))
   },[closers,events,activeVertical])
 
-  if(!isAdmin) return null // Filtros apenas para superadmin
+  // Para não-admin: mostrar apenas filtro de datas (sem fechamento de closers)
+  // Adaptar ao tema claro/escuro do telão
+  const DI: React.CSSProperties = {
+    height: 32,
+    padding: '0 10px',
+    borderRadius: 8,
+    border: isDark ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(109,40,217,.2)',
+    background: isDark ? 'rgba(255,255,255,.06)' : 'rgba(109,40,217,.06)',
+    color: isDark ? 'rgba(255,255,255,.85)' : 'rgba(60,0,100,.85)',
+    fontSize: 12,
+    fontFamily: 'inherit',
+    outline: 'none',
+    cursor: 'pointer',
+    colorScheme: isDark ? 'dark' as any : 'light' as any,
+    transition: 'border-color .15s, background .15s',
+  }
+
+  if(!isAdmin) return (
+    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+      <span style={{
+        fontSize:10, fontWeight:500, letterSpacing:'.04em',
+        whiteSpace:'nowrap', userSelect:'none',
+        color: isDark ? 'rgba(255,255,255,.4)' : 'rgba(80,20,120,.5)',
+      }}>Período</span>
+
+      <input type="date" value={draft.start??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,start:v}; setDraft(nd); onChange(nd) }}
+        style={DI}
+        onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
+        onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
+
+      <span style={{ fontSize:12, fontWeight:300, color: isDark?'rgba(255,255,255,.2)':'rgba(80,20,120,.25)' }}>—</span>
+
+      <input type="date" value={draft.end??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,end:v}; setDraft(nd); onChange(nd) }}
+        style={DI}
+        onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
+        onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
+
+      {(draft.start||draft.end) && (
+        <button onClick={()=>{ const nd={...draft,start:null,end:null}; setDraft(nd); onChange(nd) }}
+          style={{
+            display:'flex', alignItems:'center', justifyContent:'center',
+            width:28, height:28, borderRadius:8,
+            border: isDark?'1px solid rgba(255,255,255,.1)':'1px solid rgba(109,40,217,.15)',
+            background: isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)',
+            color: isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)',
+            cursor:'pointer', fontSize:12, lineHeight:1,
+            transition:'all .15s',
+          }}
+          onMouseEnter={e=>{ e.currentTarget.style.background='rgba(239,68,68,.15)'; e.currentTarget.style.color='#ef4444'; e.currentTarget.style.borderColor='rgba(239,68,68,.3)' }}
+          onMouseLeave={e=>{ e.currentTarget.style.background=isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)'; e.currentTarget.style.color=isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)'; e.currentTarget.style.borderColor=isDark?'rgba(255,255,255,.1)':'rgba(109,40,217,.15)' }}>
+          ✕
+        </button>
+      )}
+    </div>
+  )
 
   return (
     <div style={{position:'relative'}}>
@@ -365,8 +419,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const [filter,setFilter]= useState<FilterState>(EMPTY_FILTER)
   const [audioOn,setAudio]= useState(false)
   const [celeb,        setCeleb]        = useState<TelaoEvent|null>(null)
-  const [rangeEvents,  setRangeEvents]  = useState<TelaoEvent[] | null>(null)
-  const [rangeFetching,setRangeFetching]= useState(false)
+  const [rangeEvents,   setRangeEvents]   = useState<TelaoEvent[] | null>(null)
+  const [rangeFetching, setRangeFetching] = useState(false)
+  const [allUserEvs,    setAllUserEvs]    = useState<TelaoEvent[]>([])
+  const [allFetched,    setAllFetched]    = useState(false)
 
   const byId   = useMemo(()=>Object.fromEntries(closers.map(c=>[c.id,c])),[closers])
 
@@ -436,6 +492,55 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   },[baseEvents,vf,filter,rangeEvents])
 
   const stats     = useMemo(()=>computeCloserStats(viewEvents,closers),[viewEvents,closers])
+  // Para consultor: buscar todos eventos históricos (acumulado)
+  useEffect(()=>{
+    if(isAdmin || allFetched) return
+    const supabase = createBrowserClient()
+    setAllFetched(true)
+    supabase.from('telao_events').select('*').order('occurred_at',{ascending:false}).limit(5000)
+      .then(({data})=>{
+        const myEvs = (data??[]).filter((e:any)=>{
+          if(userCloserId  && e.closer_id === userCloserId) return true
+          if(userHubspotId && e.closer_hubspot_id === userHubspotId) return true
+          return false
+        })
+        setAllUserEvs(myEvs as TelaoEvent[])
+      })
+  },[isAdmin, allFetched, userCloserId, userHubspotId])
+
+  // Acumulado filtra pela vertical selecionada (vf)
+  const accRev   = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).reduce((s,e)=>s+(e.value??0),0),[allUserEvs,vf])
+  const accCount = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).length,[allUserEvs,vf])
+
+  // Comparativo: ontem e últimos 7 dias (para consultor)
+  const yesterdayStart = new Date(); yesterdayStart.setDate(yesterdayStart.getDate()-1); yesterdayStart.setHours(0,0,0,0)
+  const yesterdayEnd   = new Date(); yesterdayEnd.setDate(yesterdayEnd.getDate()-1);   yesterdayEnd.setHours(23,59,59,999)
+  const sevenDaysAgo   = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);  sevenDaysAgo.setHours(0,0,0,0)
+  const todayStart     = new Date(); todayStart.setHours(0,0,0,0)
+
+  const yesterdayRev = useMemo(()=>allUserEvs.filter(e=>{
+    if(e.event_type!=='sale') return false
+    if(vf && e.vertical!==vf) return false
+    const t = new Date(e.occurred_at).getTime()
+    return t>=yesterdayStart.getTime() && t<=yesterdayEnd.getTime()
+  }).reduce((s,e)=>s+(e.value??0),0),[allUserEvs,vf])
+
+  const last7Days = useMemo(()=>{
+    const days: {label:string;rev:number;date:Date}[] = []
+    for(let i=6;i>=0;i--){
+      const d=new Date(); d.setDate(d.getDate()-i); d.setHours(0,0,0,0)
+      const de=new Date(d); de.setHours(23,59,59,999)
+      const rev=allUserEvs.filter(e=>{
+        if(e.event_type!=='sale') return false
+        if(vf && e.vertical!==vf) return false
+        const t=new Date(e.occurred_at).getTime()
+        return t>=d.getTime()&&t<=de.getTime()
+      }).reduce((s,e)=>s+(e.value??0),0)
+      days.push({label:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()],rev,date:d})
+    }
+    return days
+  },[allUserEvs,vf])
+
   const todayRev  = useMemo(()=>viewEvents.filter(e=>e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0),[viewEvents])
   const monthRev  = vf?(monthRevenue.byVertical[vf]??0):monthRevenue.overall
   const streak    = viewEvents.filter(e=>Date.now()-new Date(e.occurred_at).getTime()<90000).length
@@ -516,7 +621,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
           </div>
 
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            {isAdmin&&<FilterBar filter={filter} onChange={setFilter} closers={closers} events={sourceEvents} isAdmin={isAdmin} activeVertical={vf}/>}
+            <FilterBar filter={filter} onChange={setFilter} closers={closers} events={sourceEvents} isAdmin={isAdmin} activeVertical={vf} isDark={isDark}/>
             <motion.button whileTap={{scale:.95}} onClick={()=>{ if(!audioOn){initAudio();setAudio(true)}else setAudio(false) }}
               style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:audioOn?'rgba(168,85,247,.12)':'rgba(255,255,255,.02)',color:audioOn?'#c4b5fd':'#2d1b4e',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               {audioOn?<Volume2 size={13}/>:<VolumeX size={13}/>}
@@ -540,11 +645,88 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       <div style={{position:'relative',zIndex:1}}><Ticker events={viewEvents}/></div>
 
       {/* Grid principal */}
-      <div className="tw-main" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 400px',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
+      <div className="tw-main" style={{display:'grid',gridTemplateColumns:isAdmin?'minmax(0,1fr) 400px':'1fr',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
 
         {/* Esquerda */}
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
           <HeroMetrics events={viewEvents} accent={accent} vf={vf}/>
+          {/* Painel acumulado + comparativo — apenas consultor */}
+          {!isAdmin && (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {/* Row de KPIs */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+                <div style={{background:'rgba(255,255,255,.03)',border:'1px solid rgba(168,85,247,.2)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
+                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>💰 Hoje{vf?` · ${VERTICALS[vf].short}`:''}</p>
+                  <p style={{margin:0,fontSize:22,fontWeight:900,color:'#c4b5fd',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(todayRev)}</p>
+                  <p style={{margin:'3px 0 0',fontSize:8,color:'#4a2d6b',fontFamily:"'JetBrains Mono',monospace"}}>{viewEvents.filter(e=>e.event_type==='sale').length}v hoje</p>
+                </div>
+                <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
+                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.4)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📅 Ontem</p>
+                  <p style={{margin:0,fontSize:22,fontWeight:900,color:'rgba(196,181,253,.7)',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(yesterdayRev)}</p>
+                  {yesterdayRev>0&&todayRev>0&&(
+                    <p style={{margin:'3px 0 0',fontSize:8,fontFamily:"'JetBrains Mono',monospace",color:todayRev>=yesterdayRev?'#4ade80':'#f87171'}}>
+                      {todayRev>=yesterdayRev?'▲':'▼'} {Math.abs(Math.round((todayRev/yesterdayRev-1)*100))}% vs ontem
+                    </p>
+                  )}
+                </div>
+                <div style={{background:'rgba(168,85,247,.06)',border:'1px solid rgba(168,85,247,.25)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)',boxShadow:'0 0 20px rgba(168,85,247,.07)'}}>
+                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📊 Acumulado</p>
+                  <p style={{margin:0,fontSize:22,fontWeight:900,color:'#e9d5ff',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(accRev)}</p>
+                  <p style={{margin:'3px 0 0',fontSize:8,color:'#7c3aed',fontFamily:"'JetBrains Mono',monospace"}}>{accCount}v total</p>
+                </div>
+              </div>
+              {/* Mini gráfico últimos 7 dias */}
+              {last7Days.some(d=>d.rev>0)&&(
+                <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.12)',borderRadius:16,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
+                  <p style={{margin:'0 0 12px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📈 Últimos 7 dias{vf?` · ${vf}`:''}</p>
+                  <div style={{display:'flex',gap:5,alignItems:'flex-end',height:90}}>
+                    {last7Days.map((d,i)=>{
+                      const maxRev=Math.max(...last7Days.map(x=>x.rev),1)
+                      const pct=(d.rev/maxRev)*100
+                      const isToday=i===6
+                      const barColor=isToday?accent:d.rev>0?'rgba(168,85,247,.45)':'rgba(168,85,247,.12)'
+                      return (
+                        <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
+                          {/* Valor acima da barra */}
+                          <div style={{height:22,display:'flex',alignItems:'flex-end',justifyContent:'center',marginBottom:2}}>
+                            {d.rev>0&&(
+                              <span style={{
+                                fontSize:d.rev>=1000?7:8, fontWeight:isToday?900:600,
+                                color:isToday?accent:'rgba(168,85,247,.7)',
+                                fontFamily:"'JetBrains Mono',monospace",
+                                whiteSpace:'nowrap',lineHeight:1,
+                              }}>
+                                {d.rev>=1000?`R$${(d.rev/1000).toFixed(0)}k`:`R$${d.rev.toFixed(0)}`}
+                              </span>
+                            )}
+                          </div>
+                          {/* Barra */}
+                          <div style={{width:'100%',height:56,display:'flex',alignItems:'flex-end'}}>
+                            <div style={{
+                              width:'100%',
+                              height:`${Math.max(pct,d.rev>0?10:2)}%`,
+                              borderRadius:'5px 5px 0 0',
+                              background:barColor,
+                              transition:'height .5s cubic-bezier(.4,0,.2,1)',
+                              minHeight:d.rev>0?5:1,
+                              boxShadow:isToday?`0 0 10px ${accent}50`:'none',
+                            }}/>
+                          </div>
+                          {/* Label dia */}
+                          <span style={{
+                            fontSize:8,marginTop:4,
+                            color:isToday?accent:'rgba(168,85,247,.5)',
+                            fontFamily:"'JetBrains Mono',monospace",
+                            fontWeight:isToday?900:400,
+                          }}>{d.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className="tw-vert"><VerticalCards events={isAdmin?events:baseEvents} selected={vf} onSelect={v=>setVf(v)} isDark={isDark} verticals={visibleVerticals}/></div>
           {isAdmin&&( // Metas apenas para superadmin
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
@@ -552,14 +734,17 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               <GoalBar period="month" periodKey={monthKey()} vertical={vf} current={monthRev} goals={goals} accent={accent}/>
             </div>
           )}
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
-            <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 12px',fontFamily:"'JetBrains Mono',monospace"}}>⏱ Batalha por hora</p>
-            <HourlyChart events={viewEvents} closers={closers} accent={accent}/>
-          </div>
+          {/* Batalha por hora — só para superadmin */}
+          {isAdmin && (
+            <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
+              <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 12px',fontFamily:"'JetBrains Mono',monospace"}}>⏱ Batalha por hora</p>
+              <HourlyChart events={viewEvents} closers={closers} accent={accent}/>
+            </div>
+          )}
         </div>
 
-        {/* Direita — altura fixa, scroll interno */}
-        <div style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)'}}>
+        {/* Direita — Feed + Ranking — apenas superadmin */}
+        {isAdmin && <div style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)'}}>
           {/* Feed */}
           <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'0 0 50%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
             <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>⚡ Feed ao vivo — {viewEvents.length} eventos</p>
@@ -570,7 +755,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
             <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking{vf?` ${VERTICALS[vf].short}`:''}</p>
             <Ranking stats={stats} accent={accent}/>
           </div>
-        </div>
+        </div>}
       </div>
 
       <AnimatePresence mode="wait">

@@ -9,11 +9,21 @@ import { SettingsDialog }    from './components/SettingsDialog'
 import { PaymentMode }       from './lib/types'
 import { simulate, rateForVertical } from './lib/pricing'
 
-interface Props { isAdmin?: boolean }
+interface Props { isAdmin?: boolean; userTeam?: string | null }
 
-export function CalculadoraView({ isAdmin = false }: Props) {
+export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
   const { settings, setSettings, reset, loaded } = useSettings()
-  const { rows, loading, error, refresh }         = useSheetData(settings, loaded)
+  const { rows: allRows, loading, error, refresh } = useSheetData(settings, loaded)
+
+  // Filtrar verticais disponíveis por time (exceto superadmin)
+  const TEAM_VERTICALS: Record<string,string[]> = {
+    'R1':  ['Med-Review R1'],
+    'OAO': ['Anest-Review', 'Oft-Review', 'Ortop-Review'],
+  }
+  const rows = isAdmin || !userTeam || !TEAM_VERTICALS[userTeam]
+    ? allRows
+    : allRows.filter(r => TEAM_VERTICALS[userTeam!]?.some(v => r.vertical?.includes(v) || v.includes(r.vertical ?? ''))
+        || TEAM_VERTICALS[userTeam!]?.includes(r.vertical ?? ''))
 
   const [vertical,      setVertical]      = useState('')
   const [produto,       setProduto]       = useState('')

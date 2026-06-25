@@ -13,7 +13,16 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
 
-  // Tenta UPDATE primeiro
+  // Campos válidos da tabela onboarding_settings
+  // NOTA: a coluna correta é track_mode (não trail_mode), is_active não existe
+  const payload = {
+    welcome_message:    body.welcome_message    ?? null,
+    tone:               body.tone               ?? null,
+    track_mode:         body.track_mode ?? body.trail_mode ?? 'livre',  // aceita ambos por compatibilidade
+    extra_instructions: body.extra_instructions ?? null,
+    updated_at:         new Date().toISOString(),
+  }
+
   const { data: existing } = await supabase
     .from('onboarding_settings')
     .select('id')
@@ -23,14 +32,7 @@ export async function POST(req: NextRequest) {
   if (existing) {
     const { error } = await supabase
       .from('onboarding_settings')
-      .update({
-        welcome_message:    body.welcome_message,
-        tone:               body.tone,
-        trail_mode:         body.trail_mode,
-        extra_instructions: body.extra_instructions,
-        is_active:          body.is_active,
-        updated_at:         new Date().toISOString(),
-      })
+      .update(payload)
       .eq('id', '00000000-0000-0000-0000-000000000001')
 
     if (error) {
@@ -38,16 +40,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
   } else {
-    // Primeira vez — faz INSERT
     const { error } = await supabase
       .from('onboarding_settings')
       .insert({
-        id:                 '00000000-0000-0000-0000-000000000001',
-        welcome_message:    body.welcome_message,
-        tone:               body.tone,
-        trail_mode:         body.trail_mode,
-        extra_instructions: body.extra_instructions,
-        is_active:          body.is_active ?? true,
+        id: '00000000-0000-0000-0000-000000000001',
+        ...payload,
       })
 
     if (error) {

@@ -191,7 +191,7 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
       </div>
 
       {/* ── GRID PRINCIPAL ──────────────────────────────────── */}
-      <div className="user-dash-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
 
         {/* ESQUERDA */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -308,7 +308,7 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           {/* KPIs pessoais */}
-          <div className="kpi-mini" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
               { label: 'Concluídas', value: completed, color: '#22c55e', grad: 'linear-gradient(90deg,#22c55e,#16a34a)', icon: '🏆' },
               { label: 'Restantes',  value: pending.length, color: '#6366f1', grad: 'linear-gradient(90deg,#4f46e5,#7c3aed)', icon: '🎯' },
@@ -372,6 +372,8 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
                       {a.type === 'completion' && <><strong>Concluiu</strong> &ldquo;{a.subject}&rdquo;</>}
                       {a.type === 'quiz'       && <><strong>{a.detail && parseInt(a.detail) >= 70 ? 'Passou' : 'Fez quiz'}</strong> em &ldquo;{a.subject}&rdquo;{a.detail ? ` · ${a.detail}` : ''}</>}
                       {a.type === 'video'      && <><strong>Assistiu</strong> &ldquo;{a.subject}&rdquo;</>}
+                      {a.type === 'material'   && <><strong>Concluiu material</strong> &ldquo;{a.subject}&rdquo;</>}
+                      {a.type === 'simulado'   && <><strong>{a.detail && parseFloat(a.detail) >= 70 ? '🏅 Aprovado no' : '📋 Realizou o'}</strong> {a.subject}{a.detail ? ` · ${a.detail}` : ''}</>}
                     </p>
                     <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: 0 }}>{timeAgo(a.time)}</p>
                   </div>
@@ -382,12 +384,7 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
         </div>
       </div>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg) } }
-        @media (max-width: 1024px) {
-          .user-dash-grid { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
 }

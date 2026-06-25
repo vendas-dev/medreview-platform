@@ -20,18 +20,21 @@ export async function POST(req: NextRequest) {
   const body  = await req.json()
   const admin = createAdminClient()
 
-  const { data, error } = await admin
-    .from('onboarding_videos')
-    .insert({
+  let data: any = null; let error: any = null
+  try {
+    const _r = await admin.from('onboarding_videos').insert({
       title:         body.title,
       description:   body.description ?? null,
       url:           body.url,
       thumbnail_url: body.thumbnail_url ?? null,
       team:          body.team ?? 'ambos',
       duration_min:  body.duration_min ? Number(body.duration_min) : null,
-      is_active:     true,
     })
     .select().single()
+    data = _r.data; error = _r.error
+  } catch(e: any) {
+    return NextResponse.json({ error: 'Erro interno: ' + (e.message ?? e) }, { status: 500 })
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ video: data })

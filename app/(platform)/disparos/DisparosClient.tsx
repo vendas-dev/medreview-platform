@@ -38,6 +38,8 @@ const FILTER_BAR:React.CSSProperties = {
 }
 // Tooltip usa CSS vars — funciona em ambos os temas
 const TIP = { contentStyle:{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, fontSize:12, color:'var(--foreground)' } }
+const titleS:React.CSSProperties = { fontSize:14, fontWeight:800, color:'var(--foreground)', margin:'0 0 4px' }
+const subS:React.CSSProperties   = { fontSize:11, color:'var(--muted-foreground)', margin:'0 0 12px' }
 
 function todayIso(){ return new Date().toISOString().slice(0,10) }
 function pad(n:number){ return String(n).padStart(2,'0') }
@@ -201,9 +203,9 @@ export function DisparosClient({ isAdmin }: { isAdmin:boolean }) {
   const byDay=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const k=d.data_disparo.slice(0,10);m[k]=(m[k]??0)+1});return Object.entries(m).sort().map(([dt,c])=>({date:fmtShortDate(dt),count:c,_date:dt}))},[filtered])
   const byHour=useMemo(()=>{const m:Record<number,number>={};for(let i=0;i<24;i++)m[i]=0;filtered.forEach(d=>{const h=new Date(d.data_disparo).getHours();m[h]=(m[h]??0)+1});return Object.entries(m).map(([h,c])=>({hora:`${pad(+h)}h`,count:c}))},[filtered])
   const byOwner=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.proprietario]=(m[d.proprietario]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,count])=>({name,count}))},[filtered])
-  const byTemplate=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.template]=(m[d.template]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([name,count])=>({name:name.length>22?name.slice(0,22)+'…':name,count,_n:name}))},[filtered])
+  const byTemplate=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.template]=(m[d.template]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([name,count])=>({name,count,_n:name}))},[filtered])
   const byVertical=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const v=d.vertical??'Sem vertical';m[v]=(m[v]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))},[filtered])
-  const byEtapa=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const e=d.etapa??'Sem etapa';m[e]=(m[e]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name:name.length>14?name.slice(0,14)+'…':name,count,_n:name}))},[filtered])
+  const byEtapa=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const e=d.etapa??'Sem etapa';m[e]=(m[e]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count,_n:name}))},[filtered])
 
   const tableRows=useMemo(()=>filtered.slice(tblPage*PAGE,(tblPage+1)*PAGE),[filtered,tblPage])
   const totalPages=Math.ceil(filtered.length/PAGE)
@@ -331,7 +333,7 @@ export function DisparosClient({ isAdmin }: { isAdmin:boolean }) {
                   <ResponsiveContainer width="100%" height={220}>
                     <PieChart onClick={(p:any)=>p?.activePayload&&setDrill({title:`Vertical: ${p.activePayload[0].name}`,rows:filtered.filter(d=>(d.vertical??'Sem vertical')===p.activePayload[0].name)})}>
                       <Pie data={byVertical} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                        label={({name,percent})=>`${(name as string).slice(0,10)} ${((percent as number)*100).toFixed(0)}%`} labelLine={false}>
+                        label={({name,percent})=>`${name}: ${((percent as number)*100).toFixed(0)}%`} labelLine={true}>
                         {byVertical.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
                       </Pie>
                       <Tooltip {...TIP}/>
@@ -339,20 +341,28 @@ export function DisparosClient({ isAdmin }: { isAdmin:boolean }) {
                   </ResponsiveContainer>
                 </div>
                 <div style={CARD}>
-                  <h3 style={{ fontSize:14, fontWeight:800, color:'var(--foreground)', margin:'0 0 4px' }}>Por Etapa</h3>
-                  <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 12px' }}>Volume por etapa do funil</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={byEtapa} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Etapa: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>(d.etapa??'Sem etapa')===p.activePayload[0].payload._n)})}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
-                      <XAxis dataKey="name" tick={{ fontSize:9, fill:'var(--muted-foreground)' }} interval={0}/>
-                      <YAxis tick={{ fontSize:9, fill:'var(--muted-foreground)' }}/>
-                      <Tooltip {...TIP}/>
-                      <Bar dataKey="count" radius={[5,5,0,0]} name="Disparos">
-                        {byEtapa.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
-                        <LabelList dataKey="count" position="top" style={{ fontSize:9, fill:'var(--muted-foreground)', fontWeight:700 }}/>
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <h3 style={titleS}>🎯 Por Etapa</h3>
+                  <p style={subS}>Clique em qualquer etapa para ver os disparos</p>
+                  <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:4 }}>
+                    {byEtapa.length > 0 ? byEtapa.map((d,i)=>{
+                      const max = byEtapa[0]?.count ?? 1
+                      const total = byEtapa.reduce((s,x)=>s+x.count,0)
+                      return (
+                        <div key={d._n} onClick={()=>setDrill({title:`Etapa: ${d._n}`,rows:filtered.filter(x=>(x.etapa??'Sem etapa')===d._n)})}
+                          style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', padding:'6px 10px', borderRadius:10, transition:'background .15s' }}
+                          onMouseEnter={e=>(e.currentTarget as HTMLElement).style.background=`rgba(99,102,241,.06)`}
+                          onMouseLeave={e=>(e.currentTarget as HTMLElement).style.background='transparent'}>
+                          <span style={{ fontSize:11, color:'#6366f1', width:20, textAlign:'right', flexShrink:0, fontWeight:700, opacity:.6 }}>{i+1}</span>
+                          <span style={{ fontSize:12, fontWeight:600, color:'var(--foreground)', flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.name}</span>
+                          <div style={{ width:120, height:6, borderRadius:999, background:'var(--secondary)', overflow:'hidden', flexShrink:0 }}>
+                            <div style={{ height:'100%', width:`${(d.count/max)*100}%`, borderRadius:999, background:['#818cf8','#60a5fa','#34d399','#fbbf24','#f87171','#a78bfa'][i%6], transition:'width .6s' }}/>
+                          </div>
+                          <span style={{ fontSize:12, fontWeight:800, color:'var(--foreground)', width:40, textAlign:'right', flexShrink:0 }}>{d.count}</span>
+                          <span style={{ fontSize:10, color:'var(--muted-foreground)', width:32, textAlign:'right', flexShrink:0 }}>{Math.round(d.count/total*100)}%</span>
+                        </div>
+                      )
+                    }) : <p style={{ textAlign:'center', padding:24, color:'var(--muted-foreground)', fontSize:13 }}>Sem etapas registradas.</p>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -390,7 +400,7 @@ export function DisparosClient({ isAdmin }: { isAdmin:boolean }) {
                     onClick={(p:any)=>p?.activePayload&&setDrill({title:`Template: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>d.template===p.activePayload[0].payload._n)})}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                     <XAxis type="number" tick={{ fontSize:10, fill:'var(--muted-foreground)' }}/>
-                    <YAxis type="category" dataKey="name" tick={{ fontSize:11, fill:'var(--foreground)' }} width={160}/>
+                    <YAxis type="category" dataKey="name" tick={{ fontSize:11, fill:'var(--foreground)' }} width={200}/>
                     <Tooltip {...TIP}/>
                     <Bar dataKey="count" radius={[0,6,6,0]} name="Disparos">
                       {byTemplate.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}

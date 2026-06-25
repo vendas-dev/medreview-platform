@@ -10,29 +10,68 @@ async function assertAdmin() {
   return (p as any)?.role === 'superadmin' ? user : null
 }
 
+// onboarding_materials colunas: step_id, title, description, url, type, order_index
+// NÃO TEM: thumbnail_url, day_number, updated_at
+
+export async function POST(req: NextRequest) {
+  const user = await assertAdmin()
+  if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const body  = await req.json()
+  const admin = createAdminClient()
+
+  const { data: last } = await admin
+    .from('onboarding_materials').select('order_index')
+    .eq('step_id', body.step_id)
+    .order('order_index', { ascending: false }).limit(1).single()
+
+  let data: any = null; let error: any = null
+  try {
+    const _r = await admin.from('onboarding_materials').insert({
+      step_id:     body.step_id,
+      title:       body.title,
+      description: body.description ?? null,
+      url:         body.url,
+      type:        body.type ?? 'outro',
+      order_index: ((last as any)?.order_index ?? -1) + 1,
+    })
+    .select().single()
+    data = _r.data; error = _r.error
+  } catch(e: any) {
+    return NextResponse.json({ error: 'Erro interno: ' + (e.message ?? e) }, { status: 500 })
+  }
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  return NextResponse.json({ material: data })
+}
+
 export async function PATCH(req: NextRequest) {
   const user = await assertAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  const body = await req.json()
+
+  const body  = await req.json()
   const admin = createAdminClient()
-  const { error } = await admin.from('onboarding_materials').update({
-    title:         body.title,
-    description:   body.description ?? null,
-    url:           body.url,
-    type:          body.type,
-    day_number:    body.day_number ?? null,
-    thumbnail_url: body.thumbnail_url ?? null,
-    updated_at:    new Date().toISOString(),
-  }).eq('id', body.id)
+
+  const { data, error } = await admin
+    .from('onboarding_materials')
+    .update({
+      title:       body.title,
+      description: body.description ?? null,
+      url:         body.url,
+      type:        body.type ?? 'outro',
+      step_id:     body.step_id,
+    })
+    .eq('id', body.id).select().single()
+
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ material: data })
 }
 
 export async function DELETE(req: NextRequest) {
   const user = await assertAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const { id } = await req.json()
-  const admin = createAdminClient()
-  await admin.from('onboarding_materials').delete().eq('id', id)
+  await createAdminClient().from('onboarding_materials').delete().eq('id', id)
   return NextResponse.json({ ok: true })
 }

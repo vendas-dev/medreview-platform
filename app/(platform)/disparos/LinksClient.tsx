@@ -38,18 +38,14 @@ function formatDuration(ms:number){ if(ms<0) return '—'; const h=Math.floor(ms
 // ── Componentes de filtro ─────────────────────────────────────
 function FSelect({ label, value, onChange, options, placeholder='Todos' }: { label:string;value:string;onChange:(v:string)=>void;options:string[];placeholder?:string }) {
   return (
-    <div style={{ flex:1, minWidth:130 }}>
-      <label style={{ fontSize:9, fontWeight:800, color:'rgba(99,102,241,.7)', display:'block', marginBottom:5, textTransform:'uppercase', letterSpacing:'.1em' }}>{label}</label>
-      <div style={{ position:'relative' }}>
-        <select value={value} onChange={e=>onChange(e.target.value)}
-          style={{ width:'100%', height:38, padding:'0 30px 0 12px', borderRadius:9, border:'1.5px solid var(--border)', background:'var(--background)', color:'var(--foreground)', fontSize:13, appearance:'none', WebkitAppearance:'none', outline:'none', cursor:'pointer', fontFamily:'inherit', boxShadow:'none' }}
-          onFocus={e=>{e.target.style.borderColor='rgba(99,102,241,.6)'; e.target.style.boxShadow='0 0 0 2px rgba(99,102,241,.15)'}}
-          onBlur={e=>{e.target.style.borderColor='rgba(99,102,241,.25)'; e.target.style.boxShadow='none'}}>
-          <option value="">{placeholder}</option>
-          {options.map(o=><option key={o} value={o}>{o}</option>)}
-        </select>
-        <ChevronDown size={12} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'rgba(99,102,241,.7)' }}/>
-      </div>
+    <div style={{ flex:1, minWidth:140 }}>
+      <label style={{ fontSize:9, fontWeight:800, color:'#6366f1', display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:'.1em' }}>{label}</label>
+      <CustomSelect
+        value={value}
+        onChange={onChange}
+        options={[{value:'',label:placeholder},...options.map(o=>({value:o,label:o}))]}
+        placeholder={placeholder}
+      />
     </div>
   )
 }
@@ -403,7 +399,7 @@ export function LinksClient({ isAdmin }:{ isAdmin:boolean }) {
                 <BarChart data={byOwner} layout="vertical" margin={{left:10,right:60}} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Owner: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.owner_name===p.activePayload[0].payload.name)})}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                   <XAxis type="number" tick={{fontSize:10,fill:'var(--muted-foreground)'}}/>
-                  <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'var(--foreground)'}} width={140}/>
+                  <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'var(--foreground)'}} width={160}/>
                   <Tooltip contentStyle={TOOLTIP_STYLE}/>
                   <Bar dataKey="count" radius={[0,6,6,0]} name="Links">
                     {byOwner.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
@@ -422,7 +418,7 @@ export function LinksClient({ isAdmin }:{ isAdmin:boolean }) {
                   <BarChart data={byProduct} layout="vertical" margin={{left:10,right:60}} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Produto: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>d.product_name===p.activePayload[0].payload._n)})}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                     <XAxis type="number" tick={{fontSize:10,fill:'var(--muted-foreground)'}}/>
-                    <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'var(--foreground)'}} width={150}/>
+                    <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'var(--foreground)'}} width={170}/>
                     <Tooltip contentStyle={TOOLTIP_STYLE}/>
                     <Bar dataKey="count" radius={[0,6,6,0]} name="Links">
                       {byProduct.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
@@ -459,7 +455,7 @@ export function LinksClient({ isAdmin }:{ isAdmin:boolean }) {
                       <BarChart data={reemByOwner} layout="vertical" margin={{left:10,right:50}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                         <XAxis type="number" tick={{fontSize:9,fill:'var(--muted-foreground)'}}/>
-                        <YAxis type="category" dataKey="name" tick={{fontSize:10,fill:'var(--foreground)'}} width={110}/>
+                        <YAxis type="category" dataKey="name" tick={{fontSize:10,fill:'var(--foreground)'}} width={170}/>
                         <Tooltip contentStyle={TOOLTIP_STYLE}/>
                         <Bar dataKey="count" fill="#f87171" radius={[0,5,5,0]} name="Reemissões">
                           <LabelList dataKey="count" position="right" style={{fontSize:10,fill:'var(--foreground)',fontWeight:700}}/>
