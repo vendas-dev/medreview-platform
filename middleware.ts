@@ -5,7 +5,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   let response = NextResponse.next({ request })
 
-  // Rotas públicas — sem autenticação
+  // Rotas públicas — não requerem autenticação
   if (
     pathname.startsWith('/api/public') ||
     pathname.startsWith('/api/webhooks')
@@ -40,8 +40,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Excluir explicitamente api/webhooks do matcher
-  matcher: [
-    '/((?!_next/static|_next/image|favicon\\.ico|api/public|api/webhooks).*)',
-  ],
+  // Formato IDÊNTICO ao original — só adicionado api/webhooks
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/public|api/webhooks).*)'],
 }
