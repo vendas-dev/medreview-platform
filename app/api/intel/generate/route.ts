@@ -10,28 +10,49 @@ async function assertAdmin() {
   return (p as any)?.role === 'superadmin' ? user : null
 }
 
-// Mapeamento de slug → nome de exibição
-const VERT_LABEL: Record<string, string> = {
-  medreview:   'Med-Review R1',
-  anestreview: 'Anest-Review',
-  oftreview:   'Oft-Review',
-  ortoprev:    'Ortop-Review',
+function matchName(a: string, b: string): boolean {
+  if (!a || !b) return false
+  const x = a.toLowerCase().trim(), y = b.toLowerCase().trim()
+  return x === y || x.includes(y.split(' ')[0]) || y.includes(x.split(' ')[0])
 }
-function vLabel(k: string) { return VERT_LABEL[k] ?? k }
 
-async function callClaude(prompt: string, maxTokens = 1024): Promise<string | null> {
+// Cruzamento real: template → geração de link via deal_id
+function analyzeTemplates(disparos: any[], links: any[]) {
+  const linkDeals = new Set((links ?? []).map((l: any) => String(l.deal_id ?? '')).filter(Boolean))
+  const tplMap: Record<string, { total: number; comLink: number }> = {}
+
+  for (const d of (disparos ?? [])) {
+    const tpl = d.template
+    if (!tpl) continue
+    if (!tplMap[tpl]) tplMap[tpl] = { total: 0, comLink: 0 }
+    tplMap[tpl].total++
+    if (d.id_negocio && linkDeals.has(String(d.id_negocio))) {
+      tplMap[tpl].comLink++
+    }
+  }
+
+  return Object.entries(tplMap)
+    .map(([template, v]) => ({
+      template,
+      disparos:       v.total,
+      deals_com_link: v.comLink,
+      taxa_sucesso:   v.total > 0 ? Number(((v.comLink / v.total) * 100).toFixed(1)) : 0,
+    }))
+    .sort((a, b) => b.taxa_sucesso - a.taxa_sucesso)
+}
+
+async function callClaude(prompt: string, max = 1024): Promise<string | null> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type':'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version':'2023-06-01' },
-    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens: maxTokens, messages:[{ role:'user', content: prompt }] }),
+    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: max, messages: [{ role: 'user', content: prompt }] }),
   })
-  const data = await res.json()
-  return data.content?.[0]?.text ?? null
+  return (await res.json()).content?.[0]?.text ?? null
 }
 
-function parseJSON(raw: string): any | null {
-  const cleaned = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim()
-  try { return JSON.parse(cleaned) } catch { return null }
+function parseJSON(raw: string | null): any | null {
+  if (!raw) return null
+  try { return JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()) } catch { return null }
 }
 
 export async function POST(req: NextRequest) {
@@ -45,29 +66,45 @@ export async function POST(req: NextRequest) {
   const mStart   = new Date(y, m - 1, 1).toISOString()
   const mEnd     = new Date(y, m, 0, 23, 59, 59).toISOString()
 
-  const [{ data: closers }, { data: allSales }, { data: allLeads }, { data: goals }] = await Promise.all([
-    admin.from('profiles').select('id, name, team, hubspot_id').neq('role', 'superadmin').order('name'),
-    admin.from('telao_events').select('closer_id, closer_name, closer_hubspot_id, value, vertical').eq('event_type','sale').gte('occurred_at', mStart).lte('occurred_at', mEnd),
-    admin.from('hubspot_leads').select('owner_id, deal_stage').gte('created_at_hs', mStart).lte('created_at_hs', mEnd),
+  const [
+    { data: closers }, { data: allSales }, { data: allLeads },
+    { data: goals }, { data: allDisparos }, { data: allLinks },
+  ] = await Promise.all([
+    admin.from('profiles').select('id,name,team,hubspot_id').neq('role', 'superadmin').order('name'),
+    admin.from('telao_events').select('closer_id,closer_name,closer_hubspot_id,value,vertical').eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd),
+    admin.from('hubspot_leads').select('owner_id,deal_stage').gte('created_at_hs', mStart).lte('created_at_hs', mEnd),
     admin.from('closer_goals').select('*').eq('month', monthKey),
+    // Incluir id_negocio para cruzamento com links
+    admin.from('disparos').select('proprietario,template,vertical,data_disparo,id_negocio').gte('data_disparo', mStart).lte('data_disparo', mEnd),
+    // Incluir deal_id para cruzamento com disparos
+    admin.from('geracoes_links').select('owner_name,deal_value,vertical,product_name,deal_id').gte('generated_at', mStart).lte('generated_at', mEnd),
   ])
 
   const goalsMap = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
 
+  // Análise de templates para o time inteiro
+  const templateRanking = analyzeTemplates(allDisparos ?? [], allLinks ?? [])
+  const topTemplate     = templateRanking[0] ?? null
+  const worstTemplate   = templateRanking.filter(t => t.disparos >= 3).at(-1) ?? null
+
   const context = (closers ?? []).map((c: any) => {
-    const sales = (allSales ?? []).filter((e: any) =>
+    const sales    = (allSales ?? []).filter((e: any) =>
       e.closer_id === c.id ||
       (c.hubspot_id && e.closer_hubspot_id === c.hubspot_id) ||
-      (e.closer_name && c.name && e.closer_name.toLowerCase().includes(c.name.split(' ')[0].toLowerCase()))
+      (e.closer_name && matchName(e.closer_name, c.name))
     )
-    const leads  = (allLeads ?? []).filter((l: any) => c.hubspot_id && l.owner_id === c.hubspot_id)
-    const goal   = goalsMap[c.id]
-    const rev    = sales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
-    const goalV  = Number(goal?.goal_sales ?? 0)
+    const leads    = (allLeads ?? []).filter((l: any) => c.hubspot_id && l.owner_id === c.hubspot_id)
+    const disparos = (allDisparos ?? []).filter((d: any) => matchName(d.proprietario ?? '', c.name))
+    const links    = (allLinks ?? []).filter((l: any) => matchName(l.owner_name ?? '', c.name))
+    const goal     = goalsMap[c.id]
 
-    // Montar receita por vertical com labels corretos
-    const byVert: Record<string, number> = {}
-    sales.forEach((e: any) => { if (e.vertical) byVert[vLabel(e.vertical)] = (byVert[vLabel(e.vertical)] ?? 0) + (Number(e.value) || 0) })
+    const rev      = sales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
+    const goalV    = Number(goal?.goal_sales ?? 0)
+    const valLinks = links.reduce((s: number, l: any) => s + (Number(l.deal_value) || 0), 0)
+
+    // Análise de templates deste closer especificamente
+    const closerTemplates = analyzeTemplates(disparos, links)
+    const melhorTemplate  = closerTemplates[0] ?? null
 
     return {
       id: c.id, nome: c.name, time: c.team,
@@ -75,24 +112,55 @@ export async function POST(req: NextRequest) {
       pct_meta: goalV > 0 ? Number(((rev / goalV) * 100).toFixed(1)) : null,
       vendas: sales.length,
       leads_mes: leads.length,
-      conversao_pct: leads.length > 0 ? Number(((sales.length / leads.length) * 100).toFixed(1)) : null,
-      por_vertical: byVert,
+      conversao_leads: leads.length > 0 ? Number(((sales.length / leads.length) * 100).toFixed(1)) : null,
+      disparos_mes: disparos.length,
+      links_gerados: links.length,
+      valor_links: valLinks,
+      pipeline_pendente: Math.max(valLinks - rev, 0),
+      // Template com maior conversão disparo→link para este closer
+      melhor_template: melhorTemplate ? {
+        nome: melhorTemplate.template,
+        taxa_sucesso: melhorTemplate.taxa_sucesso,
+        deals_com_link: melhorTemplate.deals_com_link,
+        total_disparos: melhorTemplate.disparos,
+      } : null,
     }
   })
 
-  // ── 1. Insight global ─────────────────────────────────────
-  const globalPrompt = `Você é um analista comercial. Analise os dados abaixo e retorne SOMENTE JSON válido, sem markdown.
+  const totalValorLinks = (allLinks ?? []).reduce((s: number, l: any) => s + (Number(l.deal_value) || 0), 0)
+
+  const prompt = `Você é um analista comercial sênior. Faça uma análise COMPLETA e DETALHADA dos dados abaixo. Retorne SOMENTE JSON válido, sem markdown.
 
 Data: ${today}
-DADOS: ${JSON.stringify(context.map(({ id, ...rest }) => rest))}
 
-Retorne EXATAMENTE neste formato:
-{"alertas_criticos":[{"closer":"nome","texto":"frase direta com números reais"}],"atencao":[{"closer":"nome","texto":"frase direta com números reais"}],"destaques":[{"closer":"nome","texto":"frase direta com números reais"}],"resumo_time":"2-3 frases sobre o time com números","recomendacao":"uma ação específica e prática para hoje"}
+DADOS DOS CLOSERS: ${JSON.stringify(context.map(({ id, ...r }) => r))}
 
-Regras: máximo 2 itens por lista, frases curtas, use os dados reais.`
+ANÁLISE DE TEMPLATES (cruzamento real disparo→link via deal_id):
+${JSON.stringify(templateRanking)}
 
-  const globalRaw  = await callClaude(globalPrompt)
-  const globalData = globalRaw ? parseJSON(globalRaw) : null
+Retorne EXATAMENTE neste formato JSON (sem limitar o número de itens — traga TODOS os insights relevantes):
+{
+  "alertas_criticos": [{"closer":"nome","texto":"análise detalhada com números — o que está errado e por quê"}],
+  "atencao": [{"closer":"nome","texto":"análise com contexto e números — o que precisa de atenção e qual o risco"}],
+  "destaques": [{"closer":"nome","texto":"análise positiva com números — por que está bem e o que sustenta isso"}],
+  "resumo_time": "análise completa do time: receita total, comparação entre closers, quem lidera, ritmo de fechamento, projeção coletiva, estado do pipeline de links, atividade de disparos",
+  "analise_templates": "análise das taxas de sucesso dos templates (se houver dados): quais performam melhor, quais precisam revisão — com os números reais de taxa",
+  "recomendacoes": ["ação 1 específica", "ação 2 específica", "ação 3 específica"]
+}
+
+ANALISE TUDO — não deixe nenhum dado sem usar:
+- Vendas vs meta de cada closer (pct_meta, receita_mes, projecao, meta_mes)
+- Ritmo diário projetado vs dias úteis restantes
+- Quem está no caminho, quem está em risco, quem já bateu
+- Pipeline de links gerados vs receita fechada (pipeline_pendente) — oportunidades em aberto
+- Conversão de leads HubSpot
+- Disparos enviados e qual template teve maior taxa de sucesso (deals_com_link / disparos)
+- Comparação entre closers do mesmo time
+- Projeções realistas de fechamento do mês
+
+Use os números reais em todos os textos. Quanto mais específico e detalhado, melhor.`
+
+  const globalData = parseJSON(await callClaude(prompt))
 
   if (globalData) {
     await admin.from('commercial_insights').upsert(
@@ -101,29 +169,37 @@ Regras: máximo 2 itens por lista, frases curtas, use os dados reais.`
     )
   }
 
-  // ── 2. Insights individuais por closer ────────────────────
+  // Insights individuais por closer
   const closerInsights: Record<string, any> = {}
-
   for (const c of context) {
-    const closerPrompt = `Você é um coach comercial. Analise os dados abaixo de ${c.nome} e retorne SOMENTE JSON válido, sem markdown.
+    const { id, ...cd } = c
+    const raw = await callClaude(`Analise os dados de ${c.nome} e retorne SOMENTE JSON válido, sem markdown.
 
-Data: ${today}
-DADOS: ${JSON.stringify({ nome:c.nome, time:c.time, receita_mes:c.receita_mes, meta_mes:c.meta_mes, pct_meta:c.pct_meta, vendas:c.vendas, leads_mes:c.leads_mes, conversao_pct:c.conversao_pct, por_vertical:c.por_vertical })}
+DADOS: ${JSON.stringify(cd)}
 
-Retorne EXATAMENTE neste formato:
-{"situacao":"1-2 frases diretas sobre o momento atual com números reais","destaque":"o principal ponto positivo ou oportunidade","alerta":"o principal ponto de atenção (se houver, senão null)","acao":"uma ação concreta e específica para os próximos dias"}
+Formato EXATO:
+{
+  "situacao": "análise completa da situação de ${c.nome}: receita fechada, % da meta, projeção de fechamento do mês, ritmo atual vs necessário para bater meta",
+  "pipeline": "análise do pipeline: leads HubSpot recebidos, conversão, links gerados com valor pendente",
+  "atividade": "análise de disparos e templates: quantos enviou, qual template teve melhor taxa de sucesso com os números reais",
+  "destaque": "ponto positivo mais relevante com número que sustente",
+  "alerta": "ponto de atenção mais crítico com número, ou null se estiver bem",
+  "acao": "2-3 ações específicas e práticas para os próximos dias baseadas nos dados"
+}
 
-Sem elogios genéricos. Fale em primeira pessoa com o consultor. Use números dos dados.`
+REGRAS:
+- Fale diretamente com ${c.nome} usando segunda pessoa: "${c.nome}, você..."
+- Use TODOS os dados disponíveis — não deixe campo sem analisar
+- Seja específico com os números
+- Se pipeline_pendente for alto, mencione os links que precisam acompanhamento`, 768)
 
-    const closerRaw  = await callClaude(closerPrompt, 512)
-    const closerData = closerRaw ? parseJSON(closerRaw) : null
-
-    if (closerData) {
+    const data = parseJSON(raw)
+    if (data) {
       await admin.from('commercial_insights').upsert(
-        { insight_date: today, scope: c.id, content: JSON.stringify(closerData), model_used: 'claude-sonnet-4-6' },
+        { insight_date: today, scope: id, content: JSON.stringify(data), model_used: 'claude-sonnet-4-6' },
         { onConflict: 'insight_date,scope' }
       )
-      closerInsights[c.id] = closerData
+      closerInsights[id] = data
     }
   }
 

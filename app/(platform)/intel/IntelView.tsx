@@ -7,6 +7,33 @@ import {
   Target, Activity,
 } from 'lucide-react'
 
+// ── Tipografia dos textos de insight ──────────────────────
+const insightFont: React.CSSProperties = {
+  fontFamily: 'inherit',
+  fontSize: 14,
+  lineHeight: 1.8,
+  letterSpacing: '0.01em',
+  color: 'var(--foreground)',
+  fontWeight: 400,
+}
+const insightLabel: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 800,
+  textTransform: 'uppercase' as const,
+  letterSpacing: '.1em',
+}
+const insightBadge = (color: string): React.CSSProperties => ({
+  fontSize: 11,
+  fontWeight: 700,
+  padding: '2px 9px',
+  borderRadius: 5,
+  whiteSpace: 'nowrap' as const,
+  flexShrink: 0,
+  fontFamily: 'inherit',
+  color,
+  background: `${color}18`,
+})
+
 const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style:'currency', currency:'BRL', maximumFractionDigits:0 })
 
 function riskInfo(pctGoal: number, bizPassed: number, bizTotal: number) {
@@ -77,35 +104,58 @@ function InsightPanel({ data: initData, date, isAdmin, isCloserType }: {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
             {data.situacao && (
               <div style={{ gridColumn:'1/-1', padding:'14px 16px', borderRadius:11, background:'rgba(99,102,241,.04)', border:'1px solid rgba(99,102,241,.15)' }}>
-                <p style={{ margin:'0 0 4px', fontSize:10, fontWeight:700, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.08em' }}>Situação atual</p>
-                <p style={{ margin:0, fontSize:13, color:'var(--foreground)', lineHeight:1.6 }}>{data.situacao}</p>
+                <p style={{...insightLabel, margin:'0 0 4px', color:'#6366f1' }}>Situação atual</p>
+                <p style={{...insightFont, margin:0 }}>{data.situacao}</p>
               </div>
             )}
             {data.destaque && (
               <div style={{ padding:'12px 14px', borderRadius:11, background:'rgba(34,197,94,.04)', border:'1px solid rgba(34,197,94,.2)' }}>
-                <p style={{ margin:'0 0 4px', fontSize:10, fontWeight:700, color:'#16a34a', textTransform:'uppercase', letterSpacing:'.08em' }}>Destaque</p>
-                <p style={{ margin:0, fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{data.destaque}</p>
+                <p style={{...insightLabel, margin:'0 0 4px', color:'#16a34a' }}>Destaque</p>
+                <p style={{...insightFont, margin:0, fontSize:13 }}>{data.destaque}</p>
               </div>
             )}
             {data.alerta && (
               <div style={{ padding:'12px 14px', borderRadius:11, background:'rgba(234,179,8,.04)', border:'1px solid rgba(234,179,8,.2)' }}>
-                <p style={{ margin:'0 0 4px', fontSize:10, fontWeight:700, color:'#b45309', textTransform:'uppercase', letterSpacing:'.08em' }}>Atenção</p>
-                <p style={{ margin:0, fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{data.alerta}</p>
+                <p style={{...insightLabel, margin:'0 0 4px', color:'#b45309' }}>Atenção</p>
+                <p style={{...insightFont, margin:0, fontSize:13 }}>{data.alerta}</p>
               </div>
             )}
-            {data.acao && (
-              <div style={{ gridColumn:'1/-1', padding:'12px 16px', borderRadius:11, background:'rgba(168,85,247,.04)', border:'1px solid rgba(168,85,247,.2)', display:'flex', gap:10, alignItems:'flex-start' }}>
-                <Lightbulb size={14} style={{ color:'#a855f7', flexShrink:0, marginTop:2 }}/>
-                <div>
-                  <p style={{ margin:'0 0 2px', fontSize:10, fontWeight:700, color:'#a855f7', textTransform:'uppercase', letterSpacing:'.08em' }}>Próximo passo</p>
-                  <p style={{ margin:0, fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{data.acao}</p>
+            {/* Pipeline — campo novo */}
+            {data.pipeline && (
+              <div style={{ gridColumn:'1/-1', padding:'12px 14px', borderRadius:11, background:'rgba(99,102,241,.04)', border:'1px solid rgba(99,102,241,.15)' }}>
+                <p style={{...insightLabel, margin:'0 0 4px', color:'#6366f1' }}>Pipeline & Leads</p>
+                <p style={{...insightFont, margin:0, fontSize:13 }}>{data.pipeline}</p>
+              </div>
+            )}
+            {/* Atividade — campo novo */}
+            {data.atividade && (
+              <div style={{ gridColumn:'1/-1', padding:'12px 14px', borderRadius:11, background:'rgba(168,85,247,.04)', border:'1px solid rgba(168,85,247,.15)' }}>
+                <p style={{...insightLabel, margin:'0 0 4px', color:'#a855f7' }}>Disparos & Templates</p>
+                <p style={{...insightFont, margin:0, fontSize:13 }}>{data.atividade}</p>
+              </div>
+            )}
+            {/* Ações — array ou string (compatível com ambos) */}
+            {(data.acoes?.length > 0 || data.acao) && (
+              <div style={{ gridColumn:'1/-1', padding:'12px 16px', borderRadius:11, background:'rgba(168,85,247,.04)', border:'1px solid rgba(168,85,247,.2)' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
+                  <Lightbulb size={14} style={{ color:'#a855f7' }}/>
+                  <span style={{...insightLabel, color:'#a855f7' }}>Próximos passos</span>
                 </div>
+                {Array.isArray(data.acoes)
+                  ? data.acoes.map((a: string, i: number) => (
+                      <div key={i} style={{ display:'flex', gap:8, alignItems:'flex-start', marginBottom:i<data.acoes.length-1?8:0 }}>
+                        <span style={{ fontSize:11, fontWeight:800, color:'#a855f7', flexShrink:0, marginTop:2 }}>{i+1}.</span>
+                        <p style={{...insightFont, margin:0, fontSize:13 }}>{a}</p>
+                      </div>
+                    ))
+                  : <p style={{...insightFont, margin:0, fontSize:13 }}>{data.acao}</p>
+                }
               </div>
             )}
             {/* Fallback: resumo_time quando vier do formato global */}
             {data.resumo_time && !data.situacao && (
               <div style={{ gridColumn:'1/-1', padding:'14px 16px', borderRadius:11, background:'rgba(99,102,241,.04)', border:'1px solid rgba(99,102,241,.15)' }}>
-                <p style={{ margin:0, fontSize:13, color:'var(--foreground)', lineHeight:1.6 }}>{data.resumo_time}</p>
+                <p style={{...insightFont, margin:0 }}>{data.resumo_time}</p>
               </div>
             )}
           </div>
@@ -124,7 +174,7 @@ function InsightPanel({ data: initData, date, isAdmin, isCloserType }: {
                   {data.alertas_criticos.map((a: any, i: number) => (
                     <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
                       <span style={{ fontSize:11, fontWeight:700, color:'#dc2626', background:'rgba(239,68,68,.1)', padding:'2px 8px', borderRadius:5, whiteSpace:'nowrap', flexShrink:0 }}>{a.closer}</span>
-                      <span style={{ fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{a.texto}</span>
+                      <span style={{...insightFont, fontSize:13 }}>{a.texto}</span>
                     </div>
                   ))}
                 </div>
@@ -140,7 +190,7 @@ function InsightPanel({ data: initData, date, isAdmin, isCloserType }: {
                   {data.atencao.map((a: any, i: number) => (
                     <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
                       <span style={{ fontSize:11, fontWeight:700, color:'#b45309', background:'rgba(234,179,8,.1)', padding:'2px 8px', borderRadius:5, whiteSpace:'nowrap', flexShrink:0 }}>{a.closer}</span>
-                      <span style={{ fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{a.texto}</span>
+                      <span style={{...insightFont, fontSize:13 }}>{a.texto}</span>
                     </div>
                   ))}
                 </div>
@@ -156,7 +206,7 @@ function InsightPanel({ data: initData, date, isAdmin, isCloserType }: {
                   {data.destaques.map((a: any, i: number) => (
                     <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
                       <span style={{ fontSize:11, fontWeight:700, color:'#16a34a', background:'rgba(34,197,94,.1)', padding:'2px 8px', borderRadius:5, whiteSpace:'nowrap', flexShrink:0 }}>{a.closer}</span>
-                      <span style={{ fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{a.texto}</span>
+                      <span style={{...insightFont, fontSize:13 }}>{a.texto}</span>
                     </div>
                   ))}
                 </div>
@@ -166,18 +216,38 @@ function InsightPanel({ data: initData, date, isAdmin, isCloserType }: {
               <div style={{ padding:'12px 16px', borderRadius:11, background:'rgba(99,102,241,.04)', border:'1px solid rgba(99,102,241,.15)' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
                   <Activity size={13} style={{ color:'#6366f1' }}/>
-                  <span style={{ fontSize:10, fontWeight:800, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.08em' }}>Visão geral</span>
+                  <span style={{...insightLabel, color:'#6366f1' }}>Visão geral</span>
                 </div>
-                <p style={{ margin:0, fontSize:12, color:'var(--foreground)', lineHeight:1.6 }}>{data.resumo_time}</p>
+                <p style={{...insightFont, margin:0 }}>{data.resumo_time}</p>
               </div>
             )}
-            {data.recomendacao && (
-              <div style={{ padding:'12px 16px', borderRadius:11, background:'rgba(168,85,247,.04)', border:'1px solid rgba(168,85,247,.18)', display:'flex', gap:10, alignItems:'flex-start' }}>
-                <Lightbulb size={14} style={{ color:'#a855f7', flexShrink:0, marginTop:1 }}/>
-                <div>
-                  <p style={{ margin:'0 0 2px', fontSize:10, fontWeight:800, color:'#a855f7', textTransform:'uppercase', letterSpacing:'.08em' }}>Recomendação</p>
-                  <p style={{ margin:0, fontSize:12, color:'var(--foreground)', lineHeight:1.5 }}>{data.recomendacao}</p>
+            {/* Análise de templates */}
+            {data.analise_templates && (
+              <div style={{ padding:'12px 16px', borderRadius:11, background:'rgba(99,102,241,.04)', border:'1px solid rgba(99,102,241,.15)' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                  <BarChart2 size={13} style={{ color:'#6366f1' }}/>
+                  <span style={{...insightLabel, color:'#6366f1' }}>Templates</span>
                 </div>
+                <p style={{...insightFont, margin:0 }}>{data.analise_templates}</p>
+              </div>
+            )}
+
+            {/* Recomendações — agora array */}
+            {(data.recomendacoes?.length > 0 || data.recomendacao) && (
+              <div style={{ padding:'12px 16px', borderRadius:11, background:'rgba(168,85,247,.04)', border:'1px solid rgba(168,85,247,.18)' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
+                  <Lightbulb size={14} style={{ color:'#a855f7' }}/>
+                  <span style={{...insightLabel, color:'#a855f7' }}>Recomendações</span>
+                </div>
+                {Array.isArray(data.recomendacoes)
+                  ? data.recomendacoes.map((r: string, i: number) => (
+                      <div key={i} style={{ display:'flex', gap:8, alignItems:'flex-start', marginBottom:i<data.recomendacoes.length-1?8:0 }}>
+                        <span style={{ fontSize:11, fontWeight:800, color:'#a855f7', flexShrink:0, marginTop:2 }}>{i+1}.</span>
+                        <p style={{...insightFont, margin:0, fontSize:13 }}>{r}</p>
+                      </div>
+                    ))
+                  : <p style={{...insightFont, margin:0, fontSize:13 }}>{data.recomendacao}</p>
+                }
               </div>
             )}
           </div>
