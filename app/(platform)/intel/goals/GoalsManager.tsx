@@ -121,8 +121,19 @@ function CloserGoalCard({ closer, month }: { closer: any; month: string }) {
 
         {isR1 && (
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>🌟 Meta de embaixadores</label>
-            <CurrencyInput value={goalAmbassador} onChange={setGoalAmbassador}/>
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>🌟 Meta de embaixadores (quantidade)</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={goalAmbassador || ''}
+              onChange={e => setGoalAmbassador(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+              placeholder="0"
+              style={{ width: '100%', height: 42, padding: '0 14px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--background)', color: 'var(--foreground)', fontSize: 14, fontFamily: 'inherit', outline: 'none', transition: 'border-color .15s, box-shadow .15s' }}
+              onFocus={e => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,.1)' }}
+              onBlur={e  => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }}
+            />
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted-foreground)' }}>Número de embaixadores a certificar no mês</p>
           </div>
         )}
 

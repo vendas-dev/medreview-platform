@@ -8,3 +8,8 @@ out/
 .DS_Store
 Thumbs.db
 .vercel
+.next
+node_modules
+.env.local
+.env
+*.log

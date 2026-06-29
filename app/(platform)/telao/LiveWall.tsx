@@ -28,18 +28,69 @@ function Confete({ color }: { color: string }) {
   )
 }
 
-// ── Avatar ───────────────────────────────────────────────────
+// ── Avatar ─── CORRIGIDO: usa avatar_url quando disponível ────
 function Avatar({ closer, name, size=40, rank }: { closer:Closer|null; name:string; size?:number; rank?:number }) {
-  const col = closer?.color ?? '#7c3aed'
+  const col   = closer?.color ?? '#7c3aed'
   const halos = ['#FFD700','#C0C0C0','#CD7F32']
+  const halo  = rank !== undefined && rank < 3
+  const ini   = initials(name) || '?'
+
   return (
     <div style={{position:'relative',flexShrink:0}}>
-      <div style={{width:size,height:size,borderRadius:'50%',background:`linear-gradient(135deg,${col},${col}88)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:size*.38,fontWeight:900,color:'#fff',fontFamily:"'Space Grotesk',sans-serif",border:rank!==undefined&&rank<3?`2px solid ${halos[rank]}`:`1.5px solid ${col}44`,boxShadow:rank!==undefined&&rank<3?`0 0 ${size*.8}px ${halos[rank]}44`:`0 0 ${size*.4}px ${col}33`}}>
-        {initials(name) || '?'}
-      </div>
-      {rank!==undefined&&rank<3&&<span style={{position:'absolute',top:-4,right:-4,fontSize:Math.max(10,size*.3)}}>{['🥇','🥈','🥉'][rank]}</span>}
+      {closer?.avatar_url ? (
+        <div style={{
+          width:size, height:size, borderRadius:'50%', overflow:'hidden', flexShrink:0,
+          border: halo ? `2px solid ${halos[rank!]}` : `1.5px solid ${col}44`,
+          boxShadow: halo ? `0 0 ${size*.8}px ${halos[rank!]}44` : `0 0 ${size*.4}px ${col}33`,
+        }}>
+          <img
+            src={closer.avatar_url}
+            alt={name}
+            style={{width:'100%', height:'100%', objectFit:'cover'}}
+            onError={(e:any) => {
+              e.currentTarget.style.display = 'none'
+              const p = e.currentTarget.parentElement!
+              p.style.background = `linear-gradient(135deg,${col},${col}88)`
+              p.style.display = 'flex'
+              p.style.alignItems = 'center'
+              p.style.justifyContent = 'center'
+              p.style.fontSize = `${size*.38}px`
+              p.style.fontWeight = '900'
+              p.style.color = '#fff'
+              p.textContent = ini
+            }}
+          />
+        </div>
+      ) : (
+        <div style={{
+          width:size, height:size, borderRadius:'50%',
+          background:`linear-gradient(135deg,${col},${col}88)`,
+          display:'flex', alignItems:'center', justifyContent:'center',
+          fontSize:size*.38, fontWeight:900, color:'#fff',
+          fontFamily:"'Space Grotesk',sans-serif",
+          border: halo ? `2px solid ${halos[rank!]}` : `1.5px solid ${col}44`,
+          boxShadow: halo ? `0 0 ${size*.8}px ${halos[rank!]}44` : `0 0 ${size*.4}px ${col}33`,
+        }}>
+          {ini}
+        </div>
+      )}
+      {halo && <span style={{position:'absolute',top:-4,right:-4,fontSize:Math.max(10,size*.3)}}>{['🥇','🥈','🥉'][rank!]}</span>}
     </div>
   )
+}
+
+// ── Helpers de lookup por hubspot_id ──────────────────────────
+// A maioria dos eventos tem closer_id=null e só tem closer_hubspot_id.
+// Essas funções garantem que sempre achamos o closer certo.
+function findCloser(
+  closerId: string | null,
+  hubspotId: string | null,
+  byId: Record<string, Closer>,
+  byHubId: Record<string, Closer>
+): Closer | null {
+  if (closerId && byId[closerId]) return byId[closerId]
+  if (hubspotId && byHubId[hubspotId]) return byHubId[hubspotId]
+  return null
 }
 
 // ── Relógio ───────────────────────────────────────────────────
@@ -118,16 +169,13 @@ function GoalBar({ period, periodKey, vertical, current, goals, accent, extra }:
   )
 }
 
-// ── EventFeed REDESENHADO ─────────────────────────────────────
-function EventFeed({ events, closers }: { events:TelaoEvent[]; closers:Closer[] }) {
-  const byId=Object.fromEntries(closers.map(c=>[c.id,c]))
-
+// ── EventFeed ─── CORRIGIDO: lookup por hubspot_id ────────────
+function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record<string,Closer>; byHubId:Record<string,Closer> }) {
   return (
-    // scrollable — overflowY:auto com flex:1
     <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:8,paddingRight:4,paddingBottom:4}}>
       <AnimatePresence initial={false}>
         {events.slice(0,30).map(ev=>{
-          const closer=ev.closer_id?byId[ev.closer_id]:null
+          const closer = findCloser(ev.closer_id, (ev as any).closer_hubspot_id, byId, byHubId)
           const name=ev.is_self_checkout?'Self Checkout':(closer?.name??ev.closer_name??'?')
           const v=VERTICALS[ev.vertical]
           const isSale=ev.event_type==='sale'
@@ -144,13 +192,9 @@ function EventFeed({ events, closers }: { events:TelaoEvent[]; closers:Closer[] 
                   <span style={{fontSize:9,color:isSale?'#7c3aed':GOLD,fontFamily:"'JetBrains Mono',monospace"}}>{isSale?'💰 VENDA':'🎓 EMBAIXADOR'}</span>
                   {isAmb&&<span style={{fontSize:9,color:'#22c55e',fontFamily:"'JetBrains Mono',monospace"}}>🌟 AMB</span>}
                 </div>
-                <p style={{fontSize:12,fontWeight:700,color:'var(--tw-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                  {isSale?ev.lead_name:ev.ambassador_name}
-                </p>
+                <p style={{fontSize:12,fontWeight:700,color:'var(--tw-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isSale?ev.lead_name:ev.ambassador_name}</p>
                 {isSale&&ev.product&&<p style={{fontSize:10,color:'var(--tw-muted-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:"'JetBrains Mono',monospace"}}>{ev.product}</p>}
-                <p style={{fontSize:9,color:'var(--tw-muted)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>
-                  {name.split(' ')[0]} · {timeAgo(ev.occurred_at)}
-                </p>
+                <p style={{fontSize:9,color:'var(--tw-muted)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{name.split(' ')[0]} · {timeAgo(ev.occurred_at)}</p>
               </div>
               {isSale&&ev.value&&(
                 <div style={{textAlign:'right',flexShrink:0}}>
@@ -166,16 +210,15 @@ function EventFeed({ events, closers }: { events:TelaoEvent[]; closers:Closer[] 
   )
 }
 
-// ── Ranking ───────────────────────────────────────────────────
+// ── Ranking ─── CORRIGIDO: enriquece closer via hubspot_id ────
 function Ranking({ stats, accent }: { stats:CloserStats[]; accent:string }) {
   const max=stats[0]?.revenue??1
   return (
-    // scrollable
     <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6,paddingBottom:4}}>
       {stats.slice(0,15).map((s,i)=>{
         const pct=max>0?(s.revenue/max)*100:0, top3=i<3, halos=['#FFD700','#C0C0C0','#CD7F32']
         return (
-          <motion.div key={s.closer?.id??s.name} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*.04,type:'spring',stiffness:220,damping:20}}
+          <motion.div key={`${s.closer?.id ?? s.name}-${i}`} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*.04,type:'spring',stiffness:220,damping:20}}
             style={{background:top3?`linear-gradient(135deg,${halos[i]}08,rgba(255,255,255,.02))`:'rgba(255,255,255,.02)',border:`1px solid ${top3?halos[i]+'22':'rgba(255,255,255,.05)'}`,borderRadius:12,padding:'10px 14px',position:'relative',overflow:'hidden',flexShrink:0}}>
             <div style={{position:'absolute',inset:0,width:`${pct}%`,background:top3?`${halos[i]}06`:'rgba(168,85,247,.03)',borderRadius:12,transition:'width .6s ease'}}/>
             <div style={{position:'relative',display:'flex',alignItems:'center',gap:10}}>
@@ -195,27 +238,32 @@ function Ranking({ stats, accent }: { stats:CloserStats[]; accent:string }) {
   )
 }
 
-// ── HourlyChart CORRIGIDO - sempre mostra iniciais ────────────
-function HourlyChart({ events, closers, accent }: { events:TelaoEvent[]; closers:Closer[]; accent:string }) {
-  const byId=Object.fromEntries(closers.map(c=>[c.id,c]))
-  const buckets=computeHourBuckets(events,byId)
-  const max=Math.max(...buckets.map(b=>b.topRevenue),1)
-  const ref=useRef<HTMLDivElement>(null)
+// ── HourlyChart ─── CORRIGIDO: lookup por hubspot_id ─────────
+function HourlyChart({ events, closers, byHubId, accent }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string }) {
+  const byId    = Object.fromEntries(closers.map(c=>[c.id,c]))
+  const buckets = computeHourBuckets(events, byId)
+  const max     = Math.max(...buckets.map(b=>b.topRevenue),1)
+  const ref     = useRef<HTMLDivElement>(null)
   useEffect(()=>{ if(ref.current) ref.current.scrollLeft=ref.current.scrollWidth },[])
 
   return (
     <div ref={ref} style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
       {buckets.map((b,i)=>{
         const pct=(b.topRevenue/max)*100, empty=b.total===0, now=i===buckets.length-1
-        // Mostrar avatar mesmo quando closer é null — usa nome do evento
-        const hasContent=!empty&&(b.topCloser||b.topName)
+        // Enriquecer closer com avatar via hubspot_id
+        const closer = b.topCloser
+          ?? (b.topName ? (Object.values(byId).find(c=>c.name===b.topName) ?? null) : null)
+          ?? null
+        const enriched = closer && !closer.avatar_url && (b as any).topHubspotId
+          ? (byHubId[(b as any).topHubspotId] ?? closer)
+          : closer
+        const hasContent=!empty&&b.topName
         return (
           <div key={b.hourIso} style={{flexShrink:0,width:80,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
             <div style={{background:now?'rgba(168,85,247,.12)':'rgba(255,255,255,.02)',border:`1px solid ${now?'rgba(168,85,247,.3)':'rgba(255,255,255,.05)'}`,borderRadius:14,width:'100%',minHeight:80,padding:'8px 6px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,opacity:empty?.25:1,backdropFilter:'blur(4px)',boxShadow:now?'0 0 16px rgba(168,85,247,.15)':'none'}}>
               {hasContent ? (
                 <>
-                  {/* SEMPRE mostra iniciais — corrige quadrados vazios */}
-                  <Avatar closer={b.topCloser} name={b.topName||'?'} size={28} rank={0}/>
+                  <Avatar closer={enriched} name={b.topName||'?'} size={28} rank={0}/>
                   <p style={{fontSize:8,color:'#c4b5fd',fontWeight:700,margin:0,textAlign:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'100%',padding:'0 3px',fontFamily:"'Space Grotesk',sans-serif"}}>{(b.topName||'?').split(' ')[0]}</p>
                   <p style={{fontSize:8,color:accent,margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'JetBrains Mono',monospace"}}>{fmtBRL(b.topRevenue)}</p>
                   <span style={{fontSize:8,color:'#2d1b4e',fontFamily:"'JetBrains Mono',monospace"}}>{b.total}v</span>
@@ -247,20 +295,29 @@ function Ticker({ events }: { events:TelaoEvent[] }) {
   )
 }
 
-// ── Celebration ───────────────────────────────────────────────
-function Celebration({ ev, closer, onDone }: { ev:TelaoEvent; closer:Closer|null; onDone:()=>void }) {
+// ── Celebration ─── CORRIGIDO: lookup por hubspot_id ─────────
+function Celebration({ ev, byId, byHubId, onDone }: { ev:TelaoEvent; byId:Record<string,Closer>; byHubId:Record<string,Closer>; onDone:()=>void }) {
   const [count,setCount]=useState(0)
-  const v=VERTICALS[ev.vertical], isSale=ev.event_type==='sale', name=ev.is_self_checkout?'Self Checkout':(closer?.name??ev.closer_name??'?'), target=ev.value??0
+  const v=VERTICALS[ev.vertical], isSale=ev.event_type==='sale', target=ev.value??0
+  const closer = findCloser(ev.closer_id, (ev as any).closer_hubspot_id, byId, byHubId)
+  const name=ev.is_self_checkout?'Self Checkout':(closer?.name??ev.closer_name??'?')
+
   useEffect(()=>{
     if(isSale){ playSale(); let c=0; const step=target/60; const id=setInterval(()=>{ c=Math.min(c+step,target); setCount(Math.floor(c)); if(c>=target)clearInterval(id) },16) }
     else playCert()
     const t=setTimeout(onDone,7000); return()=>clearTimeout(t)
   },[])
+
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} style={{position:'fixed',inset:0,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',background:`radial-gradient(ellipse at 60% 40%,${v.accent}20,rgba(13,0,21,.96) 65%)`,backdropFilter:'blur(14px)'}}>
       <Confete color={v.accent}/>
       <motion.div initial={{scale:.7,y:40}} animate={{scale:1,y:0}} exit={{scale:.9,opacity:0}} transition={{type:'spring',stiffness:200,damping:20}} style={{textAlign:'center',maxWidth:580,padding:'0 40px',position:'relative',zIndex:1001}}>
         <motion.img src={v.mascot} alt={v.label} initial={{scale:0,rotate:-10}} animate={{scale:1,rotate:0}} transition={{type:'spring',stiffness:240,damping:16,delay:.1}} style={{height:160,objectFit:'contain',margin:'0 auto 20px',display:'block',filter:`drop-shadow(0 0 40px ${v.accent}88)`}}/>
+        {/* Avatar do closer na celebração */}
+        <motion.div initial={{scale:0}} animate={{scale:1}} transition={{delay:.15,type:'spring',stiffness:220,damping:16}}
+          style={{margin:'0 auto 16px',display:'flex',justifyContent:'center'}}>
+          <Avatar closer={closer} name={name} size={64}/>
+        </motion.div>
         <motion.p initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:.2}} style={{fontSize:11,fontWeight:800,color:v.accent,textTransform:'uppercase',letterSpacing:'.16em',marginBottom:10,fontFamily:"'JetBrains Mono',monospace"}}>{isSale?'💰 VENDA FECHADA!':'🎓 EMBAIXADOR CERTIFICADO!'}</motion.p>
         <motion.p initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:.25}} style={{fontSize:38,fontWeight:900,color:'#f3e8ff',marginBottom:8,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.02em',lineHeight:1.1}}>{isSale?name:ev.ambassador_name}</motion.p>
         <motion.p initial={{opacity:0}} animate={{opacity:1}} transition={{delay:.3}} style={{fontSize:15,color:'#7c3aed',marginBottom:30,fontFamily:"'Space Grotesk',sans-serif"}}>{isSale?`${ev.lead_name} · ${ev.product}`:`${ev.college}${ev.class?` · Turma ${ev.class}`:''}`}</motion.p>
@@ -274,18 +331,15 @@ function Celebration({ ev, closer, onDone }: { ev:TelaoEvent; closer:Closer|null
   )
 }
 
-// ── FilterBar CORRIGIDO - closers dos eventos ─────────────────
+// ── FilterBar ─────────────────────────────────────────────────
 function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical, isDark=true }: { filter:FilterState; onChange:(f:FilterState)=>void; closers:Closer[]; events:TelaoEvent[]; isAdmin:boolean; activeVertical:VerticalId|null; isDark?:boolean }) {
   const [open,setOpen]=useState(false)
   const [draft,setDraft]=useState(filter)
   const count=(filter.start?1:0)+(filter.end?1:0)+filter.closerKeys.length
 
-  // Combina closers do banco + closers que aparecem nos eventos (sem cadastro)
   const allFilterClosers = useMemo(()=>{
     const map = new Map<string,{id:string;name:string;color:string}>()
-    // Do banco
     closers.forEach(c => map.set(c.id, { id:c.id, name:c.name, color:c.color }))
-    // Dos eventos (closer_id ou closer_name)
     const filtEvents = activeVertical ? events.filter(e=>e.vertical===activeVertical) : events
     filtEvents.forEach(ev => {
       if(ev.is_self_checkout) return
@@ -299,54 +353,28 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical,
     return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name))
   },[closers,events,activeVertical])
 
-  // Para não-admin: mostrar apenas filtro de datas (sem fechamento de closers)
-  // Adaptar ao tema claro/escuro do telão
   const DI: React.CSSProperties = {
-    height: 32,
-    padding: '0 10px',
-    borderRadius: 8,
+    height: 32, padding: '0 10px', borderRadius: 8,
     border: isDark ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(109,40,217,.2)',
     background: isDark ? 'rgba(255,255,255,.06)' : 'rgba(109,40,217,.06)',
     color: isDark ? 'rgba(255,255,255,.85)' : 'rgba(60,0,100,.85)',
-    fontSize: 12,
-    fontFamily: 'inherit',
-    outline: 'none',
-    cursor: 'pointer',
-    colorScheme: isDark ? 'dark' as any : 'light' as any,
-    transition: 'border-color .15s, background .15s',
+    fontSize: 12, fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
+    colorScheme: isDark ? 'dark' as any : 'light' as any, transition: 'border-color .15s, background .15s',
   }
 
   if(!isAdmin) return (
     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-      <span style={{
-        fontSize:10, fontWeight:500, letterSpacing:'.04em',
-        whiteSpace:'nowrap', userSelect:'none',
-        color: isDark ? 'rgba(255,255,255,.4)' : 'rgba(80,20,120,.5)',
-      }}>Período</span>
-
-      <input type="date" value={draft.start??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,start:v}; setDraft(nd); onChange(nd) }}
-        style={DI}
+      <span style={{fontSize:10,fontWeight:500,letterSpacing:'.04em',whiteSpace:'nowrap',userSelect:'none',color: isDark ? 'rgba(255,255,255,.4)' : 'rgba(80,20,120,.5)'}}>Período</span>
+      <input type="date" value={draft.start??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,start:v}; setDraft(nd); onChange(nd) }} style={DI}
         onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
         onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
-
       <span style={{ fontSize:12, fontWeight:300, color: isDark?'rgba(255,255,255,.2)':'rgba(80,20,120,.25)' }}>—</span>
-
-      <input type="date" value={draft.end??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,end:v}; setDraft(nd); onChange(nd) }}
-        style={DI}
+      <input type="date" value={draft.end??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,end:v}; setDraft(nd); onChange(nd) }} style={DI}
         onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
         onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
-
       {(draft.start||draft.end) && (
         <button onClick={()=>{ const nd={...draft,start:null,end:null}; setDraft(nd); onChange(nd) }}
-          style={{
-            display:'flex', alignItems:'center', justifyContent:'center',
-            width:28, height:28, borderRadius:8,
-            border: isDark?'1px solid rgba(255,255,255,.1)':'1px solid rgba(109,40,217,.15)',
-            background: isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)',
-            color: isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)',
-            cursor:'pointer', fontSize:12, lineHeight:1,
-            transition:'all .15s',
-          }}
+          style={{display:'flex',alignItems:'center',justifyContent:'center',width:28,height:28,borderRadius:8,border: isDark?'1px solid rgba(255,255,255,.1)':'1px solid rgba(109,40,217,.15)',background: isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)',color: isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)',cursor:'pointer',fontSize:12,lineHeight:1,transition:'all .15s'}}
           onMouseEnter={e=>{ e.currentTarget.style.background='rgba(239,68,68,.15)'; e.currentTarget.style.color='#ef4444'; e.currentTarget.style.borderColor='rgba(239,68,68,.3)' }}
           onMouseLeave={e=>{ e.currentTarget.style.background=isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)'; e.currentTarget.style.color=isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)'; e.currentTarget.style.borderColor=isDark?'rgba(255,255,255,.1)':'rgba(109,40,217,.15)' }}>
           ✕
@@ -379,7 +407,6 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical,
               </div>
               <p style={{fontSize:9,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8,fontFamily:"'JetBrains Mono',monospace"}}>Closers ({allFilterClosers.length})</p>
               <div style={{maxHeight:180,overflowY:'auto',display:'flex',flexDirection:'column',gap:3,marginBottom:14}}>
-                {/* Self checkout */}
                 <label onClick={()=>setDraft(p=>({...p,closerKeys:p.closerKeys.includes('self')?p.closerKeys.filter(k=>k!=='self'):[...p.closerKeys,'self']}))}
                   style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:8,cursor:'pointer',background:draft.closerKeys.includes('self')?'rgba(168,85,247,.1)':'transparent'}}>
                   <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${draft.closerKeys.includes('self')?'#a855f7':'rgba(168,85,247,.2)'}`,background:draft.closerKeys.includes('self')?'#a855f7':'transparent',display:'flex',alignItems:'center',justifyContent:'center'}}>{draft.closerKeys.includes('self')&&<span style={{fontSize:8,color:'#fff',fontWeight:900}}>✓</span>}</div>
@@ -424,14 +451,16 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const [allUserEvs,    setAllUserEvs]    = useState<TelaoEvent[]>([])
   const [allFetched,    setAllFetched]    = useState(false)
 
-  const byId   = useMemo(()=>Object.fromEntries(closers.map(c=>[c.id,c])),[closers])
+  // ── Maps de lookup ─── CORRIGIDO: byHubId para todos os componentes
+  const byId    = useMemo(() => Object.fromEntries(closers.map(c => [c.id, c])), [closers])
+  const byHubId = useMemo(() => Object.fromEntries(
+    closers.filter(c => c.hubspot_id).map(c => [String(c.hubspot_id!), c])
+  ), [closers])
 
-  // Detectar tema da plataforma (light/dark)
   const [isDark, setIsDark] = useState(true)
   useEffect(()=>{
     const check = () => {
       const bg = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
-      // --background claro tem valores altos (f0f2f8, ffffff, etc)
       const isLight = bg.includes('f0') || bg.includes('ff') || bg.includes('240') || bg.includes('248')
       setIsDark(!isLight)
     }
@@ -441,21 +470,15 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     return () => obs.disconnect()
   }, [])
 
-  // Cores dinâmicas baseadas no tema
   const TH = isDark ? {
     bg: '#0a0015', card: 'rgba(255,255,255,.02)', border: 'rgba(168,85,247,.1)',
     text: '#fff', muted: '#2d1b4e', mutedText: '#4a2d6b',
   } : {
-    bg:       '#f7f3ff',
-    card:     'rgba(255,255,255,0.9)',
-    border:   'rgba(109,40,217,0.22)',
-    text:     '#1e0040',
-    muted:    '#5b21b6',
-    mutedText:'#7c3aed',
+    bg: '#f7f3ff', card: 'rgba(255,255,255,0.9)', border: 'rgba(109,40,217,0.22)',
+    text: '#1e0040', muted: '#5b21b6', mutedText: '#7c3aed',
   }
   const accent = vf?VERTICALS[vf].accent:'#a855f7'
 
-  // Verticais visíveis dependem do time do usuário
   const visibleVerticals = isAdmin
     ? VERTICAL_LIST
     : userTeam === 'R1'
@@ -464,13 +487,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
         ? VERTICAL_LIST.filter(v => v.id !== 'medreview')
         : VERTICAL_LIST
 
-  // Filtro base: superadmin vê tudo, closer vê apenas suas vendas
-  // Fonte de eventos: rangeEvents (histórico) quando filtro de data ativo, senão today
   const sourceEvents = rangeEvents ?? events
 
   const baseEvents = useMemo(()=>{
     if(isAdmin) return sourceEvents
-    // Filtrar por closer_id OU por closer_hubspot_id (cobre vendas históricas anteriores ao cadastro)
     return sourceEvents.filter(e => {
       if(userCloserId   && e.closer_id === userCloserId)                  return true
       if(userHubspotId  && (e as any).closer_hubspot_id === userHubspotId) return true
@@ -481,7 +501,6 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const viewEvents = useMemo(()=>{
     let evs=baseEvents
     if(vf) evs=evs.filter(e=>e.vertical===vf)
-    // Quando rangeEvents está ativo, o DB já filtrou por data — evita bug de comparação de timezone
     if(!rangeEvents) {
       if(filter.start) evs=evs.filter(e=>e.occurred_at>=filter.start!)
       if(filter.end)   evs=evs.filter(e=>e.occurred_at<=filter.end!+'T23:59:59')
@@ -491,8 +510,44 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     return evs
   },[baseEvents,vf,filter,rangeEvents])
 
-  const stats     = useMemo(()=>computeCloserStats(viewEvents,closers),[viewEvents,closers])
-  // Para consultor: buscar todos eventos históricos (acumulado)
+  // ── Stats com enriquecimento via hubspot_id ────────────────
+  const stats = useMemo(() => {
+  const raw = computeCloserStats(viewEvents, closers)
+
+  // Enriquecer cada entry com avatar via hubspot_id
+  const enriched = raw.map(s => {
+    if (s.closer?.avatar_url) return s
+    const ev  = viewEvents.find(e => e.closer_name === s.name && (e as any).closer_hubspot_id)
+    const hub = ev ? String((ev as any).closer_hubspot_id) : null
+    const hit = hub ? byHubId[hub] : null
+    return hit ? { ...s, closer: hit } : s
+  })
+
+  // Deduplicar: se dois entries apontam para o mesmo closer (mesmo id),
+  // mescla somando revenue/sales/certs e fica com o primeiro
+  const seen = new Map<string, typeof enriched[0]>()
+  for (const s of enriched) {
+    const key = s.closer?.id ?? s.name
+    if (seen.has(key)) {
+      const existing = seen.get(key)!
+      seen.set(key, {
+        ...existing,
+        revenue: existing.revenue + s.revenue,
+        sales:   existing.sales   + s.sales,
+        certs:   existing.certs   + s.certs,
+      })
+    } else {
+      seen.set(key, s)
+    }
+  }
+
+  return Array.from(seen.values()).sort((a, b) => b.revenue - a.revenue)
+}, [viewEvents, closers, byHubId])
+
+  const todayRev = useMemo(()=>viewEvents.filter(e=>e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0),[viewEvents])
+  const monthRev = vf?(monthRevenue.byVertical[vf]??0):monthRevenue.overall
+
+  // Para consultor: buscar todos eventos históricos
   useEffect(()=>{
     if(isAdmin || allFetched) return
     const supabase = createBrowserClient()
@@ -508,15 +563,11 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       })
   },[isAdmin, allFetched, userCloserId, userHubspotId])
 
-  // Acumulado filtra pela vertical selecionada (vf)
   const accRev   = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).reduce((s,e)=>s+(e.value??0),0),[allUserEvs,vf])
   const accCount = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).length,[allUserEvs,vf])
 
-  // Comparativo: ontem e últimos 7 dias (para consultor)
   const yesterdayStart = new Date(); yesterdayStart.setDate(yesterdayStart.getDate()-1); yesterdayStart.setHours(0,0,0,0)
   const yesterdayEnd   = new Date(); yesterdayEnd.setDate(yesterdayEnd.getDate()-1);   yesterdayEnd.setHours(23,59,59,999)
-  const sevenDaysAgo   = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);  sevenDaysAgo.setHours(0,0,0,0)
-  const todayStart     = new Date(); todayStart.setHours(0,0,0,0)
 
   const yesterdayRev = useMemo(()=>allUserEvs.filter(e=>{
     if(e.event_type!=='sale') return false
@@ -541,11 +592,8 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     return days
   },[allUserEvs,vf])
 
-  const todayRev  = useMemo(()=>viewEvents.filter(e=>e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0),[viewEvents])
-  const monthRev  = vf?(monthRevenue.byVertical[vf]??0):monthRevenue.overall
-  const streak    = viewEvents.filter(e=>Date.now()-new Date(e.occurred_at).getTime()<90000).length
+  const streak = viewEvents.filter(e=>Date.now()-new Date(e.occurred_at).getTime()<90000).length
 
-  // Busca eventos do período quando filtro de data é aplicado
   useEffect(()=>{
     if(!filter.start){ setRangeEvents(null); return }
     const supabase = createBrowserClient()
@@ -553,11 +601,8 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     const startISO = filter.start + 'T00:00:00'
     const endISO   = (filter.end ?? filter.start) + 'T23:59:59'
     supabase.from('telao_events')
-      .select('*')
-      .gte('occurred_at', startISO)
-      .lte('occurred_at', endISO)
-      .order('occurred_at', { ascending: false })
-      .limit(2000)
+      .select('*').gte('occurred_at', startISO).lte('occurred_at', endISO)
+      .order('occurred_at', { ascending: false }).limit(2000)
       .then(({ data }) => { setRangeEvents((data??[]) as TelaoEvent[]); setRangeFetching(false) })
   },[filter.start, filter.end])
 
@@ -572,14 +617,12 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       style={{
         background:TH.bg, minHeight:'100vh', color:TH.text,
         fontFamily:"'Space Grotesk',sans-serif", position:'relative', overflowX:'hidden',
-        // CSS vars para componentes filhos usarem sem prop drilling
-        '--tw-card'  : TH.card,
-        '--tw-border': TH.border,
-        '--tw-text'  : TH.text,
-        '--tw-muted' : TH.muted,
+        '--tw-card'      : TH.card,
+        '--tw-border'    : TH.border,
+        '--tw-text'      : TH.text,
+        '--tw-muted'     : TH.muted,
         '--tw-muted-text': TH.mutedText,
-        '--tw-shadow'      : isDark ? 'none' : '0 2px 12px rgba(109,40,217,.08)',
-        
+        '--tw-shadow'    : isDark ? 'none' : '0 2px 12px rgba(109,40,217,.08)',
       } as React.CSSProperties}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
@@ -650,10 +693,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
         {/* Esquerda */}
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
           <HeroMetrics events={viewEvents} accent={accent} vf={vf}/>
-          {/* Painel acumulado + comparativo — apenas consultor */}
+
+          {/* Painel acumulado — apenas consultor */}
           {!isAdmin && (
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {/* Row de KPIs */}
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                 <div style={{background:'rgba(255,255,255,.03)',border:'1px solid rgba(168,85,247,.2)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
                   <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>💰 Hoje{vf?` · ${VERTICALS[vf].short}`:''}</p>
@@ -663,62 +706,30 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
                 <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
                   <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.4)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📅 Ontem</p>
                   <p style={{margin:0,fontSize:22,fontWeight:900,color:'rgba(196,181,253,.7)',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(yesterdayRev)}</p>
-                  {yesterdayRev>0&&todayRev>0&&(
-                    <p style={{margin:'3px 0 0',fontSize:8,fontFamily:"'JetBrains Mono',monospace",color:todayRev>=yesterdayRev?'#4ade80':'#f87171'}}>
-                      {todayRev>=yesterdayRev?'▲':'▼'} {Math.abs(Math.round((todayRev/yesterdayRev-1)*100))}% vs ontem
-                    </p>
-                  )}
                 </div>
-                <div style={{background:'rgba(168,85,247,.06)',border:'1px solid rgba(168,85,247,.25)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)',boxShadow:'0 0 20px rgba(168,85,247,.07)'}}>
+                <div style={{background:'rgba(168,85,247,.06)',border:'1px solid rgba(168,85,247,.25)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
                   <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📊 Acumulado</p>
                   <p style={{margin:0,fontSize:22,fontWeight:900,color:'#e9d5ff',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(accRev)}</p>
                   <p style={{margin:'3px 0 0',fontSize:8,color:'#7c3aed',fontFamily:"'JetBrains Mono',monospace"}}>{accCount}v total</p>
                 </div>
               </div>
-              {/* Mini gráfico últimos 7 dias */}
               {last7Days.some(d=>d.rev>0)&&(
                 <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.12)',borderRadius:16,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
-                  <p style={{margin:'0 0 12px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📈 Últimos 7 dias{vf?` · ${vf}`:''}</p>
+                  <p style={{margin:'0 0 12px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📈 Últimos 7 dias</p>
                   <div style={{display:'flex',gap:5,alignItems:'flex-end',height:90}}>
                     {last7Days.map((d,i)=>{
-                      const maxRev=Math.max(...last7Days.map(x=>x.rev),1)
-                      const pct=(d.rev/maxRev)*100
-                      const isToday=i===6
-                      const barColor=isToday?accent:d.rev>0?'rgba(168,85,247,.45)':'rgba(168,85,247,.12)'
+                      const maxRev=Math.max(...last7Days.map(x=>x.rev),1), pct=(d.rev/maxRev)*100, isToday=i===6
                       return (
                         <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
-                          {/* Valor acima da barra */}
                           <div style={{height:22,display:'flex',alignItems:'flex-end',justifyContent:'center',marginBottom:2}}>
-                            {d.rev>0&&(
-                              <span style={{
-                                fontSize:d.rev>=1000?7:8, fontWeight:isToday?900:600,
-                                color:isToday?accent:'rgba(168,85,247,.7)',
-                                fontFamily:"'JetBrains Mono',monospace",
-                                whiteSpace:'nowrap',lineHeight:1,
-                              }}>
-                                {d.rev>=1000?`R$${(d.rev/1000).toFixed(0)}k`:`R$${d.rev.toFixed(0)}`}
-                              </span>
-                            )}
+                            {d.rev>0&&<span style={{fontSize:d.rev>=1000?7:8,fontWeight:isToday?900:600,color:isToday?accent:'rgba(168,85,247,.7)',fontFamily:"'JetBrains Mono',monospace",whiteSpace:'nowrap',lineHeight:1}}>
+                              {d.rev>=1000?`R$${(d.rev/1000).toFixed(0)}k`:`R$${d.rev.toFixed(0)}`}
+                            </span>}
                           </div>
-                          {/* Barra */}
                           <div style={{width:'100%',height:56,display:'flex',alignItems:'flex-end'}}>
-                            <div style={{
-                              width:'100%',
-                              height:`${Math.max(pct,d.rev>0?10:2)}%`,
-                              borderRadius:'5px 5px 0 0',
-                              background:barColor,
-                              transition:'height .5s cubic-bezier(.4,0,.2,1)',
-                              minHeight:d.rev>0?5:1,
-                              boxShadow:isToday?`0 0 10px ${accent}50`:'none',
-                            }}/>
+                            <div style={{width:'100%',height:`${Math.max(pct,d.rev>0?10:2)}%`,borderRadius:'5px 5px 0 0',background:isToday?accent:d.rev>0?'rgba(168,85,247,.45)':'rgba(168,85,247,.12)',transition:'height .5s cubic-bezier(.4,0,.2,1)',minHeight:d.rev>0?5:1,boxShadow:isToday?`0 0 10px ${accent}50`:'none'}}/>
                           </div>
-                          {/* Label dia */}
-                          <span style={{
-                            fontSize:8,marginTop:4,
-                            color:isToday?accent:'rgba(168,85,247,.5)',
-                            fontFamily:"'JetBrains Mono',monospace",
-                            fontWeight:isToday?900:400,
-                          }}>{d.label}</span>
+                          <span style={{fontSize:8,marginTop:4,color:isToday?accent:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",fontWeight:isToday?900:400}}>{d.label}</span>
                         </div>
                       )
                     })}
@@ -727,30 +738,30 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               )}
             </div>
           )}
+
           <div className="tw-vert"><VerticalCards events={isAdmin?events:baseEvents} selected={vf} onSelect={v=>setVf(v)} isDark={isDark} verticals={visibleVerticals}/></div>
-          {isAdmin&&( // Metas apenas para superadmin
+
+          {isAdmin&&(
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
               <GoalBar period="day" periodKey={todayKey()} vertical={vf} current={todayRev} goals={goals} accent={accent} extra={{label:'Mês acumulado',value:monthRev}}/>
               <GoalBar period="month" periodKey={monthKey()} vertical={vf} current={monthRev} goals={goals} accent={accent}/>
             </div>
           )}
-          {/* Batalha por hora — só para superadmin */}
+
           {isAdmin && (
             <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
               <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 12px',fontFamily:"'JetBrains Mono',monospace"}}>⏱ Batalha por hora</p>
-              <HourlyChart events={viewEvents} closers={closers} accent={accent}/>
+              <HourlyChart events={viewEvents} closers={closers} byHubId={byHubId} accent={accent}/>
             </div>
           )}
         </div>
 
-        {/* Direita — Feed + Ranking — apenas superadmin */}
+        {/* Direita — Feed + Ranking */}
         {isAdmin && <div style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)'}}>
-          {/* Feed */}
           <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'0 0 50%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
             <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>⚡ Feed ao vivo — {viewEvents.length} eventos</p>
-            <EventFeed events={viewEvents} closers={closers}/>
+            <EventFeed events={viewEvents} byId={byId} byHubId={byHubId}/>
           </div>
-          {/* Ranking */}
           <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:1,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
             <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking{vf?` ${VERTICALS[vf].short}`:''}</p>
             <Ranking stats={stats} accent={accent}/>
@@ -759,7 +770,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       </div>
 
       <AnimatePresence mode="wait">
-        {celeb&&<Celebration key={celeb.id} ev={celeb} closer={celeb.closer_id?byId[celeb.closer_id]??null:null} onDone={()=>setCeleb(null)}/>}
+        {celeb&&<Celebration key={celeb.id} ev={celeb} byId={byId} byHubId={byHubId} onDone={()=>setCeleb(null)}/>}
       </AnimatePresence>
     </div>
   )
