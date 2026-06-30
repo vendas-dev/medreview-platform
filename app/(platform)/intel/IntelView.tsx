@@ -257,6 +257,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
     totalRev=0, totalSales=0, totalLeadsHS=0,
     byType={} as any, byVertical={} as any,
     bizTotal=0, bizPassed=0, bizLeft=0,
+    totalNewRev=0, totalRecurringRev=0, forecast=null as any,
   } = adminExtra ?? {}
 
   // Navegar mês
@@ -473,6 +474,85 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
           </FadeIn>
         ))}
       </div>
+
+      {/* Nova vs Recorrente + Forecast */}
+      {forecast && (totalNewRev > 0 || totalRecurringRev > 0) && (
+        <FadeIn delay={240}>
+          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18, flexWrap:'wrap', gap:8 }}>
+              <div>
+                <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Receita nova vs recorrente</p>
+                <p style={{ margin:'2px 0 0', fontSize:11, color:'var(--muted-foreground)' }}>Split do mês corrente · forecast baseado no histórico de assinaturas</p>
+              </div>
+            </div>
+
+            {/* Barra de split nova/recorrente */}
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+              {[
+                { label:'Vendas novas',      rev:totalNewRev,       color:'#6366f1' },
+                { label:'Receita recorrente',rev:totalRecurringRev, color:'#0d9488' },
+              ].filter(x => x.rev > 0).map(({ label, rev, color }) => {
+                const totalBoth = totalNewRev + totalRecurringRev
+                const pct = totalBoth > 0 ? (rev/totalBoth)*100 : 0
+                return (
+                  <div key={label}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <div style={{ width:8, height:8, borderRadius:'50%', background:color }}/>
+                        <span style={{ fontSize:13, fontWeight:600, color:'var(--foreground)' }}>{label}</span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize:14, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(rev)}</span>
+                        <span style={{ fontSize:11, color:'var(--muted-foreground)', marginLeft:6 }}>{fmtPct(pct)}</span>
+                      </div>
+                    </div>
+                    <div style={{ height:8, background:'var(--secondary)', borderRadius:999, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, background:color, borderRadius:999, transition:'width .6s' }}/>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Cards de forecast */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+              <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(13,148,136,.05)', border:'1px solid rgba(13,148,136,.18)' }}>
+                <p style={{ margin:'0 0 4px', fontSize:9, fontWeight:800, color:'#0d9488', textTransform:'uppercase', letterSpacing:'.08em' }}>MRR atual</p>
+                <p style={{ margin:0, fontSize:18, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.mrrAtual)}</p>
+                <p style={{ margin:'3px 0 0', fontSize:10, color:'var(--muted-foreground)' }}>Recorrência confirmada este mês</p>
+              </div>
+              <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(99,102,241,.05)', border:'1px solid rgba(99,102,241,.18)' }}>
+                <p style={{ margin:'0 0 4px', fontSize:9, fontWeight:800, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.08em' }}>Forecast ajustado</p>
+                <p style={{ margin:0, fontSize:18, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.parcelasRestantesAjustado)}</p>
+                <p style={{ margin:'3px 0 0', fontSize:10, color:'var(--muted-foreground)' }}>Parcelas restantes · {fmtPct(forecast.persistenceRate*100)} de aderência histórica</p>
+              </div>
+              <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(148,163,184,.06)', border:'1px solid rgba(148,163,184,.2)' }}>
+                <p style={{ margin:'0 0 4px', fontSize:9, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:'.08em' }}>Bruto (sem haircut)</p>
+                <p style={{ margin:0, fontSize:18, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.parcelasRestantesBruto)}</p>
+                <p style={{ margin:'3px 0 0', fontSize:10, color:'var(--muted-foreground)' }}>Se 100% das parcelas se confirmarem</p>
+              </div>
+            </div>
+
+            {/* Status das assinaturas */}
+            <div style={{ display:'flex', gap:16, marginTop:14, flexWrap:'wrap' }}>
+              {[
+                { label:'Ativas',      count:forecast.ativas,    color:'#16a34a' },
+                { label:'Atrasadas',   count:forecast.atrasadas, color:'#b45309' },
+                { label:'Em risco',    count:forecast.emRisco,   color:'#dc2626' },
+                { label:'Completas',   count:forecast.completas, color:'#94a3b8' },
+              ].filter(x => x.count > 0).map(({ label, count, color }) => (
+                <div key={label} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <div style={{ width:7, height:7, borderRadius:'50%', background:color }}/>
+                  <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{count} assinatura{count!==1?'s':''} <span style={{ color, fontWeight:700 }}>{label.toLowerCase()}</span></span>
+                </div>
+              ))}
+              {forecast.sampleSize < 5 && (
+                <span style={{ fontSize:10, color:'var(--muted-foreground)', fontStyle:'italic' }}>· amostra histórica pequena, taxa de aderência é uma estimativa conservadora</span>
+              )}
+            </div>
+          </div>
+        </FadeIn>
+      )}
 
       {/* Receita por closer — barras horizontais */}
       <FadeIn delay={220}>

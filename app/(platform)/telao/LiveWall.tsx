@@ -191,6 +191,11 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
                   <span style={{fontSize:9,fontWeight:800,padding:'2px 7px',borderRadius:5,background:v.accent+'25',color:v.accent,fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.06em'}}>{v.short}</span>
                   <span style={{fontSize:9,color:isSale?'#7c3aed':GOLD,fontFamily:"'JetBrains Mono',monospace"}}>{isSale?'💰 VENDA':'🎓 EMBAIXADOR'}</span>
                   {isAmb&&<span style={{fontSize:9,color:'#22c55e',fontFamily:"'JetBrains Mono',monospace"}}>🌟 AMB</span>}
+                  {(ev as any).is_recurring && (ev as any).installment_number > 1 && (
+                    <span style={{fontSize:9,color:'#0d9488',background:'rgba(13,148,136,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace"}}>
+                      🔄 {(ev as any).installment_number}/{(ev as any).total_installments}
+                    </span>
+                  )}
                 </div>
                 <p style={{fontSize:12,fontWeight:700,color:'var(--tw-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isSale?ev.lead_name:ev.ambassador_name}</p>
                 {isSale&&ev.product&&<p style={{fontSize:10,color:'var(--tw-muted-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:"'JetBrains Mono',monospace"}}>{ev.product}</p>}
@@ -218,7 +223,7 @@ function Ranking({ stats, accent }: { stats:CloserStats[]; accent:string }) {
       {stats.slice(0,15).map((s,i)=>{
         const pct=max>0?(s.revenue/max)*100:0, top3=i<3, halos=['#FFD700','#C0C0C0','#CD7F32']
         return (
-          <motion.div key={`${s.closer?.id ?? s.name}-${i}`} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*.04,type:'spring',stiffness:220,damping:20}}
+          <motion.div key={s.closer?.id??s.name} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*.04,type:'spring',stiffness:220,damping:20}}
             style={{background:top3?`linear-gradient(135deg,${halos[i]}08,rgba(255,255,255,.02))`:'rgba(255,255,255,.02)',border:`1px solid ${top3?halos[i]+'22':'rgba(255,255,255,.05)'}`,borderRadius:12,padding:'10px 14px',position:'relative',overflow:'hidden',flexShrink:0}}>
             <div style={{position:'absolute',inset:0,width:`${pct}%`,background:top3?`${halos[i]}06`:'rgba(168,85,247,.03)',borderRadius:12,transition:'width .6s ease'}}/>
             <div style={{position:'relative',display:'flex',alignItems:'center',gap:10}}>
@@ -318,7 +323,12 @@ function Celebration({ ev, byId, byHubId, onDone }: { ev:TelaoEvent; byId:Record
           style={{margin:'0 auto 16px',display:'flex',justifyContent:'center'}}>
           <Avatar closer={closer} name={name} size={64}/>
         </motion.div>
-        <motion.p initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:.2}} style={{fontSize:11,fontWeight:800,color:v.accent,textTransform:'uppercase',letterSpacing:'.16em',marginBottom:10,fontFamily:"'JetBrains Mono',monospace"}}>{isSale?'💰 VENDA FECHADA!':'🎓 EMBAIXADOR CERTIFICADO!'}</motion.p>
+        <motion.p initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:.2}} style={{fontSize:11,fontWeight:800,color:v.accent,textTransform:'uppercase',letterSpacing:'.16em',marginBottom:10,fontFamily:"'JetBrains Mono',monospace"}}>
+          {isSale?'💰 VENDA FECHADA!':'🎓 EMBAIXADOR CERTIFICADO!'}
+          {(ev as any).is_recurring && (ev as any).installment_number > 1 && (
+            <span style={{ marginLeft:10, color:'#0d9488' }}>🔄 RECORRENTE {(ev as any).installment_number}/{(ev as any).total_installments}</span>
+          )}
+        </motion.p>
         <motion.p initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:.25}} style={{fontSize:38,fontWeight:900,color:'#f3e8ff',marginBottom:8,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.02em',lineHeight:1.1}}>{isSale?name:ev.ambassador_name}</motion.p>
         <motion.p initial={{opacity:0}} animate={{opacity:1}} transition={{delay:.3}} style={{fontSize:15,color:'#7c3aed',marginBottom:30,fontFamily:"'Space Grotesk',sans-serif"}}>{isSale?`${ev.lead_name} · ${ev.product}`:`${ev.college}${ev.class?` · Turma ${ev.class}`:''}`}</motion.p>
         {isSale&&<motion.p initial={{scale:.4,opacity:0}} animate={{scale:1,opacity:1}} transition={{type:'spring',stiffness:300,damping:14,delay:.4}} style={{fontSize:72,fontWeight:900,color:v.accent,fontVariantNumeric:'tabular-nums',lineHeight:1,fontFamily:"'Space Grotesk',sans-serif",textShadow:`0 0 60px ${v.accent}88`,margin:0}}>{fmtBRL(count)}</motion.p>}
@@ -512,37 +522,17 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
   // ── Stats com enriquecimento via hubspot_id ────────────────
   const stats = useMemo(() => {
-  const raw = computeCloserStats(viewEvents, closers)
-
-  // Enriquecer cada entry com avatar via hubspot_id
-  const enriched = raw.map(s => {
-    if (s.closer?.avatar_url) return s
-    const ev  = viewEvents.find(e => e.closer_name === s.name && (e as any).closer_hubspot_id)
-    const hub = ev ? String((ev as any).closer_hubspot_id) : null
-    const hit = hub ? byHubId[hub] : null
-    return hit ? { ...s, closer: hit } : s
-  })
-
-  // Deduplicar: se dois entries apontam para o mesmo closer (mesmo id),
-  // mescla somando revenue/sales/certs e fica com o primeiro
-  const seen = new Map<string, typeof enriched[0]>()
-  for (const s of enriched) {
-    const key = s.closer?.id ?? s.name
-    if (seen.has(key)) {
-      const existing = seen.get(key)!
-      seen.set(key, {
-        ...existing,
-        revenue: existing.revenue + s.revenue,
-        sales:   existing.sales   + s.sales,
-        certs:   existing.certs   + s.certs,
-      })
-    } else {
-      seen.set(key, s)
-    }
-  }
-
-  return Array.from(seen.values()).sort((a, b) => b.revenue - a.revenue)
-}, [viewEvents, closers, byHubId])
+    const raw = computeCloserStats(viewEvents, closers)
+    return raw.map(s => {
+      // Se já tem avatar, não precisa enriquecer
+      if (s.closer?.avatar_url) return s
+      // Tentar encontrar via hubspot_id do evento
+      const ev  = viewEvents.find(e => e.closer_name === s.name && (e as any).closer_hubspot_id)
+      const hub = ev ? String((ev as any).closer_hubspot_id) : null
+      const hit = hub ? byHubId[hub] : null
+      return hit ? { ...s, closer: hit } : s
+    })
+  }, [viewEvents, closers, byHubId])
 
   const todayRev = useMemo(()=>viewEvents.filter(e=>e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0),[viewEvents])
   const monthRev = vf?(monthRevenue.byVertical[vf]??0):monthRevenue.overall

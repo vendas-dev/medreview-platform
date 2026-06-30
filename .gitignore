@@ -13,3 +13,8 @@ node_modules
 .env.local
 .env
 *.log
+.next
+node_modules
+.env
+.env.local
+*.log

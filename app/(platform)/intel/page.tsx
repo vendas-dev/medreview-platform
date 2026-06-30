@@ -4,6 +4,7 @@ import { createClient }      from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect }          from 'next/navigation'
 import { IntelView }         from './IntelView'
+import { computeForecast, RecurringSale } from '@/lib/telao/forecast'
 
 const VERT_LABEL: Record<string, string> = {
   medreview:   'Med-Review R1',
@@ -69,9 +70,9 @@ export default async function IntelPage({
       { data: goals },
       { data: insightRow },
     ] = await Promise.all([
-      admin.from('profiles').select('id, name, team, hubspot_id, avatar_url').neq('role','superadmin').order('name'),
+      admin.from('profiles').select('id, name, team, hubspot_id').neq('role','superadmin').order('name'),
       admin.from('telao_events')
-        .select('closer_id, closer_hubspot_id, value, vertical, occurred_at, seller_type, sold_by_ambassador, is_self_checkout')
+        .select('closer_id, closer_hubspot_id, value, vertical, occurred_at, seller_type, sold_by_ambassador, is_self_checkout, sale_type, is_recurring, subscription_id, installment_number, total_installments')
         .eq('event_type','sale').gte('occurred_at', mStart).lte('occurred_at', mEnd),
       admin.from('hubspot_leads')
         .select('owner_id, deal_stage, vertical').gte('created_at_hs', mStart).lte('created_at_hs', mEnd),
@@ -79,11 +80,35 @@ export default async function IntelPage({
       admin.from('commercial_insights').select('content').eq('insight_date', today).eq('scope','global').maybeSingle(),
     ])
 
+    // Histórico COMPLETO de vendas recorrentes (não limitado ao mês) — necessário
+    // para calcular quantas parcelas faltam em cada assinatura e a taxa de aderência.
+    const { data: allRecurringRaw } = await admin.from('telao_events')
+      .select('subscription_id, installment_number, total_installments, value, occurred_at')
+      .eq('event_type','sale').eq('is_recurring', true).not('subscription_id','is',null)
+
     const goalsMap = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
     const sales    = allSales ?? []
 
     const totalRev   = sales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
     const totalSales = sales.length
+
+    // ── Split nova vs recorrente (mês corrente) ──────────────
+    const novaSales      = sales.filter((e: any) => (e.sale_type ?? 'nova') === 'nova')
+    const recorrenteSales= sales.filter((e: any) => e.sale_type === 'recorrente')
+    const totalNewRev    = novaSales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
+    const totalRecurringRev = recorrenteSales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
+
+    // ── Forecast de recorrência (usa histórico completo, não só o mês) ──
+    const recurringSalesForForecast: RecurringSale[] = (allRecurringRaw ?? [])
+      .filter((e: any) => e.subscription_id && e.installment_number && e.total_installments)
+      .map((e: any) => ({
+        subscription_id:    e.subscription_id,
+        installment_number: e.installment_number,
+        total_installments: e.total_installments,
+        value:               Number(e.value) || 0,
+        occurred_at:         e.occurred_at,
+      }))
+    const forecast = computeForecast(recurringSalesForForecast, totalRecurringRev)
 
     const byType = {
       closer:      { rev: 0, count: 0 },
@@ -149,7 +174,7 @@ export default async function IntelPage({
       const ambassadorRevAmt     = mySales.filter((e:any)=>e.sold_by_ambassador||e.seller_type==='ambassador').reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
       const selfCoRevAmt         = mySales.filter((e:any)=>e.is_self_checkout||e.seller_type==='self_checkout').reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
 
-      return { id:c.id, name:c.name, team:c.team, avatar_url:c.avatar_url??null, revenue_month:revMonth, sales_month:mySales.length, goal_sales:goalSales, pct_goal:pctGoal, revenue_projected:projected, leads_month:leadsTotal, leads_open:leadsOpen, conversion_rate:convRate, days_since_last_sale:daysSince, revenue_by_vertical:byVert, sales_by_vertical:salesByVert, leads_by_vertical:leadsByVert, closer_count:closerSalesCount, ambassador_count:ambassadorSalesCount, selfco_count:selfCoCount, closer_rev:closerRevAmt, ambassador_rev:ambassadorRevAmt, selfco_rev:selfCoRevAmt, biz_total:bizTotal, biz_passed:bizPassed, biz_left:bizLeft }
+      return { id:c.id, name:c.name, team:c.team, revenue_month:revMonth, sales_month:mySales.length, goal_sales:goalSales, pct_goal:pctGoal, revenue_projected:projected, leads_month:leadsTotal, leads_open:leadsOpen, conversion_rate:convRate, days_since_last_sale:daysSince, revenue_by_vertical:byVert, sales_by_vertical:salesByVert, leads_by_vertical:leadsByVert, closer_count:closerSalesCount, ambassador_count:ambassadorSalesCount, selfco_count:selfCoCount, closer_rev:closerRevAmt, ambassador_rev:ambassadorRevAmt, selfco_rev:selfCoRevAmt, biz_total:bizTotal, biz_passed:bizPassed, biz_left:bizLeft }
     })
 
     return <IntelView
@@ -157,7 +182,7 @@ export default async function IntelPage({
       closerStats={closerStats}
       insightData={parseInsight(insightRow?.content ?? null)}
       insightDate={today} snapshot={null} currentMonth={monthKey}
-      adminExtra={{ totalRev, totalSales, totalLeadsHS:(allLeads??[]).length, byType, byVertical, bizTotal, bizPassed, bizLeft }}
+      adminExtra={{ totalRev, totalSales, totalLeadsHS:(allLeads??[]).length, byType, byVertical, bizTotal, bizPassed, bizLeft, totalNewRev, totalRecurringRev, forecast }}
     />
   }
 
