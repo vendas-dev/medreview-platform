@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     let insertData: Record<string, unknown> = {
       event_type:          data.event_type,
       vertical:            data.vertical,
-      closer_name:         isSelfCO ? null : (matched?.name ?? rawName || null),
+      closer_name:         isSelfCO ? null : (matched?.name ?? (rawName || null)),
       closer_hubspot_id:   rawHubspotId || matched?.hubspot_id || null,
       closer_id:           matched?.id ?? null,
       is_self_checkout:    isSelfCO,
