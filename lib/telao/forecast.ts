@@ -1,17 +1,13 @@
 // ── Forecast de receita recorrente ──────────────────────────
 //
-// Lógica:
-// 1. Agrupa vendas recorrentes por subscription_id.
-// 2. Para cada assinatura, identifica a última parcela paga e quantas faltam.
-// 3. Calcula a taxa de aderência histórica (% de assinaturas que de fato
-//    pagaram a parcela seguinte quando já era esperado) com base em TODO
-//    o histórico de vendas recorrentes — não só do mês corrente.
-// 4. Aplica essa taxa como "haircut" sobre o valor bruto das parcelas
-//    restantes, gerando um forecast conservador.
-//
-// Por que não assumir 100% das parcelas restantes:
-// o usuário deixou claro que parcelas podem não se confirmar (cliente
-// cancela, atrasa, etc.), então o forecast precisa refletir isso.
+// 1. Agrupa vendas recorrentes por subscription_id e descobre o estado
+//    de cada assinatura (quantas parcelas faltam, status).
+// 2. Calcula a taxa de aderência histórica (% de assinaturas que de fato
+//    pagaram a parcela seguinte quando já era esperado).
+// 3. Projeta MÊS A MÊS (até dezembro do ano corrente) o valor esperado
+//    de parcelas futuras, aplicando a taxa de aderência de forma
+//    COMPOSTA por parcela (parcela 1 no futuro = rate^1, parcela 2 = rate^2...),
+//    já que cada parcela futura depende de todas as anteriores terem se confirmado.
 
 export interface RecurringSale {
   subscription_id:     string
@@ -32,9 +28,17 @@ export interface SubscriptionState {
   status:               'completa' | 'ativa' | 'atrasada' | 'em_risco'
 }
 
+export interface MonthlyForecast {
+  monthKey:  string   // "2026-07"
+  label:     string   // "Jul"
+  bruto:     number
+  ajustado:  number
+}
+
 const CADENCE_DAYS  = 30   // assume cadência mensal entre parcelas
 const ATRASO_DIAS   = 40   // após isso, considera "atrasada"
 const RISCO_DIAS    = 60   // após isso, considera "em risco" (provável churn)
+const MONTH_LABELS  = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
 // Agrupa vendas recorrentes por assinatura e determina o estado de cada uma
 export function computeSubscriptionStates(allRecurringSales: RecurringSale[]): SubscriptionState[] {
@@ -56,7 +60,7 @@ export function computeSubscriptionStates(allRecurringSales: RecurringSale[]): S
 
     let status: SubscriptionState['status'] = 'completa'
     if (remaining > 0) {
-      if (daysSince > RISCO_DIAS)      status = 'em_risco'
+      if (daysSince > RISCO_DIAS)       status = 'em_risco'
       else if (daysSince > ATRASO_DIAS) status = 'atrasada'
       else                              status = 'ativa'
     }
@@ -78,9 +82,6 @@ export function computeSubscriptionStates(allRecurringSales: RecurringSale[]): S
 // Taxa de aderência histórica: das assinaturas que já tiveram "chance" de
 // pagar a parcela seguinte (passou tempo suficiente desde a última parcela
 // E ainda restavam parcelas), quantas de fato continuaram pagando?
-//
-// "Continuou pagando" = existe no histórico uma parcela com número maior
-// que a que tínhamos quando a "chance" apareceu.
 export function computePersistenceRate(allRecurringSales: RecurringSale[]): { rate: number; sampleSize: number } {
   const bySub = new Map<string, RecurringSale[]>()
   for (const s of allRecurringSales) {
@@ -97,9 +98,9 @@ export function computePersistenceRate(allRecurringSales: RecurringSale[]): { ra
     const sorted = [...sales].sort((a, b) => a.installment_number - b.installment_number)
     for (let i = 0; i < sorted.length; i++) {
       const cur = sorted[i]
-      if (cur.installment_number >= cur.total_installments) continue // já era a última parcela
+      if (cur.installment_number >= cur.total_installments) continue
       const daysSince = Math.floor((now - new Date(cur.occurred_at).getTime()) / 86400000)
-      if (daysSince < CADENCE_DAYS + 5) continue // ainda não teve "chance" de pagar a próxima
+      if (daysSince < CADENCE_DAYS + 5) continue
 
       chances++
       const hasNext = sorted.some(s => s.installment_number > cur.installment_number)
@@ -107,48 +108,90 @@ export function computePersistenceRate(allRecurringSales: RecurringSale[]): { ra
     }
   }
 
-  // Sem amostra suficiente: usar taxa conservadora padrão de 70%
   if (chances < 5) return { rate: 0.70, sampleSize: chances }
   return { rate: continued / chances, sampleSize: chances }
 }
 
+// Projeção mês a mês, limitada ao fim do ano corrente (a partir do próximo mês).
+// Para assinaturas "atrasadas", a próxima parcela esperada é ancorada no
+// próximo mês (já está em atraso, então a expectativa é que regularize em breve).
+// Para assinaturas "ativas", a cadência continua a partir da última parcela paga.
+export function computeMonthlyForecast(
+  states: SubscriptionState[],
+  persistenceRate: number,
+  now: Date = new Date()
+): MonthlyForecast[] {
+  const year = now.getFullYear()
+  const months: MonthlyForecast[] = []
+  for (let mi = now.getMonth() + 1; mi <= 11; mi++) {
+    months.push({ monthKey: `${year}-${String(mi + 1).padStart(2, '0')}`, label: MONTH_LABELS[mi], bruto: 0, ajustado: 0 })
+  }
+  if (months.length === 0) return months // já é dezembro — sem meses futuros no ano
+
+  const idxByKey = new Map(months.map((m, i) => [m.monthKey, i]))
+
+  for (const s of states) {
+    if (s.status === 'completa' || s.status === 'em_risco' || s.remaining <= 0) continue
+
+    const anchor = s.status === 'atrasada'
+      ? new Date(now.getFullYear(), now.getMonth() + 1, 1)
+      : new Date(s.lastPaymentDate)
+
+    for (let k = 1; k <= s.remaining; k++) {
+      const expected = new Date(anchor)
+      expected.setDate(expected.getDate() + k * CADENCE_DAYS)
+      if (expected.getFullYear() > year) break // passou do fim do ano, para essa assinatura
+      const mk  = `${expected.getFullYear()}-${String(expected.getMonth() + 1).padStart(2, '0')}`
+      const idx = idxByKey.get(mk)
+      if (idx === undefined) continue
+      months[idx].bruto    += s.value
+      months[idx].ajustado += s.value * Math.pow(persistenceRate, k)
+    }
+  }
+
+  return months
+}
+
 export interface ForecastResult {
-  mrrAtual:           number   // receita recorrente confirmada no mês corrente
-  parcelasRestantesBruto: number  // soma de (remaining * value) de assinaturas ativas/atrasadas
-  parcelasRestantesAjustado: number // mesmo valor, com haircut da taxa de aderência
-  persistenceRate:    number
-  sampleSize:         number
-  ativas:             number
-  atrasadas:          number
-  emRisco:            number
-  completas:          number
+  mrrAtual:                  number
+  parcelasRestantesBruto:    number
+  parcelasRestantesAjustado: number
+  persistenceRate:           number
+  sampleSize:                number
+  ativas:                    number
+  atrasadas:                 number
+  emRisco:                   number
+  completas:                 number
+  monthlyForecast:           MonthlyForecast[]
 }
 
 export function computeForecast(
   allRecurringSales: RecurringSale[],
-  mrrAtual: number
+  mrrAtual: number,
+  now: Date = new Date()
 ): ForecastResult {
   const states = computeSubscriptionStates(allRecurringSales)
   const { rate, sampleSize } = computePersistenceRate(allRecurringSales)
+  const monthlyForecast = computeMonthlyForecast(states, rate, now)
 
-  let bruto = 0
   let ativas = 0, atrasadas = 0, emRisco = 0, completas = 0
-
   for (const s of states) {
-    if (s.status === 'completa') { completas++; continue }
+    if (s.status === 'completa')  completas++
     if (s.status === 'ativa')      ativas++
     if (s.status === 'atrasada')   atrasadas++
-    if (s.status === 'em_risco') { emRisco++; continue } // não entra no forecast — provável churn
-
-    bruto += s.remaining * s.value
+    if (s.status === 'em_risco')   emRisco++
   }
+
+  const bruto    = monthlyForecast.reduce((s, m) => s + m.bruto, 0)
+  const ajustado = monthlyForecast.reduce((s, m) => s + m.ajustado, 0)
 
   return {
     mrrAtual,
     parcelasRestantesBruto:    bruto,
-    parcelasRestantesAjustado: bruto * rate,
+    parcelasRestantesAjustado: ajustado,
     persistenceRate:           rate,
     sampleSize,
     ativas, atrasadas, emRisco, completas,
+    monthlyForecast,
   }
 }

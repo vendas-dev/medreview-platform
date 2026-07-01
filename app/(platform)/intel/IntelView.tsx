@@ -28,6 +28,123 @@ function CloserAv({ name, avatarUrl, size=26, color='linear-gradient(135deg,#4f4
   )
 }
 
+// ── Gráfico de barras verticais (colunas) ──────────────────
+// Alturas calculadas em PX (não %) — porcentagem dentro de flexbox
+// aninhado não resolve de forma confiável entre navegadores, o que
+// fazia barras de valores diferentes aparentarem o mesmo tamanho.
+function BarChart({ data, height=160, accent='#6366f1', valueFmt=fmtBRL }: {
+  data: { label:string; value:number; color?:string; tooltipSub?:string }[]
+  height?: number
+  accent?: string
+  valueFmt?: (v:number) => string
+}) {
+  const [hovered, setHovered] = useState<number|null>(null)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setMounted(true), 30); return () => clearTimeout(t) }, [])
+
+  const max       = Math.max(...data.map(d => d.value), 1)
+  const reserved  = 48 // espaço fixo para o rótulo de valor (topo) + nome da barra (base)
+  const barMaxPx  = Math.max(height - reserved, 20)
+  const TOOLTIP_RESERVE = 56 // espaço extra no topo do container para o balão não ser cortado
+
+  return (
+    <div style={{ display:'flex', gap:10, alignItems:'flex-end', height:height+TOOLTIP_RESERVE, overflowX:'auto', overflowY:'hidden', paddingBottom:4 }}>
+      {data.map((d, i) => {
+        const isHover = hovered === i
+        const barPx   = mounted ? Math.max((d.value / max) * barMaxPx, d.value > 0 ? 4 : 0) : 0
+        const color   = d.color ?? accent
+        return (
+          <div key={i}
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered(null)}
+            style={{ flex:'1 0 auto', minWidth:48, display:'flex', flexDirection:'column', alignItems:'center', gap:6, height:'100%', cursor:'default', position:'relative' }}>
+
+            {isHover && (
+              <div style={{ position:'absolute', bottom:`calc(${reserved-12}px + ${barPx}px)`, left:'50%', transform:'translateX(-50%)', background:'var(--foreground)', color:'var(--card)', padding:'7px 11px', borderRadius:9, fontSize:11, fontWeight:700, whiteSpace:'nowrap', zIndex:20, boxShadow:'0 6px 18px rgba(0,0,0,.25)', pointerEvents:'none' }}>
+                <div>{d.label}</div>
+                <div style={{ fontSize:13, fontWeight:900, marginTop:1 }}>{valueFmt(d.value)}</div>
+                {d.tooltipSub && <div style={{ fontSize:9, opacity:.75, marginTop:2, fontWeight:500 }}>{d.tooltipSub}</div>}
+                <div style={{ position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)', width:0, height:0, borderLeft:'5px solid transparent', borderRight:'5px solid transparent', borderTop:'5px solid var(--foreground)' }}/>
+              </div>
+            )}
+
+            <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'flex-end', alignItems:'center', width:'100%' }}>
+              <span style={{ fontSize:11, fontWeight:800, color:isHover?color:'var(--foreground)', fontVariantNumeric:'tabular-nums', marginBottom:6, whiteSpace:'nowrap', opacity:d.value>0?1:0, transition:'color .15s' }}>
+                {valueFmt(d.value)}
+              </span>
+              <div style={{
+                width:'100%', maxWidth:46,
+                height:`${barPx}px`,
+                background: isHover ? color : `linear-gradient(180deg,${color},${color}99)`,
+                borderRadius:'8px 8px 3px 3px',
+                transition:'height .7s cubic-bezier(.22,1.4,.36,1), background .15s, transform .15s',
+                boxShadow: isHover ? `0 4px 18px ${color}66` : `0 2px 10px ${color}33`,
+                transform: isHover ? 'scaleX(1.1)' : 'scaleX(1)',
+                cursor:'pointer',
+              }}/>
+            </div>
+            <span style={{ fontSize:10, fontWeight:isHover?800:600, color:isHover?color:'var(--muted-foreground)', textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', width:'100%', transition:'color .15s' }}>{d.label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Donut chart (composição de partes de um todo) ───────────
+function DonutChart({ data, size=150, thickness=22 }: {
+  data: { label:string; value:number; color:string }[]
+  size?: number
+  thickness?: number
+}) {
+  const total = data.reduce((s,d)=>s+d.value,0)
+  const r  = (size - thickness) / 2
+  const cx = size / 2, cy = size / 2
+  const circumference = 2 * Math.PI * r
+  let offsetAcc = 0
+  const filtered = data.filter(d => d.value > 0)
+  if (total <= 0) return null
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink:0 }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--secondary)" strokeWidth={thickness}/>
+        {filtered.map((d, i) => {
+          const frac = d.value / total
+          const len  = frac * circumference
+          const dasharray = `${len} ${circumference - len}`
+          const dashoffset = circumference * 0.25 - offsetAcc // começa no topo (12h)
+          offsetAcc += len
+          return (
+            <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={d.color} strokeWidth={thickness}
+              strokeDasharray={dasharray} strokeDashoffset={dashoffset}
+              strokeLinecap="butt" transform={`rotate(-90 ${cx} ${cy})`}
+              style={{ transition:'stroke-dasharray .6s ease' }}/>
+          )
+        })}
+        <text x={cx} y={cy-6} textAnchor="middle" style={{ fontSize:16, fontWeight:900, fill:'var(--foreground)' }}>{fmtBRL(total).replace('R$','').trim()}</text>
+        <text x={cx} y={cy+12} textAnchor="middle" style={{ fontSize:9, fill:'var(--muted-foreground)' }}>total</text>
+      </svg>
+      <div style={{ display:'flex', flexDirection:'column', gap:8, flex:1, minWidth:140 }}>
+        {filtered.map((d, i) => {
+          const pct = total>0 ? (d.value/total)*100 : 0
+          return (
+            <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background:d.color, flexShrink:0 }}/>
+                <span style={{ fontSize:12, fontWeight:600, color:'var(--foreground)' }}>{d.label}</span>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <span style={{ fontSize:12, fontWeight:800, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(d.value)}</span>
+                <span style={{ fontSize:10, color:'var(--muted-foreground)', marginLeft:5 }}>{fmtPct(pct)}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 const insightText: React.CSSProperties = { fontFamily:'inherit', fontSize:13, lineHeight:1.75, color:'var(--foreground)', fontWeight:400 }
 const tagStyle = (color: string, bg: string): React.CSSProperties => ({
   display:'inline-flex', alignItems:'center', height:20, padding:'0 8px',
@@ -414,7 +531,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
             </div>
             <div>
               <h1 style={{ margin:0, fontSize:22, fontWeight:900, color:'var(--foreground)', letterSpacing:'-.03em' }}>Inteligência Comercial</h1>
-              <p style={{ margin:0, fontSize:12, color:'var(--muted-foreground)' }}>{bizLeft > 0 ? `${bizLeft} dias úteis restantes` : 'mês encerrado'}</p>
+              <p style={{ margin:0, fontSize:12, color:'var(--muted-foreground)' }}>{bizLeft > 0 ? `${bizLeft} dias restantes` : 'mês encerrado'}</p>
             </div>
           </div>
           {/* Navegação de mês */}
@@ -457,7 +574,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
           { label:'Receita do período', value:fmtBRL(displayTotalRev), sub:`${displayTotalSales} vendas`, Icon:TrendingUp, accent:'#6366f1', glow:true, delay:80 },
           { label:'Projeção de fechamento', value:fmtBRL(proj), sub:`Ritmo: ${bizPassed}/${bizTotal} dias`, Icon:BarChart2, accent:'#8b5cf6', glow:false, delay:120 },
           { label:'Leads HubSpot', value:String(displayTotalLeads), sub:'no período filtrado', Icon:Users, accent:'#06b6d4', glow:false, delay:160 },
-          { label:'Dias úteis restantes', value:String(bizLeft), sub:`de ${bizTotal} no mês`, Icon:CheckCircle2, accent:bizLeft<5?'#dc2626':'#22c55e', glow:false, delay:200 },
+          { label:'Dias restantes', value:String(bizLeft), sub:`de ${bizTotal} no mês`, Icon:CheckCircle2, accent:bizLeft<5?'#dc2626':'#22c55e', glow:false, delay:200 },
         ].map(({ label, value, sub, Icon, accent, glow, delay }) => (
           <FadeIn key={label} delay={delay}>
             <div style={{ background:glow?`linear-gradient(135deg,${accent}12,${accent}05)`:'var(--card)', border:`1px solid ${glow?`${accent}25`:'var(--border)'}`, borderRadius:18, padding:'20px 22px', position:'relative', overflow:'hidden' }}>
@@ -475,71 +592,59 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
         ))}
       </div>
 
-      {/* Nova vs Recorrente + Forecast */}
-      {forecast && (totalNewRev > 0 || totalRecurringRev > 0) && (
+      {/* Receita nova vs recorrente — gráfico de barras */}
+      {(totalNewRev > 0 || totalRecurringRev > 0) && (
         <FadeIn delay={240}>
           <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18, flexWrap:'wrap', gap:8 }}>
-              <div>
-                <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Receita nova vs recorrente</p>
-                <p style={{ margin:'2px 0 0', fontSize:11, color:'var(--muted-foreground)' }}>Split do mês corrente · forecast baseado no histórico de assinaturas</p>
+            <p style={{ margin:'0 0 4px', fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Receita nova vs recorrente</p>
+            <p style={{ margin:'0 0 18px', fontSize:11, color:'var(--muted-foreground)' }}>Split do mês corrente</p>
+            <BarChart
+              data={[
+                { label:'Vendas novas',       value:totalNewRev,       color:'#6366f1', tooltipSub: `${fmtPct(totalNewRev+totalRecurringRev>0?(totalNewRev/(totalNewRev+totalRecurringRev))*100:0)} do total` },
+                { label:'Receita recorrente', value:totalRecurringRev, color:'#0d9488', tooltipSub: `${fmtPct(totalNewRev+totalRecurringRev>0?(totalRecurringRev/(totalNewRev+totalRecurringRev))*100:0)} do total` },
+              ]}
+              height={140}
+            />
+          </div>
+        </FadeIn>
+      )}
+
+      {/* Forecast de recorrência — próximos meses (até dezembro) */}
+      {forecast && forecast.monthlyForecast?.length > 0 && (
+        <FadeIn delay={270}>
+          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
+            <p style={{ margin:'0 0 4px', fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Forecast de recorrência — próximos meses</p>
+            <p style={{ margin:'0 0 18px', fontSize:11, color:'var(--muted-foreground)' }}>
+              Receita recorrente esperada por mês, já descontado o histórico de cancelamento/atraso.
+            </p>
+            <BarChart
+              data={forecast.monthlyForecast.map((m: any) => ({
+                label: m.label,
+                value: m.ajustado,
+                color: '#6366f1',
+                tooltipSub: `Sem desconto: ${fmtBRL(m.bruto)}`,
+              }))}
+              height={170}
+            />
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginTop:18, paddingTop:16, borderTop:'1px solid var(--border)' }}>
+              <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(13,148,136,.05)', border:'1px solid rgba(13,148,136,.18)' }}>
+                <p style={{ margin:'0 0 3px', fontSize:9, fontWeight:800, color:'#0d9488', textTransform:'uppercase', letterSpacing:'.08em' }}>Recebido este mês (recorrência)</p>
+                <p style={{ margin:0, fontSize:17, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.mrrAtual)}</p>
+              </div>
+              <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(99,102,241,.05)', border:'1px solid rgba(99,102,241,.18)' }}>
+                <p style={{ margin:'0 0 3px', fontSize:9, fontWeight:800, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.08em' }}>Esperado até dezembro</p>
+                <p style={{ margin:0, fontSize:17, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.parcelasRestantesAjustado)}</p>
+                <p style={{ margin:'2px 0 0', fontSize:9, color:'var(--muted-foreground)' }}>{fmtPct(forecast.persistenceRate*100)} de aderência histórica aplicada</p>
               </div>
             </div>
 
-            {/* Barra de split nova/recorrente */}
-            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
-              {[
-                { label:'Vendas novas',      rev:totalNewRev,       color:'#6366f1' },
-                { label:'Receita recorrente',rev:totalRecurringRev, color:'#0d9488' },
-              ].filter(x => x.rev > 0).map(({ label, rev, color }) => {
-                const totalBoth = totalNewRev + totalRecurringRev
-                const pct = totalBoth > 0 ? (rev/totalBoth)*100 : 0
-                return (
-                  <div key={label}>
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <div style={{ width:8, height:8, borderRadius:'50%', background:color }}/>
-                        <span style={{ fontSize:13, fontWeight:600, color:'var(--foreground)' }}>{label}</span>
-                      </div>
-                      <div>
-                        <span style={{ fontSize:14, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(rev)}</span>
-                        <span style={{ fontSize:11, color:'var(--muted-foreground)', marginLeft:6 }}>{fmtPct(pct)}</span>
-                      </div>
-                    </div>
-                    <div style={{ height:8, background:'var(--secondary)', borderRadius:999, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${pct}%`, background:color, borderRadius:999, transition:'width .6s' }}/>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Cards de forecast */}
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, paddingTop:14, borderTop:'1px solid var(--border)' }}>
-              <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(13,148,136,.05)', border:'1px solid rgba(13,148,136,.18)' }}>
-                <p style={{ margin:'0 0 4px', fontSize:9, fontWeight:800, color:'#0d9488', textTransform:'uppercase', letterSpacing:'.08em' }}>MRR atual</p>
-                <p style={{ margin:0, fontSize:18, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.mrrAtual)}</p>
-                <p style={{ margin:'3px 0 0', fontSize:10, color:'var(--muted-foreground)' }}>Recorrência confirmada este mês</p>
-              </div>
-              <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(99,102,241,.05)', border:'1px solid rgba(99,102,241,.18)' }}>
-                <p style={{ margin:'0 0 4px', fontSize:9, fontWeight:800, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.08em' }}>Forecast ajustado</p>
-                <p style={{ margin:0, fontSize:18, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.parcelasRestantesAjustado)}</p>
-                <p style={{ margin:'3px 0 0', fontSize:10, color:'var(--muted-foreground)' }}>Parcelas restantes · {fmtPct(forecast.persistenceRate*100)} de aderência histórica</p>
-              </div>
-              <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(148,163,184,.06)', border:'1px solid rgba(148,163,184,.2)' }}>
-                <p style={{ margin:'0 0 4px', fontSize:9, fontWeight:800, color:'#64748b', textTransform:'uppercase', letterSpacing:'.08em' }}>Bruto (sem haircut)</p>
-                <p style={{ margin:0, fontSize:18, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.parcelasRestantesBruto)}</p>
-                <p style={{ margin:'3px 0 0', fontSize:10, color:'var(--muted-foreground)' }}>Se 100% das parcelas se confirmarem</p>
-              </div>
-            </div>
-
-            {/* Status das assinaturas */}
             <div style={{ display:'flex', gap:16, marginTop:14, flexWrap:'wrap' }}>
               {[
-                { label:'Ativas',      count:forecast.ativas,    color:'#16a34a' },
-                { label:'Atrasadas',   count:forecast.atrasadas, color:'#b45309' },
-                { label:'Em risco',    count:forecast.emRisco,   color:'#dc2626' },
-                { label:'Completas',   count:forecast.completas, color:'#94a3b8' },
+                { label:'Ativas',    count:forecast.ativas,    color:'#16a34a' },
+                { label:'Atrasadas', count:forecast.atrasadas, color:'#b45309' },
+                { label:'Em risco',  count:forecast.emRisco,   color:'#dc2626' },
+                { label:'Completas', count:forecast.completas, color:'#94a3b8' },
               ].filter(x => x.count > 0).map(({ label, count, color }) => (
                 <div key={label} style={{ display:'flex', alignItems:'center', gap:6 }}>
                   <div style={{ width:7, height:7, borderRadius:'50%', background:color }}/>
@@ -547,17 +652,17 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
                 </div>
               ))}
               {forecast.sampleSize < 5 && (
-                <span style={{ fontSize:10, color:'var(--muted-foreground)', fontStyle:'italic' }}>· amostra histórica pequena, taxa de aderência é uma estimativa conservadora</span>
+                <span style={{ fontSize:10, color:'var(--muted-foreground)', fontStyle:'italic' }}>· amostra histórica pequena, aderência é uma estimativa conservadora</span>
               )}
             </div>
           </div>
         </FadeIn>
       )}
 
-      {/* Receita por closer — barras horizontais */}
+      {/* Receita por closer — gráfico de barras + detalhe */}
       <FadeIn delay={220}>
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20, flexWrap:'wrap', gap:8 }}>
             <div>
               <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)' }}>
                 Receita por closer {filterVert.length > 0 ? `— ${filterVert.join(', ')}` : ''}
@@ -568,51 +673,52 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
             </div>
             <span style={{ fontSize:12, fontWeight:700, color:'#6366f1', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(displayTotalRev)}</span>
           </div>
+
           {filtered.length === 0
             ? <p style={{ margin:0, color:'var(--muted-foreground)', fontSize:13, textAlign:'center', padding:'20px 0' }}>Nenhum closer com este filtro.</p>
-            : <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-              {filtered.map((c: any, idx: number) => {
-                const rev     = closerRev(c)
-                const sales   = closerSales(c)
-                const leads   = closerLeads(c)
-                const pctBar  = (rev / maxRev) * 100
-                const risk    = riskInfo(c.pct_goal, c.biz_passed, c.biz_total)
-                const tc      = c.team==='R1' ? { color:'#7c3aed', bg:'rgba(124,58,237,.1)' } : { color:'#2563eb', bg:'rgba(37,99,235,.1)' }
-                const convRate = leads > 0 ? (sales / leads) * 100 : 0
-                return (
-                  <div key={c.id} style={{ animation:`fadeSlideIn 0.3s ease both`, animationDelay:`${idx * 40}ms` }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-                      <CloserAv name={c.name} avatarUrl={c.avatar_url} size={28}/>
-                      <span style={{ fontSize:13, fontWeight:700, color:'var(--foreground)', flex:1 }}>{c.name}</span>
-                      <span style={{ fontSize:11, padding:'2px 8px', borderRadius:5, background:tc.bg, color:tc.color, fontWeight:700 }}>{c.team??'—'}</span>
+            : <>
+              <div style={{ marginBottom:22 }}>
+                <BarChart
+                  data={filtered.map((c:any) => ({
+                    label: c.name.split(' ')[0],
+                    value: closerRev(c),
+                    color: c.team==='R1' ? '#7c3aed' : '#2563eb',
+                    tooltipSub: `${c.team??'—'} · ${closerSales(c)} venda${closerSales(c)!==1?'s':''}`,
+                  }))}
+                  height={150}
+                />
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {filtered.map((c: any, idx: number) => {
+                  const rev     = closerRev(c)
+                  const sales   = closerSales(c)
+                  const leads   = closerLeads(c)
+                  const risk    = riskInfo(c.pct_goal, c.biz_passed, c.biz_total)
+                  const tc      = c.team==='R1' ? { color:'#7c3aed', bg:'rgba(124,58,237,.1)' } : { color:'#2563eb', bg:'rgba(37,99,235,.1)' }
+                  const convRate = leads > 0 ? (sales / leads) * 100 : 0
+                  return (
+                    <div key={c.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderTop: idx>0 ? '1px solid var(--border)' : 'none', animation:`fadeSlideIn 0.3s ease both`, animationDelay:`${idx * 40}ms` }}>
+                      <CloserAv name={c.name} avatarUrl={c.avatar_url} size={26}/>
+                      <span style={{ fontSize:13, fontWeight:700, color:'var(--foreground)', flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</span>
+                      <span style={{ fontSize:11, padding:'2px 8px', borderRadius:5, background:tc.bg, color:tc.color, fontWeight:700, flexShrink:0 }}>{c.team??'—'}</span>
                       {c.goal_sales > 0 && (
-                        <div style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:6, background:risk.bg, border:`1px solid ${risk.border}` }}>
+                        <div style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:6, background:risk.bg, border:`1px solid ${risk.border}`, flexShrink:0 }}>
                           <risk.Icon size={10} style={{ color:risk.text }}/>
-                          <span style={{ fontSize:10, fontWeight:700, color:risk.text }}>{risk.label}</span>
+                          <span style={{ fontSize:10, fontWeight:700, color:risk.text }}>{c.pct_goal.toFixed(0)}%</span>
                         </div>
                       )}
-                      <span style={{ fontSize:14, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums', width:110, textAlign:'right' }}>{fmtBRL(rev)}</span>
+                      {leads > 0 && <span style={{ fontSize:11, color:'var(--muted-foreground)', flexShrink:0, whiteSpace:'nowrap' }}>{leads} leads · {fmtPct(convRate)}</span>}
+                      <span style={{ fontSize:14, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums', width:100, textAlign:'right', flexShrink:0 }}>{fmtBRL(rev)}</span>
                     </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <div style={{ flex:1, height:10, background:'var(--secondary)', borderRadius:999, overflow:'hidden' }}>
-                        <div style={{ height:'100%', width:`${pctBar}%`, background:c.team==='R1'?'linear-gradient(90deg,#7c3aed,#a855f7)':'linear-gradient(90deg,#2563eb,#6366f1)', borderRadius:999, transition:'width .6s ease' }}/>
-                      </div>
-                      {c.goal_sales > 0 && <span style={{ fontSize:11, color:risk.text, fontWeight:700, width:72, textAlign:'right', flexShrink:0 }}>{c.pct_goal.toFixed(0)}% meta</span>}
-                    </div>
-                    {leads > 0 && (
-                      <div style={{ display:'flex', gap:16, marginTop:4, paddingLeft:38 }}>
-                        <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{leads} leads · {fmtPct(convRate)} conv.</span>
-                        {filterVert.length === 0 && <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>Projeção: {fmtBRL(c.revenue_projected)}</span>}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            </>
           }
         </div>
       </FadeIn>
 
+      {/* Tipo de venda + conversão — só renderiza se tem dado */}
       {/* Tipo de venda + conversão — só renderiza se tem dado */}
       {(hasTipoData || hasLeadsData) && (
         <div style={{ display:'grid', gridTemplateColumns:tipoConvCols, gap:14 }}>
@@ -622,33 +728,14 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
                 <p style={{ margin:'0 0 18px', fontSize:14, fontWeight:800, color:'var(--foreground)' }}>
                   Vendas por tipo {filterVert.length > 0 ? <span style={{ fontSize:11, color:'var(--muted-foreground)', fontWeight:400 }}>· filtrado</span> : ''}
                 </p>
-                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-                  {[
-                    { label:'Closer',       rev:displayByType?.closer?.rev??0,       count:displayByType?.closer?.count??0,       color:'#6366f1' },
-                    { label:'Embaixador',   rev:displayByType?.ambassador?.rev??0,   count:displayByType?.ambassador?.count??0,   color:'#a855f7' },
-                    { label:'Self-checkout',rev:displayByType?.selfcheckout?.rev??0, count:displayByType?.selfcheckout?.count??0, color:'#94a3b8' },
-                  ].filter(t => t.rev > 0 || t.count > 0).map(({ label, rev, count, color }) => {
-                    const pct = displayTotalRev > 0 ? (rev/displayTotalRev)*100 : 0
-                    return (
-                      <div key={label}>
-                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            <div style={{ width:8, height:8, borderRadius:'50%', background:color }}/>
-                            <span style={{ fontSize:13, fontWeight:600, color:'var(--foreground)' }}>{label}</span>
-                            <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{count} venda{count!==1?'s':''}</span>
-                          </div>
-                          <div>
-                            <span style={{ fontSize:14, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(rev)}</span>
-                            <span style={{ fontSize:11, color:'var(--muted-foreground)', marginLeft:6 }}>{fmtPct(pct)}</span>
-                          </div>
-                        </div>
-                        <div style={{ height:8, background:'var(--secondary)', borderRadius:999, overflow:'hidden' }}>
-                          <div style={{ height:'100%', width:`${pct}%`, background:color, borderRadius:999, transition:'width .6s' }}/>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                <DonutChart
+                  data={[
+                    { label:'Closer',        value:displayByType?.closer?.rev??0,       color:'#6366f1' },
+                    { label:'Embaixador',     value:displayByType?.ambassador?.rev??0,   color:'#a855f7' },
+                    { label:'Self-checkout',  value:displayByType?.selfcheckout?.rev??0, color:'#94a3b8' },
+                  ]}
+                  size={140}
+                />
               </div>
             </FadeIn>
           )}
@@ -835,7 +922,7 @@ function CloserView({ profile, snapshot, insightData, insightDate }: any) {
             </div>
             {gS>0&&<>
               <div style={{ height:6, borderRadius:999, background:'var(--secondary)', overflow:'hidden' }}><div style={{ height:'100%', width:`${pct}%`, background:risk.text==='#16a34a'?'#22c55e':risk.text==='#b45309'?'#f59e0b':'#ef4444', borderRadius:999, transition:'width .8s' }}/></div>
-              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--muted-foreground)' }}><span>{pct.toFixed(0)}% concluído</span><span>{s.business_days_remaining??'?'} dias úteis restantes</span></div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--muted-foreground)' }}><span>{pct.toFixed(0)}% concluído</span><span>{s.business_days_remaining??'?'} dias restantes</span></div>
             </>}
           </div>
         </FadeIn>

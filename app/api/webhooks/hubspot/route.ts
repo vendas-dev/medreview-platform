@@ -2,7 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
-  // Proteção por token opcional
+  // Proteção por token
   const token = req.headers.get('x-webhook-token')
   if (process.env.WEBHOOK_SECRET && token !== process.env.WEBHOOK_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -15,34 +15,59 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { deal_id, deal_name, owner_id, deal_stage, pipeline, created_at_hs, vertical } = body
+  const { event_type, deal_id, deal_name, owner_id, deal_stage, pipeline, created_at_hs } = body
 
-  if (!deal_id) {
-    return NextResponse.json({ error: 'deal_id obrigatório' }, { status: 400 })
+  // ── Validações básicas ─────────────────────────────────────
+  if (!event_type) {
+    return NextResponse.json(
+      { error: 'Campo "event_type" obrigatório. Use "deal_created" ou "owner_updated".' },
+      { status: 400 }
+    )
   }
 
-  // Ignorar deals sem proprietário (selfcheckout, etc)
+  if (!['deal_created', 'owner_updated'].includes(event_type)) {
+    return NextResponse.json(
+      { error: `event_type inválido: "${event_type}". Use "deal_created" ou "owner_updated".` },
+      { status: 400 }
+    )
+  }
+
+  if (!deal_id) {
+    return NextResponse.json({ error: 'Campo "deal_id" obrigatório.' }, { status: 400 })
+  }
+
   if (!owner_id) {
-    return NextResponse.json({ skipped: true, reason: 'sem proprietário' })
+    return NextResponse.json(
+      { skipped: true, reason: 'sem owner_id — deal ignorado' },
+      { status: 200 }
+    )
   }
 
   const admin = createAdminClient()
 
-  // Verificar se o deal já existe
+  // ── Verificar se o deal já existe ─────────────────────────
   const { data: existing } = await admin
     .from('hubspot_leads')
     .select('deal_id')
     .eq('deal_id', String(deal_id))
-    .single()
+    .maybeSingle()
 
-  if (existing) {
-    // Atualizar apenas os campos presentes no body
-    const updates: Record<string, any> = { updated_at: new Date().toISOString() }
-    if (owner_id   !== undefined) updates.owner_id   = String(owner_id)
-    if (deal_stage !== undefined) updates.deal_stage = deal_stage
-    if (deal_name  !== undefined) updates.deal_name  = deal_name
-    if (pipeline   !== undefined) updates.pipeline   = pipeline
-    if (vertical   !== undefined) updates.vertical   = vertical
+  // ── owner_updated: só atualiza — NUNCA cria ────────────────
+  if (event_type === 'owner_updated') {
+    if (!existing) {
+      return NextResponse.json(
+        { error: `Deal ${deal_id} não encontrado. "owner_updated" não cria registros novos.` },
+        { status: 404 }
+      )
+    }
+
+    const updates: any = {
+      updated_at: new Date().toISOString(),
+      owner_id:   String(owner_id),
+    }
+    if (deal_stage) updates.deal_stage = deal_stage
+    if (deal_name)  updates.deal_name  = deal_name
+    if (pipeline)   updates.pipeline   = pipeline
 
     const { error } = await admin
       .from('hubspot_leads')
@@ -50,23 +75,48 @@ export async function POST(req: NextRequest) {
       .eq('deal_id', String(deal_id))
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ updated: true, deal_id: String(deal_id) })
+    return NextResponse.json({ updated: true, deal_id })
   }
 
-  // Novo deal — insert
-  const { error } = await admin
-    .from('hubspot_leads')
-    .insert({
-      deal_id:       String(deal_id),
-      deal_name:     deal_name     ?? null,
-      owner_id:      String(owner_id),
-      deal_stage:    deal_stage    ?? null,
-      pipeline:      pipeline      ?? null,
-      vertical:      vertical      ?? null,
-      created_at_hs: created_at_hs ?? new Date().toISOString(),
-      updated_at:    new Date().toISOString(),
-    })
+  // ── deal_created: cria ou atualiza se já existir ───────────
+  if (event_type === 'deal_created') {
+    if (!deal_name || !created_at_hs) {
+      return NextResponse.json(
+        { error: '"deal_name" e "created_at_hs" são obrigatórios para "deal_created".' },
+        { status: 400 }
+      )
+    }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ created: true, deal_id: String(deal_id) })
+    if (existing) {
+      // Deal duplicado — atualiza em vez de criar
+      const { error } = await admin
+        .from('hubspot_leads')
+        .update({
+          deal_name:  deal_name,
+          owner_id:   String(owner_id),
+          deal_stage: deal_stage ?? null,
+          pipeline:   pipeline   ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('deal_id', String(deal_id))
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ updated: true, deal_id, note: 'deal já existia, dados atualizados' })
+    }
+
+    const { error } = await admin
+      .from('hubspot_leads')
+      .insert({
+        deal_id:       String(deal_id),
+        deal_name:     deal_name,
+        owner_id:      String(owner_id),
+        deal_stage:    deal_stage    ?? null,
+        pipeline:      pipeline      ?? null,
+        created_at_hs: created_at_hs,
+        updated_at:    new Date().toISOString(),
+      })
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ created: true, deal_id })
+  }
 }

@@ -15,10 +15,12 @@ const VERT_LABEL: Record<string, string> = {
 }
 const vLabel = (k: string) => VERT_LABEL[k] ?? k
 
+// Dias corridos (NÃO dias úteis) — conta todos os dias do período, inclusive fins de semana.
+// Clona as datas para não mutar os objetos originais recebidos (ex: 'now' é reutilizado depois).
 function bizDays(start: Date, end: Date) {
-  let c = 0; const d = new Date(start)
-  while (d <= end) { if (d.getDay() !== 0 && d.getDay() !== 6) c++; d.setDate(d.getDate() + 1) }
-  return c
+  const s = new Date(start); s.setHours(0,0,0,0)
+  const e = new Date(end);   e.setHours(23,59,59,999)
+  return Math.max(Math.floor((e.getTime() - s.getTime()) / 86400000) + 1, 0)
 }
 
 function matchSales(all: any[], c: any) {
@@ -70,7 +72,7 @@ export default async function IntelPage({
       { data: goals },
       { data: insightRow },
     ] = await Promise.all([
-      admin.from('profiles').select('id, name, team, hubspot_id').neq('role','superadmin').order('name'),
+      admin.from('profiles').select('id, name, team, hubspot_id, avatar_url').neq('role','superadmin').order('name'),
       admin.from('telao_events')
         .select('closer_id, closer_hubspot_id, value, vertical, occurred_at, seller_type, sold_by_ambassador, is_self_checkout, sale_type, is_recurring, subscription_id, installment_number, total_installments')
         .eq('event_type','sale').gte('occurred_at', mStart).lte('occurred_at', mEnd),
@@ -174,7 +176,7 @@ export default async function IntelPage({
       const ambassadorRevAmt     = mySales.filter((e:any)=>e.sold_by_ambassador||e.seller_type==='ambassador').reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
       const selfCoRevAmt         = mySales.filter((e:any)=>e.is_self_checkout||e.seller_type==='self_checkout').reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
 
-      return { id:c.id, name:c.name, team:c.team, revenue_month:revMonth, sales_month:mySales.length, goal_sales:goalSales, pct_goal:pctGoal, revenue_projected:projected, leads_month:leadsTotal, leads_open:leadsOpen, conversion_rate:convRate, days_since_last_sale:daysSince, revenue_by_vertical:byVert, sales_by_vertical:salesByVert, leads_by_vertical:leadsByVert, closer_count:closerSalesCount, ambassador_count:ambassadorSalesCount, selfco_count:selfCoCount, closer_rev:closerRevAmt, ambassador_rev:ambassadorRevAmt, selfco_rev:selfCoRevAmt, biz_total:bizTotal, biz_passed:bizPassed, biz_left:bizLeft }
+      return { id:c.id, name:c.name, team:c.team, avatar_url:c.avatar_url??null, revenue_month:revMonth, sales_month:mySales.length, goal_sales:goalSales, pct_goal:pctGoal, revenue_projected:projected, leads_month:leadsTotal, leads_open:leadsOpen, conversion_rate:convRate, days_since_last_sale:daysSince, revenue_by_vertical:byVert, sales_by_vertical:salesByVert, leads_by_vertical:leadsByVert, closer_count:closerSalesCount, ambassador_count:ambassadorSalesCount, selfco_count:selfCoCount, closer_rev:closerRevAmt, ambassador_rev:ambassadorRevAmt, selfco_rev:selfCoRevAmt, biz_total:bizTotal, biz_passed:bizPassed, biz_left:bizLeft }
     })
 
     return <IntelView
