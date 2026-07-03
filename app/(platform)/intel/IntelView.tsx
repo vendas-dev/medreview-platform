@@ -92,7 +92,7 @@ function BarChart({ data, height=160, accent='#6366f1', valueFmt=fmtBRL }: {
 }
 
 // ── Donut chart (composição de partes de um todo) ───────────
-function DonutChart({ data, size=150, thickness=22 }: {
+function DonutChart({ data, size=240, thickness=32 }: {
   data: { label:string; value:number; color:string }[]
   size?: number
   thickness?: number
@@ -105,14 +105,15 @@ function DonutChart({ data, size=150, thickness=22 }: {
   const filtered = data.filter(d => d.value > 0)
   if (total <= 0) return null
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
+    // Ocupa todo o espaço do container, centraliza vertical e horizontalmente
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:20, padding:'8px 0' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink:0 }}>
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--secondary)" strokeWidth={thickness}/>
         {filtered.map((d, i) => {
           const frac = d.value / total
           const len  = frac * circumference
           const dasharray = `${len} ${circumference - len}`
-          const dashoffset = circumference * 0.25 - offsetAcc // começa no topo (12h)
+          const dashoffset = circumference * 0.25 - offsetAcc
           offsetAcc += len
           return (
             <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={d.color} strokeWidth={thickness}
@@ -121,22 +122,22 @@ function DonutChart({ data, size=150, thickness=22 }: {
               style={{ transition:'stroke-dasharray .6s ease' }}/>
           )
         })}
-        <text x={cx} y={cy-6} textAnchor="middle" style={{ fontSize:16, fontWeight:900, fill:'var(--foreground)' }}>{fmtBRL(total).replace('R$','').trim()}</text>
-        <text x={cx} y={cy+12} textAnchor="middle" style={{ fontSize:9, fill:'var(--muted-foreground)' }}>total</text>
+        <text x={cx} y={cy-10} textAnchor="middle" style={{ fontSize:20, fontWeight:900, fill:'var(--foreground)' }}>{fmtBRL(total).replace('R$','').trim()}</text>
+        <text x={cx} y={cy+14} textAnchor="middle" style={{ fontSize:11, fill:'var(--muted-foreground)' }}>total</text>
       </svg>
-      <div style={{ display:'flex', flexDirection:'column', gap:8, flex:1, minWidth:140 }}>
+      {/* Legendas embaixo — uma por linha */}
+      <div style={{ display:'flex', flexDirection:'column', gap:8, width:'100%', maxWidth:size }}>
         {filtered.map((d, i) => {
           const pct = total>0 ? (d.value/total)*100 : 0
           return (
-            <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+            <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
               <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                <div style={{ width:8, height:8, borderRadius:'50%', background:d.color, flexShrink:0 }}/>
-                <span style={{ fontSize:12, fontWeight:600, color:'var(--foreground)' }}>{d.label}</span>
+                <div style={{ width:9, height:9, borderRadius:'50%', background:d.color, flexShrink:0 }}/>
+                <span style={{ fontSize:12, color:'var(--muted-foreground)' }}>{d.label}</span>
               </div>
-              <div style={{ textAlign:'right' }}>
-                <span style={{ fontSize:12, fontWeight:800, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(d.value)}</span>
-                <span style={{ fontSize:10, color:'var(--muted-foreground)', marginLeft:5 }}>{fmtPct(pct)}</span>
-              </div>
+              <span style={{ fontSize:12, fontWeight:700, color:'var(--foreground)', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
+                {fmtBRL(d.value)} <span style={{ fontWeight:400, color:'var(--muted-foreground)' }}>{fmtPct(pct)}</span>
+              </span>
             </div>
           )
         })}

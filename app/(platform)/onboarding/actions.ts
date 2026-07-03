@@ -39,6 +39,7 @@ export async function createStep(formData: FormData) {
     description:         formData.get('description') || null,
     estimated_minutes:   formData.get('estimated_minutes') ? Number(formData.get('estimated_minutes')) : null,
     team:                formData.get('team'),
+    day_number:          formData.get('day_number') ? Number(formData.get('day_number')) : null,
     completion_criteria: formData.get('completion_criteria'),
     min_quiz_score:      Number(formData.get('min_quiz_score') || 70),
     max_attempts:        formData.get('max_attempts') ? Number(formData.get('max_attempts')) : null,
@@ -55,6 +56,7 @@ export async function updateStep(formData: FormData) {
     description:         formData.get('description') || null,
     estimated_minutes:   formData.get('estimated_minutes') ? Number(formData.get('estimated_minutes')) : null,
     team:                formData.get('team'),
+    day_number:          formData.get('day_number') ? Number(formData.get('day_number')) : null,
     completion_criteria: formData.get('completion_criteria'),
     min_quiz_score:      Number(formData.get('min_quiz_score') || 70),
     max_attempts:        formData.get('max_attempts') ? Number(formData.get('max_attempts')) : null,
@@ -65,8 +67,14 @@ export async function updateStep(formData: FormData) {
 
 export async function deleteStep(id: string) {
   await assertAdmin()
-  const supabase = await createClient()
-  await supabase.from('onboarding_steps').delete().eq('id', id)
+  // Usar adminClient para garantir bypass de RLS (corrige bug de algumas etapas não excluindo)
+  const admin = createAdminClient()
+  // Soft delete: desativa em vez de excluir fisicamente para preservar integridade referencial
+  const { error } = await admin
+    .from('onboarding_steps')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw new Error(error.message)
   revalidatePath('/onboarding/trilha')
 }
 
@@ -80,6 +88,54 @@ export async function reorderSteps(orderedIds: string[]) {
 }
 
 // ── Materials ──────────────────────────────────────────────
+
+export async function duplicateStep(id: string) {
+  await assertAdmin()
+  const admin = createAdminClient()
+
+  // Buscar etapa original
+  const { data: orig } = await admin
+    .from('onboarding_steps').select('*').eq('id', id).single()
+  if (!orig) throw new Error('Etapa não encontrada')
+
+  const origOrder = (orig as any).order_index as number
+
+  // Abrir espaço: incrementar order_index de todas as etapas após a original
+  await admin.rpc('increment_order_after', { threshold: origOrder })
+    .catch(async () => {
+      // Fallback manual se a RPC não existir
+      const { data: after } = await admin
+        .from('onboarding_steps')
+        .select('id, order_index')
+        .eq('is_active', true)
+        .gt('order_index', origOrder)
+        .order('order_index', { ascending: false })
+      for (const s of (after ?? [])) {
+        await admin.from('onboarding_steps')
+          .update({ order_index: (s as any).order_index + 1 })
+          .eq('id', (s as any).id)
+      }
+    })
+
+  // Inserir cópia logo abaixo da original
+  const { data: nova, error } = await admin.from('onboarding_steps').insert({
+    title:               `${(orig as any).title} (cópia)`,
+    description:         (orig as any).description,
+    estimated_minutes:   (orig as any).estimated_minutes,
+    team:                (orig as any).team,
+    day_number:          (orig as any).day_number,
+    completion_criteria: (orig as any).completion_criteria,
+    min_quiz_score:      (orig as any).min_quiz_score,
+    max_attempts:        (orig as any).max_attempts,
+    order_index:         origOrder + 1,
+    is_active:           true,
+  }).select().single()
+
+  if (error) throw new Error(error.message)
+  revalidatePath('/onboarding/trilha')
+  return nova
+}
+
 export async function createMaterial(formData: FormData) {
   await assertAdmin()
   const admin = createAdminClient()
@@ -116,6 +172,26 @@ export async function createMaterial(formData: FormData) {
   } else if (error) {
     throw new Error(error.message)
   }
+  revalidatePath(`/onboarding/trilha/${stepId}`)
+}
+
+
+export async function updateMaterial(formData: FormData) {
+  await assertAdmin()
+  const admin = createAdminClient()
+  const id     = formData.get('id') as string
+  const stepId = formData.get('step_id') as string
+
+  const thumbUrl = formData.get('thumbnail_url') as string | null
+  const { error } = await admin.from('onboarding_materials').update({
+    title:         formData.get('title'),
+    description:   formData.get('description') || null,
+    url:           formData.get('url'),
+    type:          formData.get('type'),
+    thumbnail_url: thumbUrl || null,
+  }).eq('id', id)
+
+  if (error) throw new Error(error.message)
   revalidatePath(`/onboarding/trilha/${stepId}`)
 }
 

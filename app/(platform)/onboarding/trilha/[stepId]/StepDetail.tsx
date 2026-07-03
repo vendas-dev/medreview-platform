@@ -5,7 +5,7 @@ import {
   FileText, HelpCircle, CheckSquare, ChevronDown, ChevronUp,
   Trophy, X, Pencil, Trash2, CheckCircle2, ExternalLink, Play,
 } from 'lucide-react'
-import { MaterialsManager, FaqManager, QuizManager } from './MaterialsManager'
+import { MaterialsManager, FaqManager, QuizManager, EditMaterialModal } from './MaterialsManager'
 import {
   submitQuiz, startStep, markMaterialViewed,
   deleteMaterial, deleteFaq, deleteQuestion,
@@ -282,6 +282,7 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
   const [openMaterial,    setOpenMaterial]     = useState<any|null>(null)
   const [viewedIds,       setViewedIds]       = useState<Set<string>>(new Set(viewedMaterialIds))
   const [editFaq,         setEditFaq]         = useState<any|null>(null)
+  const [editMaterial,    setEditMaterial]    = useState<any|null>(null)
   const [editQuestion,    setEditQuestion]    = useState<any|null>(null)
   const [deletingId,      setDeletingId]      = useState<string|null>(null)
 
@@ -354,6 +355,8 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
         />
       )}
 
+      {/* Edit Material modal */}
+      {editMaterial && <EditMaterialModal material={editMaterial} stepId={stepId} onClose={() => setEditMaterial(null)}/>}
       {/* Edit FAQ modal */}
       {editFaq && <EditFaqModal faq={editFaq} stepId={stepId} onClose={() => setEditFaq(null)}/>}
       {/* Edit Quiz modal */}
@@ -437,6 +440,13 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
                       onMouseLeave={e=>{ if(isAdmin){ (e.currentTarget as HTMLElement).style.background='transparent'; (e.currentTarget as HTMLElement).style.color='var(--muted-foreground)' }}}>
                       <Play size={12}/> {isAdmin?'Preview':'Abrir'}
                     </button>
+                    {isAdmin && (
+                      <button onClick={() => setEditMaterial(m)} style={{ ...adminBtn }}
+                        onMouseEnter={e=>{ (e.currentTarget as HTMLElement).style.background='rgba(99,102,241,.1)'; (e.currentTarget as HTMLElement).style.color='#6366f1' }}
+                        onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.background='transparent'; (e.currentTarget as HTMLElement).style.color='var(--muted-foreground)' }}>
+                        <Pencil size={13}/>
+                      </button>
+                    )}
                     {isAdmin && <DeleteBtn onConfirm={() => handleDelete('material', m.id)} loading={deletingId===m.id}/>}
                   </div>
                   </div>

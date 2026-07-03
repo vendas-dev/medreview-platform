@@ -6,18 +6,21 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, LabelList, PieChart, Pie, Legend,
 } from 'recharts'
-import { Plus, Trash2, Check, X, BarChart2, BookOpen, MessageSquare, Save } from 'lucide-react'
+import { Plus, Trash2, Check, Save } from 'lucide-react'
 
 // ── Tipos ─────────────────────────────────────────────────────
 interface SAnswer   { id:string; answer:string; is_correct:boolean; order_index:number }
 interface SQuestion { id:string; question:string; order_index:number; simulado_answers:SAnswer[] }
 interface Simulado  { id:string; numero:number; titulo:string; descricao:string|null; nota_minima:number; team:string; simulado_questions:SQuestion[] }
 interface Attempt   { id:string; user_id:string; simulado_numero:number; score:number; correct_answers:number; wrong_answers:number; total_questions:number; passed:boolean; completed_at:string; profiles:{name:string;email:string} }
-interface Insight   { id:string; user_id:string; day_number:number|null; insight_type:string; content:string; created_at:string; profiles:{name:string}; onboarding_steps:{title:string;day_number:number}|null }
+// profiles agora inclui team para exibir a tag no insight
+interface Insight   { id:string; user_id:string; day_number:number|null; insight_type:string; content:string; created_at:string; profiles:{name:string; team?:string|null}; onboarding_steps:{title:string;day_number:number}|null }
 
 const COLORS = ['#818cf8','#f87171','#34d399','#fbbf24','#a78bfa','#60a5fa']
 const TOOLTIP_STYLE = { background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, fontSize:12, color:'var(--foreground)' }
-const TEAMS = ['ambos','R1','OAO'] as const
+
+// ── REMOVIDO 'ambos' — apenas R1 e OAO ───────────────────────
+const TEAMS = ['R1','OAO'] as const
 type TeamKey = typeof TEAMS[number]
 type TabId = 'questions'|'analytics'|'insights'
 
@@ -37,7 +40,6 @@ function QuestionEditor({ simulado, onRefresh }: { simulado:Simulado; onRefresh:
 
   const questions = [...(simulado.simulado_questions ?? [])].sort((a,b)=>a.order_index-b.order_index)
 
-  // Salvar nota mínima e título via API route (usa admin client no servidor)
   async function saveMeta() {
     setSavingMeta(true)
     const res = await fetch('/api/simulado/update', {
@@ -49,14 +51,12 @@ function QuestionEditor({ simulado, onRefresh }: { simulado:Simulado; onRefresh:
     if (res.ok) {
       setMetaSaved(true)
       setTimeout(() => setMetaSaved(false), 2000)
-      router.refresh()  // re-fetcha server component com dados atualizados
+      router.refresh()
     }
   }
 
   async function addQuestion() {
     if (!newQ.trim()) return
-    // Validar correta obrigatória
-    if (!newCorrect && newCorrect !== 0) { alert('Selecione qual alternativa é a correta.'); return }
     if (newAnswers.filter((a: string)=>a.trim()).length < 2) { alert('Preencha pelo menos 2 alternativas.'); return }
     setSaving(true)
     const { data: q } = await supabase.from('simulado_questions').insert({
@@ -81,7 +81,6 @@ function QuestionEditor({ simulado, onRefresh }: { simulado:Simulado; onRefresh:
 
   return (
     <div>
-      {/* Meta: nota mínima + título */}
       <div style={{ background:'var(--secondary)', borderRadius:14, padding:'16px 18px', marginBottom:20, display:'flex', flexDirection:'column', gap:10 }}>
         <p style={{ fontSize:12, fontWeight:800, color:'var(--muted-foreground)', margin:0, textTransform:'uppercase', letterSpacing:'.07em' }}>Configurações do simulado</p>
         <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:10, alignItems:'flex-end' }}>
@@ -104,7 +103,6 @@ function QuestionEditor({ simulado, onRefresh }: { simulado:Simulado; onRefresh:
         </div>
       </div>
 
-      {/* Perguntas */}
       <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:16 }}>
         {questions.map((q,qi) => (
           <div key={q.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 18px', boxShadow:'0 1px 6px rgba(0,0,0,.05)' }}>
@@ -131,7 +129,6 @@ function QuestionEditor({ simulado, onRefresh }: { simulado:Simulado; onRefresh:
         {questions.length === 0 && <p style={{ textAlign:'center', padding:32, color:'var(--muted-foreground)', fontSize:13 }}>Nenhuma pergunta cadastrada ainda.</p>}
       </div>
 
-      {/* Adicionar pergunta */}
       {!adding ? (
         <button onClick={()=>setAdding(true)} style={{ width:'100%', height:44, borderRadius:12, border:'2px dashed var(--border)', background:'transparent', color:'#6366f1', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
           <Plus size={16}/> Adicionar Pergunta
@@ -163,18 +160,33 @@ function QuestionEditor({ simulado, onRefresh }: { simulado:Simulado; onRefresh:
   )
 }
 
+// ── Team tag ──────────────────────────────────────────────────
+function TeamTag({ team }: { team?: string|null }) {
+  if (!team || team === 'ambos') return null
+  const isR1 = team === 'R1'
+  return (
+    <span style={{
+      fontSize:9, fontWeight:800, padding:'1px 7px', borderRadius:999,
+      background: isR1 ? 'rgba(124,58,237,.12)' : 'rgba(37,99,235,.12)',
+      color:      isR1 ? '#7c3aed'               : '#2563eb',
+      letterSpacing:'.04em', flexShrink:0,
+    }}>
+      {isR1 ? 'R1' : 'OAO'}
+    </span>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────
 export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Simulado[]; attempts:Attempt[]; insights:Insight[] }) {
-  const [activeTeam, setActiveTeam] = useState<TeamKey>('ambos')
+  // Default: Time R1 (não existe mais 'ambos')
+  const [activeTeam, setActiveTeam] = useState<TeamKey>('R1')
   const [tab,        setTab]        = useState<TabId>('questions')
 
-  // Filtrar simulados pelo time ativo
   const teamSimulados = simulados.filter(s => s.team === activeTeam)
   const sim1 = teamSimulados.find(s => s.numero === 1)
   const sim2 = teamSimulados.find(s => s.numero === 2)
   const [simTab, setSimTab] = useState<1|2>(1)
 
-  // Analytics
   const analytics = useMemo(() => {
     const userMap: Record<string,{name:string;sim1?:Attempt;sim2?:Attempt}> = {}
     attempts.forEach(a => {
@@ -196,12 +208,10 @@ export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Si
   }, [attempts])
 
   const CARD: React.CSSProperties = { background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, padding:'20px 22px', boxShadow:'0 1px 8px rgba(0,0,0,.06)' }
-
-  const TEAM_LABEL: Record<TeamKey,string> = { ambos:'🌐 Ambos os Times', R1:'🟣 Time R1', OAO:'🔵 Time OAO' }
+  const TEAM_LABEL: Record<TeamKey,string> = { R1:'🟣 Time R1', OAO:'🔵 Time OAO' }
 
   return (
     <div style={{ padding:'clamp(16px,3vw,28px)', maxWidth:1100, margin:'0 auto' }}>
-      {/* Header */}
       <div style={{ background:'linear-gradient(135deg,#1e1b4b 0%,#312e81 50%,#4f46e5 100%)', borderRadius:20, padding:'clamp(18px,3vw,28px)', marginBottom:22, color:'#fff' }}>
         <span style={{ fontSize:10, fontWeight:800, letterSpacing:'.1em', textTransform:'uppercase', padding:'3px 12px', borderRadius:999, background:'rgba(255,255,255,.15)', display:'inline-block', marginBottom:10 }}>⚙️ Admin</span>
         <h1 style={{ fontSize:22, fontWeight:900, margin:'0 0 6px', letterSpacing:'-.02em' }}>Gestão dos Simulados Finais</h1>
@@ -220,7 +230,7 @@ export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Si
       {/* ── Tab Perguntas ─────────────────────────────────────── */}
       {tab==='questions'&&(
         <>
-          {/* Seletor de time */}
+          {/* Seletor de time — apenas R1 e OAO */}
           <div style={{ display:'flex', gap:8, marginBottom:20 }}>
             {TEAMS.map(t=>(
               <button key={t} onClick={()=>setActiveTeam(t)}
@@ -230,7 +240,6 @@ export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Si
             ))}
           </div>
 
-          {/* Seletor Simulado 1 / 2 */}
           <div style={{ display:'flex', gap:4, marginBottom:20, padding:4, background:'var(--secondary)', borderRadius:10, border:'1px solid var(--border)', width:'fit-content' }}>
             {([1,2] as const).map(n=>(
               <button key={n} onClick={()=>setSimTab(n)} style={{ height:30, padding:'0 14px', borderRadius:8, border:'none', background:simTab===n?'var(--card)':'transparent', color:simTab===n?'var(--foreground)':'var(--muted-foreground)', fontSize:12, fontWeight:simTab===n?700:400, cursor:'pointer', fontFamily:'inherit', boxShadow:simTab===n?'0 1px 4px rgba(0,0,0,.1)':'none', transition:'all .15s' }}>
@@ -241,9 +250,9 @@ export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Si
 
           {simTab===1 && sim1 && <QuestionEditor key={`${activeTeam}-1`} simulado={sim1} onRefresh={()=>{}}/>}
           {simTab===2 && sim2 && <QuestionEditor key={`${activeTeam}-2`} simulado={sim2} onRefresh={()=>{}}/>}
-          {(!sim1 && simTab===1) || (!sim2 && simTab===2) ? (
+          {((!sim1 && simTab===1) || (!sim2 && simTab===2)) && (
             <p style={{ textAlign:'center', padding:40, color:'var(--muted-foreground)' }}>Simulado não encontrado para este time. Rode o SQL de fix.</p>
-          ) : null}
+          )}
         </>
       )}
 
@@ -301,7 +310,6 @@ export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Si
               ):<p style={{textAlign:'center',padding:40,color:'var(--muted-foreground)'}}>Sem dados.</p>}
             </div>
           </div>
-          {/* Tabela */}
           <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 8px rgba(0,0,0,.06)'}}>
             <div style={{padding:'14px 20px',borderBottom:'1px solid var(--border)'}}>
               <h3 style={{fontSize:13,fontWeight:800,color:'var(--foreground)',margin:0}}>Detalhamento por Pessoa</h3>
@@ -349,8 +357,12 @@ export function SimuladosAdmin({ simulados, attempts, insights }: { simulados:Si
                 <div style={{display:'flex',flexDirection:'column',gap:10}}>
                   {dayInsights.map(ins=>(
                     <div key={ins.id} style={{background:'var(--secondary)',borderRadius:12,padding:'12px 16px'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6,flexWrap:'wrap',gap:6}}>
-                        <span style={{fontSize:12,fontWeight:700,color:'var(--foreground)'}}>{ins.profiles?.name??'Usuário'}</span>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}}>
+                        {/* Nome + tag de time lado a lado */}
+                        <div style={{display:'flex',alignItems:'center',gap:7}}>
+                          <span style={{fontSize:12,fontWeight:700,color:'var(--foreground)'}}>{ins.profiles?.name??'Usuário'}</span>
+                          <TeamTag team={ins.profiles?.team}/>
+                        </div>
                         <span style={{fontSize:10,color:'var(--muted-foreground)'}}>{new Date(ins.created_at).toLocaleDateString('pt-BR')}</span>
                       </div>
                       <p style={{fontSize:13,color:'var(--foreground)',margin:0,lineHeight:1.6}}>"{ins.content}"</p>

@@ -1,194 +1,216 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { createPortal }        from 'react-dom'
-import { Plus, X, Sparkles }   from 'lucide-react'
-import { CustomSelect }        from '@/components/ui/CustomSelect'
-import { createStep, updateStep } from '../actions'
+import { useState, useTransition, useOptimistic } from 'react'
+import { useRouter } from 'next/navigation'
+import { Plus, X, Pencil, Trash2, Copy, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
+import {
+  createStep, updateStep, deleteStep, reorderSteps, duplicateStep,
+} from '../actions'
 
-const inp: React.CSSProperties = {
+const INP: React.CSSProperties = {
   width:'100%', height:42, padding:'0 14px', borderRadius:10,
   border:'1.5px solid var(--border)', background:'var(--background)',
   color:'var(--foreground)', fontSize:14, fontFamily:'inherit', outline:'none',
-  transition:'border-color 0.15s, box-shadow 0.15s',
 }
-const lbl: React.CSSProperties = {
-  fontSize:11, fontWeight:700, color:'var(--muted-foreground)',
-  display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.06em',
+const LBL: React.CSSProperties = {
+  fontSize:13, fontWeight:600, color:'var(--foreground)', display:'block', marginBottom:6,
 }
-const foc = (e: React.FocusEvent<any>) => { e.target.style.borderColor='#6366f1'; e.target.style.boxShadow='0 0 0 3px rgba(99,102,241,0.1)' }
-const blr = (e: React.FocusEvent<any>) => { e.target.style.borderColor='var(--border)'; e.target.style.boxShadow='none' }
 
-const DAY_OPTIONS      = [{ value:'', label:'— Sem dia' }, ...Array.from({length:15},(_,i)=>({ value:String(i+1), label:`Dia ${i+1}` }))]
-const TEAM_OPTIONS     = [{ value:'ambos', label:'👥 Ambos os times' }, { value:'OAO', label:'🔵 Time OAO' }, { value:'R1', label:'🟣 Time R1' }]
-const CRITERIA_OPTIONS = [
-  { value:'visualizar',       label:'👁 Apenas visualizar'  },
-  { value:'materiais',        label:'📚 Concluir materiais' },
-  { value:'quiz',             label:'✅ Passar no quiz'      },
-  { value:'materiais_e_quiz', label:'📚✅ Materiais + Quiz'  },
-]
-
-const motivationalPhrases = [
-  'Mais uma etapa, mais um passo rumo ao time perfeito! 🚀',
-  'O conhecimento certo na hora certa faz toda diferença. 💡',
-  'Monte a trilha ideal e veja seu time decolar! 🎯',
-  'Cada etapa bem construída é um vendedor mais preparado. 💪',
-]
-
-interface Props { mode: 'create' | 'edit'; step?: any }
-
-export function StepManager({ mode, step }: Props) {
-  const [open,    setOpen]    = useState(false)
+// ── Formulário de criar/editar etapa ──────────────────────────
+function StepForm({ mode, step, onClose }: { mode:'create'|'edit'; step?:any; onClose:()=>void }) {
+  const router = useRouter()
+  const [, startTrans] = useTransition()
   const [loading, setLoading] = useState(false)
-  const [mounted, setMounted] = useState(false)
-  const [day,      setDay]      = useState(step?.day_number != null ? String(step.day_number) : '')
-  const [team,     setTeam]     = useState(step?.team ?? 'ambos')
-  const [criteria, setCriteria] = useState(step?.completion_criteria ?? 'visualizar')
-
-  useEffect(() => { setMounted(true) }, [])
-
-  useEffect(() => {
-    if (open) {
-      setDay(step?.day_number != null ? String(step.day_number) : '')
-      setTeam(step?.team ?? 'ambos')
-      setCriteria(step?.completion_criteria ?? 'visualizar')
-    }
-  }, [open, step])
-
-  useEffect(() => {
-    if (!open) return
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [open])
-
-  const phrase = motivationalPhrases[Math.floor(Math.random() * motivationalPhrases.length)]
+  const [error, setError] = useState('')
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true)
-    const fd = new FormData(e.currentTarget)
-    fd.set('day_number',          day === '' ? '' : day)
-    fd.set('team',                team)
-    fd.set('completion_criteria', criteria)
-    if (mode === 'create') await createStep(fd)
-    else await updateStep(fd)
-    setLoading(false)
-    setOpen(false)
+    e.preventDefault(); setLoading(true); setError('')
+    try {
+      const fd = new FormData(e.currentTarget)
+      if (mode === 'create') await createStep(fd)
+      else await updateStep(fd)
+      onClose()
+      startTrans(() => router.refresh())
+    } catch (err:any) { setError(err?.message ?? 'Erro ao salvar') }
+    finally { setLoading(false) }
   }
 
-  const modal = open && mounted ? createPortal(
-    <>
-      <div onClick={()=>setOpen(false)}
-        style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.72)', backdropFilter:'blur(8px)', zIndex:9998 }}/>
-      <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-        <div onClick={e=>e.stopPropagation()}
-          style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:22, width:'100%', maxWidth:560, maxHeight:'92vh', overflowY:'auto', boxShadow:'0 32px 80px rgba(0,0,0,0.5)' }}>
-
-          {/* Header */}
-          <div style={{ background:'linear-gradient(135deg,#2e1065,#3730a3,#4f46e5)', borderRadius:'22px 22px 0 0', padding:'22px 26px', position:'relative', overflow:'hidden' }}>
-            <div style={{ position:'absolute', top:-20, right:-20, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }}/>
-            <div style={{ position:'relative', zIndex:1, display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
-              <div>
-                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
-                  <Sparkles size={13} style={{ color:'#fbbf24' }}/>
-                  <span style={{ fontSize:10, fontWeight:800, color:'rgba(255,255,255,0.7)', textTransform:'uppercase', letterSpacing:'0.08em' }}>
-                    {mode==='create' ? 'Nova etapa' : 'Editando etapa'}
-                  </span>
-                </div>
-                <h2 style={{ fontSize:18, fontWeight:900, color:'#fff', margin:'0 0 4px', letterSpacing:'-0.02em' }}>
-                  {mode==='create' ? 'Monte mais um passo da jornada! 🗺️' : 'Atualize e deixe ainda mais top! ✨'}
-                </h2>
-                <p style={{ fontSize:12, color:'rgba(255,255,255,0.65)', margin:0 }}>{phrase}</p>
-              </div>
-              <button onClick={()=>setOpen(false)}
-                style={{ width:32, height:32, borderRadius:9, border:'none', background:'rgba(255,255,255,0.15)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', flexShrink:0 }}
-                onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.25)'}
-                onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.15)'}>
-                <X size={14}/>
-              </button>
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e => e.target===e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, padding:28, width:'100%', maxWidth:560, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 8px 32px rgba(0,0,0,.2)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
+          <h2 style={{ margin:0, fontSize:16, fontWeight:700, color:'var(--foreground)' }}>{mode==='create'?'Nova etapa':'Editar etapa'}</h2>
+          <button onClick={onClose} style={{ width:32, height:32, borderRadius:8, border:'none', background:'transparent', cursor:'pointer', color:'var(--muted-foreground)', display:'flex', alignItems:'center', justifyContent:'center' }}><X size={16}/></button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          {mode==='edit' && <input type="hidden" name="id" value={step?.id}/>}
+          <div><label style={LBL}>Título *</label><input name="title" required defaultValue={step?.title} placeholder="Ex: Boas-vindas ao time" style={INP}/></div>
+          <div><label style={LBL}>Descrição</label><textarea name="description" rows={2} defaultValue={step?.description ?? ''} placeholder="Opcional..." style={{ ...INP, height:'auto', padding:'10px 14px', resize:'vertical' }}/></div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={LBL}>Time</label>
+              <select name="team" defaultValue={step?.team ?? 'ambos'} style={{ ...INP, appearance:'none', cursor:'pointer' }}>
+                <option value="ambos">Ambos os times</option>
+                <option value="R1">Time R1</option>
+                <option value="OAO">Time OAO</option>
+              </select>
+            </div>
+            <div>
+              <label style={LBL}>Dia da trilha</label>
+              <input type="number" name="day_number" min={1} defaultValue={step?.day_number ?? ''} placeholder="Ex: 1" style={INP}/>
             </div>
           </div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} style={{ padding:'24px 26px', display:'flex', flexDirection:'column', gap:16 }}>
-            {mode==='edit' && <input type="hidden" name="id" value={step?.id}/>}
-
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={lbl}>Título da etapa *</label>
-              <input name="title" required defaultValue={step?.title} placeholder="Ex: Conhecendo a MedReview"
-                style={inp} onFocus={foc} onBlur={blr}/>
+              <label style={LBL}>Duração estimada (min)</label>
+              <input type="number" name="estimated_minutes" min={1} defaultValue={step?.estimated_minutes ?? ''} placeholder="Ex: 30" style={INP}/>
             </div>
-
             <div>
-              <label style={lbl}>Descrição</label>
-              <textarea name="description" defaultValue={step?.description ?? ''} rows={3}
-                placeholder="O que o colaborador vai aprender nessa etapa?"
-                style={{ ...inp, height:'auto', padding:'10px 14px', resize:'vertical', lineHeight:1.55 }}
-                onFocus={foc} onBlur={blr}/>
+              <label style={LBL}>Nota mínima no quiz (%)</label>
+              <input type="number" name="min_quiz_score" min={0} max={100} defaultValue={step?.min_quiz_score ?? 70} style={INP}/>
             </div>
-
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
-              <div>
-                <label style={lbl}>📅 Dia</label>
-                <CustomSelect value={day} onChange={setDay} options={DAY_OPTIONS} placeholder="— Sem dia"/>
-              </div>
-              <div>
-                <label style={lbl}>⏱ Tempo (min)</label>
-                <input name="estimated_minutes" type="number" defaultValue={step?.estimated_minutes ?? ''}
-                  placeholder="30" style={inp} onFocus={foc} onBlur={blr}/>
-              </div>
-              <div>
-                <label style={lbl}>👥 Time</label>
-                <CustomSelect value={team} onChange={setTeam} options={TEAM_OPTIONS} placeholder="Selecione"/>
-              </div>
-            </div>
-
-            <div>
-              <label style={lbl}>🎯 Critério de conclusão</label>
-              <CustomSelect value={criteria} onChange={setCriteria} options={CRITERIA_OPTIONS} placeholder="Selecione"/>
-            </div>
-
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <div>
-                <label style={lbl}>🏆 Nota mínima no quiz (%)</label>
-                <input name="min_quiz_score" type="number" min={0} max={100}
-                  defaultValue={step?.min_quiz_score ?? 70} style={inp} onFocus={foc} onBlur={blr}/>
-              </div>
-              <div>
-                <label style={lbl}>🔄 Máx. de tentativas</label>
-                <input name="max_attempts" type="number" defaultValue={step?.max_attempts ?? ''}
-                  placeholder="Ilimitadas" style={inp} onFocus={foc} onBlur={blr}/>
-              </div>
-            </div>
-
-            <div style={{ display:'flex', gap:10, paddingTop:4 }}>
-              <button type="button" onClick={()=>setOpen(false)}
-                style={{ flex:1, height:46, borderRadius:12, border:'1.5px solid var(--border)', background:'transparent', color:'var(--muted-foreground)', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'inherit', transition:'all .12s' }}
-                onMouseEnter={e=>{e.currentTarget.style.background='var(--secondary)';e.currentTarget.style.color='var(--foreground)'}}
-                onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='var(--muted-foreground)'}}>
-                Cancelar
-              </button>
-              <button type="submit" disabled={loading}
-                style={{ flex:2, height:46, borderRadius:12, background:'linear-gradient(135deg,#4f46e5,#7c3aed)', color:'#fff', fontSize:14, fontWeight:800, border:'none', cursor:loading?'not-allowed':'pointer', fontFamily:'inherit', opacity:loading?.7:1, boxShadow:'0 4px 16px rgba(79,70,229,0.35)' }}>
-                {loading ? 'Salvando...' : mode==='create' ? '🚀 Criar etapa' : '✓ Salvar alterações'}
-              </button>
-            </div>
-          </form>
-        </div>
+          </div>
+          <div>
+            <label style={LBL}>Critério de conclusão</label>
+            <select name="completion_criteria" defaultValue={step?.completion_criteria ?? 'visualizar'} style={{ ...INP, appearance:'none', cursor:'pointer' }}>
+              <option value="visualizar">Visualizar material</option>
+              <option value="quiz">Passar no quiz</option>
+              <option value="ambos">Ambos</option>
+            </select>
+          </div>
+          {error && <p style={{ fontSize:12, color:'#ef4444', padding:'8px 12px', background:'rgba(239,68,68,.06)', borderRadius:8, margin:0 }}>{error}</p>}
+          <div style={{ display:'flex', gap:10, paddingTop:4 }}>
+            <button type="button" onClick={onClose} style={{ flex:1, height:42, borderRadius:10, border:'1.5px solid var(--border)', background:'transparent', color:'var(--muted-foreground)', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Cancelar</button>
+            <button type="submit" disabled={loading} style={{ flex:1, height:42, borderRadius:10, background:loading?'var(--secondary)':'var(--foreground)', color:loading?'var(--muted-foreground)':'var(--card)', fontSize:14, fontWeight:700, border:'none', cursor:loading?'not-allowed':'pointer', fontFamily:'inherit' }}>
+              {loading?'Salvando...':mode==='create'?'Criar etapa':'Salvar'}
+            </button>
+          </div>
+        </form>
       </div>
-    </>,
-    document.body
-  ) : null
+    </div>
+  )
+}
+
+// ── Botão de Nova etapa (modo create) ─────────────────────────
+export function CreateStepButton() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        style={{ display:'inline-flex', alignItems:'center', gap:8, height:40, padding:'0 18px', borderRadius:10, background:'var(--foreground)', color:'var(--card)', fontSize:14, fontWeight:600, border:'none', cursor:'pointer', fontFamily:'inherit' }}>
+        <Plus size={15}/> Nova etapa
+      </button>
+      {open && <StepForm mode="create" onClose={() => setOpen(false)}/>}
+    </>
+  )
+}
+
+// ── Filtro de time para admin ─────────────────────────────────
+export function TeamFilter({ value, onChange }: { value:string; onChange:(v:string)=>void }) {
+  const opts = [
+    { value:'ambos', label:'Todos os times' },
+    { value:'R1',   label:'Time R1' },
+    { value:'OAO',  label:'Time OAO' },
+  ]
+  return (
+    <div style={{ display:'flex', gap:4, padding:4, background:'var(--secondary)', borderRadius:10, border:'1px solid var(--border)' }}>
+      {opts.map(o => (
+        <button key={o.value} onClick={() => onChange(o.value)}
+          style={{ height:30, padding:'0 14px', borderRadius:7, border:'none', background:value===o.value?'var(--card)':'transparent', color:value===o.value?'var(--foreground)':'var(--muted-foreground)', fontSize:12, fontWeight:value===o.value?700:400, cursor:'pointer', fontFamily:'inherit', boxShadow:value===o.value?'0 1px 4px rgba(0,0,0,.08)':'none', transition:'all .15s', whiteSpace:'nowrap' }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ── Controles de admin por etapa ─────────────────────────────
+export function StepAdminControls({ step, steps, isFirst, isLast }: { step:any; steps:any[]; isFirst:boolean; isLast:boolean }) {
+  const router = useRouter()
+  const [, startTrans] = useTransition()
+  const [editOpen,    setEditOpen]    = useState(false)
+  const [deleting,    setDeleting]    = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
+  const [moving,      setMoving]      = useState(false)
+  const [confirmDel,  setConfirmDel]  = useState(false)
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await deleteStep(step.id)
+      startTrans(() => router.refresh())
+    } finally { setDeleting(false); setConfirmDel(false) }
+  }
+
+  async function handleDuplicate() {
+    setDuplicating(true)
+    try {
+      await duplicateStep(step.id)
+      startTrans(() => router.refresh())
+    } finally { setDuplicating(false) }
+  }
+
+  async function handleMove(direction: 'up'|'down') {
+    setMoving(true)
+    try {
+      const ids = steps.map(s => s.id)
+      const idx = ids.indexOf(step.id)
+      const newIdx = direction==='up' ? idx-1 : idx+1
+      if (newIdx < 0 || newIdx >= ids.length) return
+      const reordered = [...ids]
+      reordered.splice(idx, 1)
+      reordered.splice(newIdx, 0, step.id)
+      await reorderSteps(reordered)
+      startTrans(() => router.refresh())
+    } finally { setMoving(false) }
+  }
+
+  const iconBtn: React.CSSProperties = { width:30, height:30, borderRadius:7, border:'1px solid var(--border)', background:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted-foreground)', transition:'all .15s', flexShrink:0 }
 
   return (
     <>
-      <button onClick={()=>setOpen(true)}
-        style={{ display:'inline-flex', alignItems:'center', gap:7, height:40, padding:'0 18px', borderRadius:10, background:'linear-gradient(135deg,#4f46e5,#7c3aed)', color:'#fff', border:'none', cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit', boxShadow:'0 4px 14px rgba(79,70,229,0.35)', transition:'all 0.15s' }}
-        onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.boxShadow='0 6px 20px rgba(79,70,229,0.45)'}}
-        onMouseLeave={e=>{e.currentTarget.style.transform='none';e.currentTarget.style.boxShadow='0 4px 14px rgba(79,70,229,0.35)'}}>
-        {mode==='create' ? <><Plus size={14}/> Nova etapa</> : 'Editar etapa'}
-      </button>
-      {modal}
+      {editOpen && <StepForm mode="edit" step={step} onClose={() => setEditOpen(false)}/>}
+      <div style={{ display:'flex', gap:4, alignItems:'center' }} onClick={e => e.preventDefault()}>
+        {/* Mover */}
+        <button onClick={() => handleMove('up')} disabled={isFirst||moving} title="Mover para cima" style={{ ...iconBtn, opacity:isFirst?.3:1 }}
+          onMouseEnter={e=>{ (e.currentTarget as HTMLElement).style.background='var(--secondary)' }}
+          onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.background='transparent' }}>
+          <ChevronUp size={13}/>
+        </button>
+        <button onClick={() => handleMove('down')} disabled={isLast||moving} title="Mover para baixo" style={{ ...iconBtn, opacity:isLast?.3:1 }}
+          onMouseEnter={e=>{ (e.currentTarget as HTMLElement).style.background='var(--secondary)' }}
+          onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.background='transparent' }}>
+          <ChevronDown size={13}/>
+        </button>
+        {/* Duplicar */}
+        <button onClick={handleDuplicate} disabled={duplicating} title="Duplicar etapa" style={iconBtn}
+          onMouseEnter={e=>{ (e.currentTarget as HTMLElement).style.background='rgba(99,102,241,.1)'; (e.currentTarget as HTMLElement).style.color='#6366f1' }}
+          onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.background='transparent'; (e.currentTarget as HTMLElement).style.color='var(--muted-foreground)' }}>
+          <Copy size={13}/>
+        </button>
+        {/* Editar */}
+        <button onClick={() => setEditOpen(true)} title="Editar etapa" style={iconBtn}
+          onMouseEnter={e=>{ (e.currentTarget as HTMLElement).style.background='rgba(99,102,241,.1)'; (e.currentTarget as HTMLElement).style.color='#6366f1' }}
+          onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.background='transparent'; (e.currentTarget as HTMLElement).style.color='var(--muted-foreground)' }}>
+          <Pencil size={13}/>
+        </button>
+        {/* Excluir */}
+        {confirmDel ? (
+          <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+            <span style={{ fontSize:11, color:'#ef4444', fontWeight:600 }}>Excluir?</span>
+            <button onClick={handleDelete} disabled={deleting} style={{ height:26, padding:'0 10px', borderRadius:6, background:'#ef4444', color:'#fff', border:'none', cursor:'pointer', fontSize:11, fontWeight:700 }}>
+              {deleting?'...':'Sim'}
+            </button>
+            <button onClick={() => setConfirmDel(false)} style={{ height:26, padding:'0 10px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', cursor:'pointer', fontSize:11, color:'var(--muted-foreground)' }}>Não</button>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmDel(true)} title="Excluir etapa" style={iconBtn}
+            onMouseEnter={e=>{ (e.currentTarget as HTMLElement).style.background='rgba(239,68,68,.1)'; (e.currentTarget as HTMLElement).style.color='#ef4444' }}
+            onMouseLeave={e=>{ (e.currentTarget as HTMLElement).style.background='transparent'; (e.currentTarget as HTMLElement).style.color='var(--muted-foreground)' }}>
+            <Trash2 size={13}/>
+          </button>
+        )}
+      </div>
     </>
   )
 }

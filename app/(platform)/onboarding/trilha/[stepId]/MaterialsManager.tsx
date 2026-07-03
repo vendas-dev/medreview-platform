@@ -2,7 +2,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X, Link as LinkIcon, Loader2 } from 'lucide-react'
-import { createMaterial, createFaq, createQuestion } from '../../actions'
+import { createMaterial, createFaq, createQuestion, updateMaterial } from '../../actions'
 
 const inputStyle: React.CSSProperties = {
   width:'100%', height:42, padding:'0 14px', borderRadius:10,
@@ -68,6 +68,88 @@ function SubmitRow({ loading, onCancel, label='Adicionar' }: { loading: boolean;
         {loading && <Loader2 size={14} style={{ animation:'spin .8s linear infinite' }}/>}
         {loading ? 'Salvando...' : label}
       </button>
+    </div>
+  )
+}
+
+
+// ── Edit Material Modal ────────────────────────────────────
+function getYTThumb(url: string): string | null {
+  const ps = [/youtube\.com\/watch\?v=([^&\s]+)/, /youtu\.be\/([^?\s]+)/, /youtube\.com\/embed\/([^?\s]+)/, /youtube\.com\/shorts\/([^?\s]+)/]
+  for (const p of ps) { const m = url.match(p); if (m?.[1]) return `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` }
+  return null
+}
+
+export function EditMaterialModal({ material, stepId, onClose }: { material:any; stepId:string; onClose:()=>void }) {
+  const router = useRouter()
+  const [, startTransition] = useTransition()
+  const [loading, setLoading] = useState(false)
+  const [url,   setUrl]   = useState(material.url ?? '')
+  const [thumb, setThumb] = useState(material.thumbnail_url ?? '')
+  const [error, setError] = useState('')
+
+  function handleUrlChange(val: string) {
+    setUrl(val)
+    const yt = getYTThumb(val)
+    if (yt && !thumb) setThumb(yt)
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!url.trim()) { setError('URL é obrigatória.'); return }
+    setLoading(true); setError('')
+    try {
+      const fd = new FormData(e.currentTarget)
+      fd.set('id', material.id); fd.set('step_id', stepId)
+      fd.set('url', url); fd.set('thumbnail_url', thumb)
+      await updateMaterial(fd)
+      onClose(); startTransition(() => router.refresh())
+    } catch (err:any) { setError(err?.message ?? 'Erro ao salvar.') }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+      onClick={e => e.target===e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, padding:28, width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 8px 32px rgba(0,0,0,.2)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24 }}>
+          <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'var(--foreground)' }}>Editar material</h2>
+          <button onClick={onClose} style={{ width:30, height:30, borderRadius:7, border:'none', background:'transparent', cursor:'pointer', color:'var(--muted-foreground)', display:'flex', alignItems:'center', justifyContent:'center' }}><X size={15}/></button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <div><label style={labelStyle}>Título *</label><input name="title" required defaultValue={material.title} style={inputStyle}/></div>
+          <div><label style={labelStyle}>Descrição</label><textarea name="description" rows={2} defaultValue={material.description ?? ''} style={{ ...inputStyle, height:'auto', padding:'10px 14px', resize:'vertical' }}/></div>
+          <div>
+            <label style={labelStyle}>URL *</label>
+            <input value={url} onChange={e => handleUrlChange(e.target.value)} required placeholder="https://..." style={inputStyle}/>
+            {thumb && (
+              <div style={{ marginTop:8, borderRadius:10, overflow:'hidden', position:'relative', height:100 }}>
+                <img src={thumb} alt="Thumb" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+                <button type="button" onClick={() => setThumb('')} style={{ position:'absolute', top:6, right:6, width:22, height:22, borderRadius:'50%', background:'rgba(0,0,0,.5)', border:'none', color:'#fff', cursor:'pointer', fontSize:12 }}>×</button>
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={labelStyle}>Tipo</label>
+            <select name="type" defaultValue={material.type ?? 'video'} style={{ ...inputStyle, appearance:'none' }}>
+              <option value="video">Vídeo</option>
+              <option value="documento">Documento</option>
+              <option value="pdf">PDF</option>
+              <option value="site">Site</option>
+              <option value="apresentacao">Apresentação</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          {!thumb && <div><label style={labelStyle}>Thumbnail</label><input value={thumb} onChange={e => setThumb(e.target.value)} placeholder="https://..." style={inputStyle}/></div>}
+          {error && <p style={{ fontSize:12, color:'#ef4444', margin:0, padding:'8px 12px', background:'rgba(239,68,68,.06)', borderRadius:8 }}>{error}</p>}
+          <div style={{ display:'flex', gap:10, paddingTop:4 }}>
+            <button type="button" onClick={onClose} style={{ flex:1, height:42, borderRadius:10, border:'1.5px solid var(--border)', background:'transparent', color:'var(--muted-foreground)', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Cancelar</button>
+            <button type="submit" disabled={loading} style={{ flex:1, height:42, borderRadius:10, background:loading?'var(--secondary)':'var(--foreground)', color:loading?'var(--muted-foreground)':'var(--card)', fontSize:14, fontWeight:700, border:'none', cursor:loading?'not-allowed':'pointer', fontFamily:'inherit' }}>
+              {loading?'Salvando...':'Salvar'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
