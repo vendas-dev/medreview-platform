@@ -330,7 +330,7 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
                 { href: '/onboarding',            emoji: '🏠', label: 'Início Onboarding', color: '#4f46e5' },
                 { href: '/onboarding/trilha',     emoji: '📚', label: 'Minha Trilha',       color: '#3b82f6' },
                 { href: '/onboarding/videoaulas', emoji: '🎬', label: 'Videoaulas',         color: '#8b5cf6' },
-                { href: '/onboarding/copilot',    emoji: '🤖', label: 'Med.AI',             color: '#ec4899' },
+                { href: '/onboarding/copilot',    emoji: '🤖', label: 'Medy',             color: '#ec4899' },
                 { href: '/onboarding/progresso',  emoji: '📈', label: 'Meu Progresso',      color: '#22c55e' },
               ].map(item => (
                 <Link key={item.href} href={item.href} style={{ textDecoration: 'none', display: 'block' }}>

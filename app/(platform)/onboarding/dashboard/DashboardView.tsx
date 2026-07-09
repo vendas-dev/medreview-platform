@@ -175,7 +175,7 @@ export function DashboardView({ users, steps, progress, totalConversations, tota
           { icon:Trophy,         label:'Taxa de conclusão',   value:`${completionRate}%`, sub:`${completedU}/${totalU}`,   grad:'linear-gradient(135deg,#22c55e,#16a34a)', color:'#22c55e' },
           { icon:Zap,            label:'Aprovação 1ª tent.',  value:`${firstPassRate}%`, sub:`${passedFirst}/${firstArr.length} quiz`, grad:'linear-gradient(135deg,#f59e0b,#ef4444)', color:'#f59e0b' },
           { icon:Clock,          label:'Em andamento',        value:activeU,          sub:`${notStartedU} não iniciaram`, grad:'linear-gradient(135deg,#8b5cf6,#a855f7)', color:'#8b5cf6' },
-          { icon:MessageSquare,  label:'Conversas Med.AI',    value:totalConversations, sub:`${totalMessages} mensagens`, grad:'linear-gradient(135deg,#ec4899,#8b5cf6)', color:'#ec4899' },
+          { icon:MessageSquare,  label:'Conversas Medy',    value:totalConversations, sub:`${totalMessages} mensagens`, grad:'linear-gradient(135deg,#ec4899,#8b5cf6)', color:'#ec4899' },
         ].map(s => {
           const Icon = s.icon
           return (

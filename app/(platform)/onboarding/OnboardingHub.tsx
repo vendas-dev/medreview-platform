@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Settings, BookOpen, Video, BarChart2, Bot, List, TrendingUp, Home, ArrowRight, Zap, Trophy, ChevronRight, Lock, Clock } from 'lucide-react'
 
 const adminLinks = [
-  { href: '/onboarding/config',     icon: Settings,  label: 'Configuração do Med.AI',  desc: 'Personalize a IA e o tom das respostas', grad: 'linear-gradient(135deg,#6366f1,#8b5cf6)', emoji: '🤖' },
+  { href: '/onboarding/config',     icon: Settings,  label: 'Configuração da Medy',  desc: 'Personalize a IA e o tom das respostas', grad: 'linear-gradient(135deg,#6366f1,#8b5cf6)', emoji: '🤖' },
   { href: '/onboarding/trilha',     icon: BookOpen,  label: 'Trilha de Aprendizado',   desc: 'Monte a jornada do seu time',             grad: 'linear-gradient(135deg,#3b82f6,#4f46e5)', emoji: '📚' },
   { href: '/onboarding/videoaulas', icon: Video,     label: 'Biblioteca de Vídeos',    desc: 'Centralize todo o conteúdo em vídeo',     grad: 'linear-gradient(135deg,#ef4444,#ec4899)', emoji: '🎬' },
   { href: '/onboarding/dashboard',  icon: BarChart2, label: 'Analytics',               desc: 'KPIs e progresso do seu time',             grad: 'linear-gradient(135deg,#22c55e,#16a34a)', emoji: '📊' },
@@ -176,7 +176,7 @@ export function OnboardingHub({ isAdmin, userName, completed, total, pct, nextSt
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(200px,100%),1fr))', gap: 12 }}>
         {[
           { href: '/onboarding/trilha',     icon: List,       label: 'Minha Trilha', desc: 'Veja o conteúdo completo',      grad: 'linear-gradient(135deg,#3b82f6,#4f46e5)', emoji: '📚' },
-          { href: '/onboarding/copilot',    icon: Bot,        label: 'Med.AI',       desc: 'Tire dúvidas com IA',           grad: 'linear-gradient(135deg,#8b5cf6,#a855f7)', emoji: '🤖' },
+          { href: '/onboarding/copilot',    icon: Bot,        label: 'Medy',       desc: 'Tire dúvidas com IA',           grad: 'linear-gradient(135deg,#8b5cf6,#a855f7)', emoji: '🤖' },
           { href: '/onboarding/videoaulas', icon: Video,      label: 'Videoaulas',   desc: 'Assista o conteúdo em vídeo',  grad: 'linear-gradient(135deg,#ef4444,#ec4899)', emoji: '🎬' },
           { href: '/onboarding/progresso',  icon: TrendingUp, label: 'Progresso',    desc: 'Acompanhe sua evolução',       grad: 'linear-gradient(135deg,#22c55e,#16a34a)', emoji: '📈' },
         ].map(item => {

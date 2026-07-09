@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect }          from 'next/navigation'
 import { IntelView }         from './IntelView'
 import { computeForecast, RecurringSale } from '@/lib/telao/forecast'
+import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr } from '@/lib/timezone'
 
 const VERT_LABEL: Record<string, string> = {
   medreview:   'Med-Review R1',
@@ -53,14 +54,13 @@ export default async function IntelPage({
     .from('profiles').select('id, role, name, team, hubspot_id').eq('id', user.id).single()
 
   const isAdmin   = (profile as any)?.role === 'superadmin'
-  const today     = new Date().toISOString().slice(0, 10)
+  const today     = todayInSaoPaulo()
   // Respeitar filtro de mês da URL, senão usa mês atual
   const monthKey  = searchParams?.month && /^\d{4}-\d{2}$/.test(searchParams.month)
     ? searchParams.month
     : today.slice(0, 7)
   const [y, m]    = monthKey.split('-').map(Number)
-  const mStart    = new Date(y, m - 1, 1).toISOString()
-  const mEnd      = new Date(y, m, 0, 23, 59, 59).toISOString()
+  const { start: mStart, end: mEnd } = monthBoundsSaoPaulo(monthKey)
   const now       = new Date()
   const isCurrentMonth = monthKey === today.slice(0, 7)
   const refDate   = isCurrentMonth ? now : new Date(y, m, 0) // último dia do mês se passado
@@ -207,8 +207,13 @@ export default async function IntelPage({
   const uid = user.id, hubId = (profile as any)?.hubspot_id ?? null
   const weekAgo = new Date(Date.now()-7*86400000).toISOString()
   const twoWAgo = new Date(Date.now()-14*86400000).toISOString()
-  const prevMStart = new Date(y,m-2,1).toISOString()
-  const prevMEnd   = new Date(y,m-2,now.getDate(),23,59,59).toISOString()
+  const todayDayNum = Number(today.slice(8, 10))
+  const prevY = m === 1 ? y - 1 : y
+  const prevM = m === 1 ? 12 : m - 1
+  const prevMonthKey = `${prevY}-${String(prevM).padStart(2, '0')}`
+  const { start: prevMStart } = monthBoundsSaoPaulo(prevMonthKey)
+  // Fim do mês anterior "até o mesmo dia" (comparação like-for-like), não o mês inteiro
+  const prevMEnd = dayBoundsSaoPaulo(addDaysToDateStr(`${prevMonthKey}-01`, todayDayNum - 1)).end
 
   const [
     {data:salesById},{data:salesByHub},{data:salesPrevW},{data:salesPrevM},
@@ -242,7 +247,14 @@ export default async function IntelPage({
   const byVert:Record<string,number>={}
   salesM.forEach((e:any)=>{if(e.vertical){const k=vLabel(e.vertical);byVert[k]=(byVert[k]??0)+(Number(e.value)||0)}})
   const last7:{label:string;rev:number}[]=[]
-  for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);d.setHours(0,0,0,0);const de=new Date(d);de.setHours(23,59,59,999);const rev=salesM.filter((e:any)=>{const t=new Date(e.occurred_at).getTime();return t>=d.getTime()&&t<=de.getTime()}).reduce((s:number,e:any)=>s+(Number(e.value)||0),0);last7.push({label:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()],rev})}
+  for(let i=6;i>=0;i--){
+    const dateStr = addDaysToDateStr(today, -i)
+    const { start, end } = dayBoundsSaoPaulo(dateStr)
+    const rev = salesM.filter((e:any)=>e.occurred_at>=start && e.occurred_at<=end).reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
+    const [dy,dm,dd] = dateStr.split('-').map(Number)
+    const weekday = new Date(Date.UTC(dy,dm-1,dd)).getUTCDay()
+    last7.push({label:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][weekday],rev})
+  }
 
   return <IntelView isAdmin={false} profile={profile as any}
     closerStats={[]} insightData={parseInsight((myInsight as any)?.content??null)}

@@ -20,7 +20,7 @@ export default async function CopilotPage() {
     .single()
 
   const welcomeMessage = (settings as any)?.welcome_message
-    ?? `Olá, ${userName}! 👋 Sou o Med.AI, seu assistente de onboarding da MedReview. Como posso te ajudar hoje?`
+    ?? `Olá, ${userName}! 👋 Sou a Medy, sua assistente de onboarding da MedReview. Como posso te ajudar hoje?`
 
   const { data: conversations } = await supabase
     .from('onboarding_conversations')

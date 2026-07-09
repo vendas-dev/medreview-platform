@@ -123,7 +123,7 @@ export function ConfigForm({ settings }: { settings: Settings | null }) {
             <Bot size={22} style={{ color: '#fff' }} />
           </div>
           <div>
-            <h1 style={{ fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Configuração do Med.AI</h1>
+            <h1 style={{ fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.02em' }}>Configuração da Medy</h1>
             <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', margin: 0 }}>Personalize o assistente de onboarding do seu time</p>
           </div>
         </div>
@@ -133,7 +133,7 @@ export function ConfigForm({ settings }: { settings: Settings | null }) {
       {status === 'saved' && (
         <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
           <CheckCircle2 size={15} style={{ color: '#22c55e', flexShrink: 0 }} />
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#16a34a', margin: 0 }}>Configurações salvas com sucesso! O Med.AI já está atualizado.</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#16a34a', margin: 0 }}>Configurações salvas com sucesso! A Medy já está atualizada.</p>
         </div>
       )}
       {status === 'error' && (
@@ -144,17 +144,17 @@ export function ConfigForm({ settings }: { settings: Settings | null }) {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Section title="Mensagem de boas-vindas" subtitle="Exibida na primeira conversa com o Med.AI" icon={MessageSquare}>
+        <Section title="Mensagem de boas-vindas" subtitle="Exibida na primeira conversa com a Medy" icon={MessageSquare}>
           <textarea value={welcome} onChange={e => setWelcome(e.target.value)} rows={4}
             placeholder="Ex: Olá! Bem-vindo ao onboarding da MedReview..."
             style={{ ...inp, height: 'auto', padding: '12px 16px', resize: 'vertical', lineHeight: 1.65 }}
             onFocus={focusH} onBlur={blurH} />
           <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 6 }}>
-            Aparece quando o usuário abre o Med.AI pela primeira vez.
+            Aparece quando o usuário abre a Medy pela primeira vez.
           </p>
         </Section>
 
-        <Section title="Tom do Med.AI" subtitle="Define o estilo de comunicação da IA" icon={Sliders}>
+        <Section title="Tom da Medy" subtitle="Define o estilo de comunicação da IA" icon={Sliders}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {tones.map(t => (
               <OptionCard key={t.value} value={t.value} selected={tone === t.value}

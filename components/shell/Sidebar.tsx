@@ -18,7 +18,7 @@ import { usePresence } from '@/hooks/usePresence'
 import { useActiveModuleKeys, useActiveModules } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
-interface NavChild { key?: string; label: string; icon: any; href: string; always?: boolean; children?: NavChild[] }
+interface NavChild { key?: string; label: string; icon: any; href: string; always?: boolean; staticLabel?: boolean; children?: NavChild[] }
 interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; children?: NavChild[] }
 
 const buildNav = (isAdmin: boolean): NavItem[] => [
@@ -29,13 +29,14 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
       { label: 'Visão geral', icon: Home,           href: '/onboarding' },
       { label: 'Trilha',      icon: List,           href: '/onboarding/trilha' },
       { label: 'Videoaulas',  icon: Video,          href: '/onboarding/videoaulas' },
+      { label: 'Medy',        icon: Bot,            href: '/onboarding/copilot' },
       { label: 'Config. IA',  icon: Bot,            href: '/onboarding/config' },
       { label: 'Dashboard',   icon: BarChart2,      href: '/onboarding/dashboard' },
       { label: 'Simulados',   icon: FlaskConical,   href: '/admin/simulados' },
     ] : [
       { label: 'Início',         icon: Home,          href: '/onboarding' },
       { label: 'Minha Trilha',   icon: List,          href: '/onboarding/trilha' },
-      { label: 'Med.AI',         icon: Bot,           href: '/onboarding/copilot' },
+      { label: 'Medy',         icon: Bot,           href: '/onboarding/copilot' },
       { label: 'Videoaulas',     icon: Video,         href: '/onboarding/videoaulas' },
       { label: 'Meu Progresso',  icon: TrendingUp,    href: '/onboarding/progresso' },
       { label: 'Simulado Final', icon: FlaskConical,  href: '/onboarding/simulado' },
@@ -52,7 +53,7 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
       { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator,   href: '/calculadora2' },
       { key: 'milestones',   label: 'Milestones',     icon: CalendarDays, href: '/milestones', always: true },
       { key: 'disparos',     label: 'Disparos',       icon: Send,         href: '/disparos' },
-      { key: 'disparos',     label: 'Links',          icon: Link2,        href: '/disparos/links' },
+      { key: 'disparos',     label: 'Links',          icon: Link2,        href: '/disparos/links', staticLabel: true },
       { key: 'templates',    label: 'Templates',      icon: FileText,     href: '/templates',  always: true },
     ],
   },
@@ -104,7 +105,7 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
             onMouseLeave={e => { if (!isActive && !anyChildActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' } }}>
             <Icon size={ic} style={{ flexShrink: 0 }} />
             <AnimatePresence initial={false}>
-              {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeModules?.find(m => m.key === item.key)?.label ?? item.label}</motion.span>}
+              {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}</motion.span>}
             </AnimatePresence>
           </button>
         ) : (
@@ -114,7 +115,7 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
               onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted-foreground)' } }}>
               <Icon size={ic} style={{ flexShrink: 0 }} />
               <AnimatePresence initial={false}>
-                {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeModules?.find(m => m.key === item.key)?.label ?? item.label}</motion.span>}
+                {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}</motion.span>}
               </AnimatePresence>
             </div>
           </Link>

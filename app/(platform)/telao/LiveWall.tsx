@@ -7,6 +7,7 @@ import { useLiveData, LiveDataProvider } from '@/hooks/useLiveData'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import { VERTICALS, VERTICAL_LIST, GOLD, VerticalId, FilterState, EMPTY_FILTER, Closer, TelaoEvent, CloserStats } from '@/lib/telao/types'
 import { computeCloserStats, computeHourBuckets, fmtBRL, todayKey, monthKey, initials, timeAgo } from '@/lib/telao/format'
+import { todayInSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr } from '@/lib/timezone'
 
 // ── Áudio ────────────────────────────────────────────────────
 let _ctx: AudioContext | null = null, _ready = false
@@ -556,28 +557,28 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const accRev   = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).reduce((s,e)=>s+(e.value??0),0),[allUserEvs,vf])
   const accCount = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).length,[allUserEvs,vf])
 
-  const yesterdayStart = new Date(); yesterdayStart.setDate(yesterdayStart.getDate()-1); yesterdayStart.setHours(0,0,0,0)
-  const yesterdayEnd   = new Date(); yesterdayEnd.setDate(yesterdayEnd.getDate()-1);   yesterdayEnd.setHours(23,59,59,999)
+  const yesterdayBounds = dayBoundsSaoPaulo(addDaysToDateStr(todayInSaoPaulo(), -1))
 
   const yesterdayRev = useMemo(()=>allUserEvs.filter(e=>{
     if(e.event_type!=='sale') return false
     if(vf && e.vertical!==vf) return false
-    const t = new Date(e.occurred_at).getTime()
-    return t>=yesterdayStart.getTime() && t<=yesterdayEnd.getTime()
+    return e.occurred_at>=yesterdayBounds.start && e.occurred_at<=yesterdayBounds.end
   }).reduce((s,e)=>s+(e.value??0),0),[allUserEvs,vf])
 
   const last7Days = useMemo(()=>{
     const days: {label:string;rev:number;date:Date}[] = []
+    const today = todayInSaoPaulo()
     for(let i=6;i>=0;i--){
-      const d=new Date(); d.setDate(d.getDate()-i); d.setHours(0,0,0,0)
-      const de=new Date(d); de.setHours(23,59,59,999)
+      const dateStr = addDaysToDateStr(today, -i)
+      const { start, end } = dayBoundsSaoPaulo(dateStr)
       const rev=allUserEvs.filter(e=>{
         if(e.event_type!=='sale') return false
         if(vf && e.vertical!==vf) return false
-        const t=new Date(e.occurred_at).getTime()
-        return t>=d.getTime()&&t<=de.getTime()
+        return e.occurred_at>=start && e.occurred_at<=end
       }).reduce((s,e)=>s+(e.value??0),0)
-      days.push({label:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()],rev,date:d})
+      const [dy,dm,dd] = dateStr.split('-').map(Number)
+      const d = new Date(Date.UTC(dy,dm-1,dd))
+      days.push({label:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getUTCDay()],rev,date:d})
     }
     return days
   },[allUserEvs,vf])

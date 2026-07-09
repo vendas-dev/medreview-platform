@@ -208,7 +208,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay }: Props)
         <KpiCard icon={Trophy}        label="Conclusões"             value={stats.completedCount}       sub={`de ${stats.totalUsers} usuários`}          grad="linear-gradient(135deg,#22c55e,#16a34a)"   color="#22c55e"  href="/onboarding/dashboard"    />
         <KpiCard icon={Target}        label="Média de conclusão"     value={`${stats.avgCompletion}%`}  sub="todos os usuários"                          grad="linear-gradient(135deg,#6366f1,#8b5cf6)"   color="#6366f1"  href="/onboarding/dashboard"    />
         <KpiCard icon={Zap}           label="Aprovação 1ª tentativa" value={`${stats.passedRate}%`}     sub="quizzes"                                    grad="linear-gradient(135deg,#ec4899,#8b5cf6)"   color="#ec4899"  href="/onboarding/dashboard"    />
-        <KpiCard icon={MessageSquare} label="Conversas Med.AI"       value={stats.totalConversations}   sub="total de conversas"                         grad="linear-gradient(135deg,#14b8a6,#3b82f6)"   color="#14b8a6"  href="/onboarding/copilot"      />
+        <KpiCard icon={MessageSquare} label="Conversas Medy"       value={stats.totalConversations}   sub="total de conversas"                         grad="linear-gradient(135deg,#14b8a6,#3b82f6)"   color="#14b8a6"  href="/onboarding/copilot"      />
         <KpiCard icon={BookOpen}      label="Materiais disponíveis"  value={stats.totalMaterials}       sub="vídeos e documentos"                        grad="linear-gradient(135deg,#f97316,#ef4444)"   color="#f97316"  href="/onboarding/videoaulas"   />
       </div>
 

@@ -27,7 +27,7 @@ function parseBold(text: string): React.ReactNode[] {
 function MedAIAvatar({ size = 30 }: { size?: number }) {
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', background: '#1a0a2e' }}>
-      <img src="/medai-avatar.png" alt="Med.AI" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <img src="/medy-avatar.png" alt="Medy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
     </div>
   )
 }
@@ -124,7 +124,7 @@ export function CopilotChat({ userName, userAvatarUrl, welcomeMessage, conversat
         <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <MedAIAvatar size={28} />
-            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)' }}>Histórico Med.AI</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)' }}>Histórico Medy</span>
           </div>
           <button onClick={() => setSidebarOpen(false)} style={{ width: 28, height: 28, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)' }}>
             <ChevronLeft size={16} />
@@ -192,7 +192,7 @@ export function CopilotChat({ userName, userAvatarUrl, welcomeMessage, conversat
           </button>
           <MedAIAvatar size={36} />
           <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em' }}>Med.AI</p>
+            <p style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em' }}>Medy</p>
             <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>Assistente inteligente de onboarding · MedReview</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -261,7 +261,7 @@ export function CopilotChat({ userName, userAvatarUrl, welcomeMessage, conversat
           <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', gap: 10 }}>
             <input value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder="Pergunte qualquer coisa ao Med.AI..."
+              placeholder="Pergunte qualquer coisa ao Medy..."
               disabled={loading}
               style={{ flex: 1, height: 48, padding: '0 18px', borderRadius: 14, border: '1.5px solid var(--border)', background: 'var(--background)', color: 'var(--foreground)', fontSize: 14, fontFamily: 'inherit', outline: 'none', transition: 'all 0.15s', boxShadow: 'var(--shadow-xs)' }}
               onFocus={e => { e.target.style.borderColor = '#6366f1'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}

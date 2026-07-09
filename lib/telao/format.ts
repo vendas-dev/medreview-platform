@@ -1,4 +1,5 @@
 import { TelaoEvent, Closer, CloserStats, HourBucket, VerticalId } from './types'
+import { todayInSaoPaulo, dayBoundsSaoPaulo, monthBoundsSaoPaulo } from '@/lib/timezone'
 
 // ── Formatação ────────────────────────────────────────────────
 export function fmtBRL(value: number): string {
@@ -136,7 +137,7 @@ export function computeHourBuckets(
 }
 
 // ── Chaves de datas ───────────────────────────────────────────
-export function todayKey()  { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
-export function monthKey()  { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
-export function todayStart(){ const d = new Date(); d.setHours(0,0,0,0); return d.toISOString() }
-export function monthStart(){ const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d.toISOString() }
+export function todayKey()  { return todayInSaoPaulo() }
+export function monthKey()  { return todayInSaoPaulo().slice(0, 7) }
+export function todayStart(){ return dayBoundsSaoPaulo(todayInSaoPaulo()).start }
+export function monthStart(){ return monthBoundsSaoPaulo(todayInSaoPaulo().slice(0, 7)).start }
