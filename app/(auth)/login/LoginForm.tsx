@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { login } from './actions'
 import { MedLogoSVG } from '@/components/MedLogo'
 
@@ -84,6 +85,11 @@ export function LoginForm({ isInvalid, isDeactivated }: { isInvalid: boolean; is
                 style={inputStyle}
                 onFocus={e => { e.target.style.borderColor = 'rgba(99,102,241,0.6)'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.15)' }}
                 onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.15)'; e.target.style.boxShadow = 'none' }} />
+              <Link href="/forgot-password" style={{ alignSelf: 'flex-end', fontSize: 12.5, color: 'rgba(165,180,252,0.75)', textDecoration: 'none', marginTop: 2, transition: 'color 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'rgba(199,210,254,1)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'rgba(165,180,252,0.75)'}>
+                Esqueci minha senha
+              </Link>
             </div>
             <button type="submit"
               style={{

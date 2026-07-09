@@ -10,7 +10,7 @@ import { Send, Users, BarChart2, FileText, Calendar, List, X, Search } from 'luc
 
 // ── Tipos ─────────────────────────────────────────────────────
 interface Disparo {
-  id:string; id_negocio:string|null; proprietario:string
+  id:string; id_negocio:string|null; proprietario:string; proprietario_hubspot_id?:string|null
   nome_lead:string; etapa:string|null; vertical:string|null
   template:string; data_disparo:string; created_at:string
 }
@@ -134,7 +134,7 @@ function FLabel({ children }: any) {
 }
 
 // ── Main ──────────────────────────────────────────────────────
-export function DisparosClient({ isAdmin }: { isAdmin:boolean }) {
+export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin:boolean; ownerName?:string; ownerHubspotId?:string|null }) {
   const supabase  = createClient()
   const [data,    setData]    = useState<Disparo[]>([])
   const [loading, setLoading] = useState(true)
@@ -159,8 +159,17 @@ export function DisparosClient({ isAdmin }: { isAdmin:boolean }) {
         .order('data_disparo',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
+    // Usuário comum só vê os próprios disparos — casa por hubspot_id (confiável)
+    // e cai pro nome como fallback pros registros antigos que ainda não têm o id.
+    if(!isAdmin){
+      const nameNorm=(ownerName??'').trim().toLowerCase()
+      all=all.filter(d=>
+        (ownerHubspotId && d.proprietario_hubspot_id && d.proprietario_hubspot_id===ownerHubspotId) ||
+        (!d.proprietario_hubspot_id && nameNorm && d.proprietario.trim().toLowerCase()===nameNorm)
+      )
+    }
     setData(all); setLoading(false)
-  },[fFrom,fTo])
+  },[fFrom,fTo,isAdmin,ownerName,ownerHubspotId])
 
   useEffect(()=>{fetchData()},[fetchData])
   useEffect(()=>{

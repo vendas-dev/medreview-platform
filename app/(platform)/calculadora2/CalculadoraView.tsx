@@ -171,6 +171,8 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
         <div style={{ position: 'sticky', top: 20 }}>
           <PaymentCard
             result={simResult}
+            cursoLabel={selectedRow ? `${selectedRow.produto}${selectedRow.tipoAluno ? ` (${selectedRow.tipoAluno})` : ''}${upsellRow ? ` + ${upsellRow.produto}` : ''}` : ''}
+            tempoAcesso={selectedRow?.tempoAcesso ?? ''}
             produtoLabel={selectedRow ? `${selectedRow.produto}${upsellRow ? ` + ${upsellRow.produto}` : ''} — ${selectedRow.tempoAcesso}` : ''}
             precoCheio={selectedRow ? selectedRow.precoCheio + (upsellOn && upsellRow ? upsellRow.precoCheio : 0) : 0}
             precoBase={selectedRow?.precoEspecial ?? 0}

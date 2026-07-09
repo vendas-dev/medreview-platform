@@ -269,9 +269,9 @@ export function FaqManager({ stepId }: { stepId: string; mode?: string }) {
 
   return (
     <>
-      <AddBtn label="Adicionar FAQ" onClick={() => { setOpen(true); setError('') }}/>
+      <AddBtn label="Adicionar Flashcard" onClick={() => { setOpen(true); setError('') }}/>
       {open && (
-        <Modal title="Adicionar FAQ" onClose={handleClose}>
+        <Modal title="Adicionar Flashcard" onClose={handleClose}>
           <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
             <div><label style={labelStyle}>Pergunta *</label><input name="question" required placeholder="Ex: O que é a MedReview?" style={inputStyle}/></div>
             <div><label style={labelStyle}>Resposta *</label><textarea name="answer" required rows={5} placeholder="Resposta completa..." style={{ ...inputStyle, height:'auto', padding:'10px 14px', resize:'vertical', lineHeight:1.6 }}/></div>

@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
 
       // Aliases PT-BR → campos canônicos
       const owner_name     = r.owner_name ?? r.proprietario ?? r.owner ?? ''
+      const owner_hubspot_id = r.owner_hubspot_id ?? r.proprietario_hubspot_id ?? r.owner_id ?? r.hubspot_owner_id ?? r.hubspot_id ?? null
       const generated_at   = parsePtbrDate(r.generated_at ?? r.data_geracao ?? r.data ?? '')
       const deal_name      = r.deal_name ?? r.nome_negocio ?? r.negocio ?? null
       const deal_value     = parseFloat(r.deal_value ?? r.valor_negocio ?? r.valor ?? '0') || null
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
         deal_created_at,
         generated_at,
         owner_name,
+        owner_hubspot_id,
         vertical:        r.vertical ?? null,
         product_name:    r.product_name ?? r.produto ?? null,
         generation_mode: r.generation_mode ?? r.modo_geracao ?? null,

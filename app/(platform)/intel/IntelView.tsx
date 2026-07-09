@@ -104,6 +104,10 @@ function DonutChart({ data, size=240, thickness=32 }: {
   let offsetAcc = 0
   const filtered = data.filter(d => d.value > 0)
   if (total <= 0) return null
+  // Fonte do número central escala com o tamanho do anel, sempre com espaço
+  // confortável dentro do círculo interno (nunca encosta no anel colorido).
+  const numFontSize = Math.max(15, Math.min(30, size * 0.115))
+  const lblFontSize = Math.max(9, Math.min(12, size * 0.05))
   return (
     // Ocupa todo o espaço do container, centraliza vertical e horizontalmente
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:20, padding:'8px 0' }}>
@@ -122,20 +126,19 @@ function DonutChart({ data, size=240, thickness=32 }: {
               style={{ transition:'stroke-dasharray .6s ease' }}/>
           )
         })}
-        <text x={cx} y={cy-10} textAnchor="middle" style={{ fontSize:20, fontWeight:900, fill:'var(--foreground)' }}>{fmtBRL(total).replace('R$','').trim()}</text>
-        <text x={cx} y={cy+14} textAnchor="middle" style={{ fontSize:11, fill:'var(--muted-foreground)' }}>total</text>
+        <text x={cx} y={cy-numFontSize*0.32} textAnchor="middle" style={{ fontSize:numFontSize, fontWeight:900, fill:'var(--foreground)' }}>{fmtBRL(total).replace('R$','').trim()}</text>
+        <text x={cx} y={cy+lblFontSize+8} textAnchor="middle" style={{ fontSize:lblFontSize, fill:'var(--muted-foreground)' }}>total</text>
       </svg>
-      {/* Legendas embaixo — uma por linha */}
-      <div style={{ display:'flex', flexDirection:'column', gap:8, width:'100%', maxWidth:size }}>
+      {/* Legendas embaixo — uma por linha, sem quebra de texto dentro da mesma linha */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, width:'100%', maxWidth: Math.max(size, 280) }}>
         {filtered.map((d, i) => {
           const pct = total>0 ? (d.value/total)*100 : 0
           return (
-            <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                <div style={{ width:9, height:9, borderRadius:'50%', background:d.color, flexShrink:0 }}/>
-                <span style={{ fontSize:12, color:'var(--muted-foreground)' }}>{d.label}</span>
-              </div>
-              <span style={{ fontSize:12, fontWeight:700, color:'var(--foreground)', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ width:9, height:9, borderRadius:'50%', background:d.color, flexShrink:0 }}/>
+              <span style={{ fontSize:12.5, color:'var(--muted-foreground)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{d.label}</span>
+              <span style={{ flex:1, borderBottom:'1px dashed var(--border)', margin:'0 2px', minWidth:8 }}/>
+              <span style={{ fontSize:12.5, fontWeight:700, color:'var(--foreground)', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap', flexShrink:0 }}>
                 {fmtBRL(d.value)} <span style={{ fontWeight:400, color:'var(--muted-foreground)' }}>{fmtPct(pct)}</span>
               </span>
             </div>
@@ -516,6 +519,20 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   const hasLeadsData = filtered.filter((c:any)=>closerLeads(c)>0).length > 0
   const tipoConvCols  = (hasTipoData && hasLeadsData) ? '1fr 1fr' : '1fr'
 
+  // Embaixadores certificados — só Time R1, só quem tem meta ou já certificou algo no mês.
+  // Importante: parte de `allClosers` (não de `filtered`), porque `filtered` some com quem
+  // tem receita zero na vertical selecionada — e certificação não é métrica de receita,
+  // então um filtro de vertical não pode esconder um closer que certificou embaixador.
+  const ambassadorGoalRows = allClosers
+    .filter((c:any) => c.team === 'R1')
+    .filter((c:any) => filterTeam === 'todos' || filterTeam === 'R1')
+    .filter((c:any) => filterCloser === 'todos' || c.id === filterCloser)
+    .filter((c:any) => (c.goal_ambassador??0) > 0 || (c.ambassadors_certified??0) > 0)
+    .sort((a:any,b:any) => (b.ambassadors_certified??0) - (a.ambassadors_certified??0))
+  const hasAmbassadorGoalData  = ambassadorGoalRows.length > 0
+  const totalCertsR1           = ambassadorGoalRows.reduce((s:number,c:any) => s + (c.ambassadors_certified??0), 0)
+  const totalGoalAmbassadorR1  = ambassadorGoalRows.reduce((s:number,c:any) => s + (c.goal_ambassador??0), 0)
+
   return (
     <div style={{ maxWidth:1200, margin:'0 auto', padding:'28px 24px', display:'flex', flexDirection:'column', gap:20 }}>
       <style>{`
@@ -735,7 +752,8 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
                     { label:'Embaixador',     value:displayByType?.ambassador?.rev??0,   color:'#a855f7' },
                     { label:'Self-checkout',  value:displayByType?.selfcheckout?.rev??0, color:'#94a3b8' },
                   ]}
-                  size={140}
+                  size={228}
+                  thickness={38}
                 />
               </div>
             </FadeIn>
@@ -769,6 +787,55 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
             </FadeIn>
           )}
         </div>
+      )}
+
+      {/* Embaixadores certificados por closer — meta x realizado (Time R1) */}
+      {hasAmbassadorGoalData && (
+        <FadeIn delay={330}>
+          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18, flexWrap:'wrap', gap:8 }}>
+              <div>
+                <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)', display:'flex', alignItems:'center', gap:7 }}>
+                  <Star size={14} style={{ color:'#a855f7' }}/> Embaixadores certificados por closer
+                  <span style={{ fontSize:11, color:'var(--muted-foreground)', fontWeight:400 }}>· Time R1</span>
+                </p>
+                <p style={{ margin:'2px 0 0', fontSize:11, color:'var(--muted-foreground)' }}>Meta de certificações do mês vs. realizado</p>
+              </div>
+              <span style={{ fontSize:13, fontWeight:800, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>
+                {totalCertsR1} <span style={{ fontWeight:400, color:'var(--muted-foreground)', fontSize:11 }}>/ {totalGoalAmbassadorR1} no mês</span>
+              </span>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {ambassadorGoalRows.map((c:any) => {
+                const goal = c.goal_ambassador ?? 0
+                const done = c.ambassadors_certified ?? 0
+                const pct  = goal > 0 ? (done/goal)*100 : (done>0 ? 100 : 0)
+                const risk = riskInfo(pct, 0, 0)
+                return (
+                  <div key={c.id} style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <CloserAv name={c.name} avatarUrl={c.avatar_url} size={24}/>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                        <span style={{ fontSize:12, fontWeight:600, color:'var(--foreground)' }}>{c.name.split(' ')[0]}</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#a855f7' }}>
+                          {done}{goal>0 ? `/${goal}` : ''} <span style={{ fontWeight:400, color:'var(--muted-foreground)' }}>{goal>0?`· ${fmtPct(pct)}`:''}</span>
+                        </span>
+                      </div>
+                      <div style={{ height:6, background:'var(--secondary)', borderRadius:999, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${Math.min(pct,100)}%`, background:'linear-gradient(90deg,#a855f7,#6366f1)', borderRadius:999 }}/>
+                      </div>
+                    </div>
+                    {goal>0 && (
+                      <div style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:6, background:risk.bg, border:`1px solid ${risk.border}`, flexShrink:0 }}>
+                        <risk.Icon size={10} style={{ color:risk.text }}/>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </FadeIn>
       )}
       {/* Conversão por vertical */}
       {convByVertical.length > 0 && (

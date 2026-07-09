@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Save, Bot, MessageSquare, Sliders, BookOpen, CheckCircle2, AlertCircle } from 'lucide-react'
 
 interface Settings {
-  welcome_message?: string; tone?: string; trail_mode?: string
+  welcome_message?: string; tone?: string; track_mode?: string
   extra_instructions?: string; is_active?: boolean
 }
 
@@ -78,7 +78,7 @@ export function ConfigForm({ settings }: { settings: Settings | null }) {
   const s = settings ?? {}
   const [welcome,   setWelcome]   = useState(s.welcome_message ?? 'Olá! Seja bem-vindo ao onboarding da MedReview. Estou aqui para te ajudar!')
   const [tone,      setTone]      = useState(s.tone ?? 'didatico')
-  const [trailMode, setTrailMode] = useState(s.trail_mode ?? 'livre')
+  const [trailMode, setTrailMode] = useState(s.track_mode ?? 'livre')
   const [extra,     setExtra]     = useState(s.extra_instructions ?? '')
   const [isActive,  setIsActive]  = useState(s.is_active !== false)
   const [saving,    setSaving]    = useState(false)
@@ -95,7 +95,7 @@ export function ConfigForm({ settings }: { settings: Settings | null }) {
         body:    JSON.stringify({
           welcome_message:    welcome,
           tone,
-          trail_mode:         trailMode,
+          track_mode:         trailMode,
           extra_instructions: extra,
           is_active:          isActive,
         }),

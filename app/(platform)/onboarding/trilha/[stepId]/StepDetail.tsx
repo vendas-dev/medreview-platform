@@ -3,11 +3,11 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   FileText, HelpCircle, CheckSquare, ChevronDown, ChevronUp,
-  Trophy, X, Pencil, Trash2, CheckCircle2, ExternalLink, Play,
+  Trophy, X, Pencil, Trash2, CheckCircle2, XCircle, ExternalLink, Play,
 } from 'lucide-react'
 import { MaterialsManager, FaqManager, QuizManager, EditMaterialModal } from './MaterialsManager'
 import {
-  submitQuiz, startStep, markMaterialViewed,
+  submitQuiz, startStep, markMaterialViewed, setFaqReview,
   deleteMaterial, deleteFaq, deleteQuestion,
   updateFaq, updateQuestion,
 } from '../../actions'
@@ -186,7 +186,7 @@ function EditFaqModal({ faq, stepId, onClose }: { faq: any; stepId: string; onCl
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:20, padding:28, width:'100%', maxWidth:520 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-          <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'var(--foreground)' }}>Editar FAQ</h2>
+          <h2 style={{ margin:0, fontSize:15, fontWeight:700, color:'var(--foreground)' }}>Editar Flashcard</h2>
           <button onClick={onClose} style={{ width:30, height:30, borderRadius:7, border:'none', background:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted-foreground)' }}><X size={15}/></button>
         </div>
         <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -273,7 +273,7 @@ function EditQuizModal({ question, stepId, onClose }: { question: any; stepId: s
 }
 
 // ── StepDetail principal ───────────────────────────────────
-export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, userProgress, viewedMaterialIds = [] }: any) {
+export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, userProgress, viewedMaterialIds = [], faqReviews = {} }: any) {
   const router = useRouter()
   const [, startTrans] = useTransition()
   const s = step
@@ -281,6 +281,7 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
   const [expandedFaq,     setExpandedFaq]     = useState<string|null>(null)
   const [openMaterial,    setOpenMaterial]     = useState<any|null>(null)
   const [viewedIds,       setViewedIds]       = useState<Set<string>>(new Set(viewedMaterialIds))
+  const [reviews,         setReviews]         = useState<Record<string,'correct'|'wrong'>>(faqReviews)
   const [editFaq,         setEditFaq]         = useState<any|null>(null)
   const [editMaterial,    setEditMaterial]    = useState<any|null>(null)
   const [editQuestion,    setEditQuestion]    = useState<any|null>(null)
@@ -305,6 +306,19 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
       if (type==='question')  await deleteQuestion(id, stepId)
       startTrans(() => router.refresh())
     } finally { setDeletingId(null) }
+  }
+
+  // Marcação pessoal de acertei/errei no flashcard — clicar de novo no
+  // mesmo estado desmarca. Só serve de métrica pro próprio usuário.
+  function handleReview(faqId: string, status: 'correct'|'wrong') {
+    const next = reviews[faqId] === status ? null : status
+    setReviews(prev => {
+      const copy = { ...prev }
+      if (next === null) delete copy[faqId]
+      else copy[faqId] = next
+      return copy
+    })
+    setFaqReview(faqId, next)
   }
 
   function selectAnswer(qId: string, aId: string) {
@@ -337,7 +351,7 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
 
   const tabs = [
     { id:'materiais', label:'Materiais',  icon:FileText,    count:materials.length },
-    { id:'faqs',      label:'FAQs',       icon:HelpCircle,  count:faqs.length },
+    { id:'faqs',      label:'Flashcards', icon:HelpCircle,  count:faqs.length },
     { id:'quiz',      label:'Quiz',       icon:CheckSquare, count:questions.length },
   ]
 
@@ -458,18 +472,32 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
         </div>
       )}
 
-      {/* ABA: FAQs */}
+      {/* ABA: Flashcards */}
       {activeTab==='faqs' && (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
           {isAdmin && <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:4 }}><FaqManager stepId={stepId}/></div>}
-          {faqs.map((f: any) => (
-            <div key={f.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
+          {faqs.map((f: any) => {
+            const review = reviews[f.id]
+            return (
+            <div key={f.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden', opacity: review==='correct' ? 0.72 : 1, transition:'opacity .2s' }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, padding:isAdmin?'10px 14px':'0' }}>
                 <button onClick={() => setExpandedFaq(expandedFaq===f.id?null:f.id)}
                   style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'space-between', padding:isAdmin?'4px 4px':'14px 18px', background:'transparent', border:'none', cursor:'pointer', fontFamily:'inherit', textAlign:'left', gap:12 }}>
                   <span style={{ fontSize:14, fontWeight:600, color:'var(--foreground)' }}>{f.question}</span>
                   {expandedFaq===f.id?<ChevronUp size={16} style={{ color:'var(--muted-foreground)', flexShrink:0 }}/>:<ChevronDown size={16} style={{ color:'var(--muted-foreground)', flexShrink:0 }}/>}
                 </button>
+                {!isAdmin && (
+                  <div style={{ display:'flex', gap:5, flexShrink:0, paddingRight:14 }}>
+                    <button onClick={() => handleReview(f.id,'correct')} title="Acertei"
+                      style={{ width:28, height:28, borderRadius:8, border:`1.5px solid ${review==='correct'?'#22c55e':'var(--border)'}`, background:review==='correct'?'rgba(34,197,94,.12)':'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .15s' }}>
+                      <CheckCircle2 size={14} style={{ color: review==='correct' ? '#22c55e' : 'var(--muted-foreground)' }}/>
+                    </button>
+                    <button onClick={() => handleReview(f.id,'wrong')} title="Errei"
+                      style={{ width:28, height:28, borderRadius:8, border:`1.5px solid ${review==='wrong'?'#ef4444':'var(--border)'}`, background:review==='wrong'?'rgba(239,68,68,.12)':'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .15s' }}>
+                      <XCircle size={14} style={{ color: review==='wrong' ? '#ef4444' : 'var(--muted-foreground)' }}/>
+                    </button>
+                  </div>
+                )}
                 {isAdmin && (
                   <div style={{ display:'flex', gap:6, flexShrink:0 }}>
                     <button onClick={() => setEditFaq(f)} style={{ ...adminBtn }}
@@ -487,8 +515,9 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
                 </div>
               )}
             </div>
-          ))}
-          {faqs.length===0 && <p style={{ fontSize:13, color:'var(--muted-foreground)', padding:'24px', textAlign:'center' }}>Nenhuma FAQ adicionada.</p>}
+            )
+          })}
+          {faqs.length===0 && <p style={{ fontSize:13, color:'var(--muted-foreground)', padding:'24px', textAlign:'center' }}>Nenhum flashcard adicionado.</p>}
         </div>
       )}
 

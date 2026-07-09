@@ -30,6 +30,11 @@ function matchSales(all: any[], c: any) {
   )
 }
 
+// Mesma lógica de matchSales — a maioria dos eventos do telão tem closer_id=null
+// e só vem com closer_hubspot_id preenchido, então é obrigatório ter esse fallback
+// (sem isso, a contagem por closer fica zerada mesmo com eventos existindo).
+const matchCerts = matchSales
+
 function parseInsight(raw: string | null): any | null {
   if (!raw) return null
   try { return JSON.parse(raw) } catch { return null }
@@ -71,6 +76,7 @@ export default async function IntelPage({
       { data: allLeads },
       { data: goals },
       { data: insightRow },
+      { data: allCerts },
     ] = await Promise.all([
       admin.from('profiles').select('id, name, team, hubspot_id, avatar_url').neq('role','superadmin').order('name'),
       admin.from('telao_events')
@@ -80,6 +86,9 @@ export default async function IntelPage({
         .select('owner_id, deal_stage, vertical').gte('created_at_hs', mStart).lte('created_at_hs', mEnd),
       admin.from('closer_goals').select('*').eq('month', monthKey),
       admin.from('commercial_insights').select('content').eq('insight_date', today).eq('scope','global').maybeSingle(),
+      admin.from('telao_events')
+        .select('closer_id, closer_hubspot_id, occurred_at')
+        .eq('event_type','ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd),
     ])
 
     // Histórico COMPLETO de vendas recorrentes (não limitado ao mês) — necessário
@@ -90,6 +99,12 @@ export default async function IntelPage({
 
     const goalsMap = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
     const sales    = allSales ?? []
+
+    // Certificações de embaixadores (evento do telão, time R1) — total do mês.
+    // A contagem por closer é feita mais abaixo, dentro do map de closerStats,
+    // usando o mesmo matcher de fallback (closer_id OU hubspot_id) das vendas.
+    const certs = allCerts ?? []
+    const totalCerts = certs.length
 
     const totalRev   = sales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
     const totalSales = sales.length
@@ -176,7 +191,7 @@ export default async function IntelPage({
       const ambassadorRevAmt     = mySales.filter((e:any)=>e.sold_by_ambassador||e.seller_type==='ambassador').reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
       const selfCoRevAmt         = mySales.filter((e:any)=>e.is_self_checkout||e.seller_type==='self_checkout').reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
 
-      return { id:c.id, name:c.name, team:c.team, avatar_url:c.avatar_url??null, revenue_month:revMonth, sales_month:mySales.length, goal_sales:goalSales, pct_goal:pctGoal, revenue_projected:projected, leads_month:leadsTotal, leads_open:leadsOpen, conversion_rate:convRate, days_since_last_sale:daysSince, revenue_by_vertical:byVert, sales_by_vertical:salesByVert, leads_by_vertical:leadsByVert, closer_count:closerSalesCount, ambassador_count:ambassadorSalesCount, selfco_count:selfCoCount, closer_rev:closerRevAmt, ambassador_rev:ambassadorRevAmt, selfco_rev:selfCoRevAmt, biz_total:bizTotal, biz_passed:bizPassed, biz_left:bizLeft }
+      return { id:c.id, name:c.name, team:c.team, avatar_url:c.avatar_url??null, revenue_month:revMonth, sales_month:mySales.length, goal_sales:goalSales, pct_goal:pctGoal, revenue_projected:projected, leads_month:leadsTotal, leads_open:leadsOpen, conversion_rate:convRate, days_since_last_sale:daysSince, revenue_by_vertical:byVert, sales_by_vertical:salesByVert, leads_by_vertical:leadsByVert, closer_count:closerSalesCount, ambassador_count:ambassadorSalesCount, selfco_count:selfCoCount, closer_rev:closerRevAmt, ambassador_rev:ambassadorRevAmt, selfco_rev:selfCoRevAmt, biz_total:bizTotal, biz_passed:bizPassed, biz_left:bizLeft, goal_ambassador:Number(myGoal?.goal_ambassador??0), ambassadors_certified:matchCerts(certs, c).length }
     })
 
     return <IntelView
@@ -184,7 +199,7 @@ export default async function IntelPage({
       closerStats={closerStats}
       insightData={parseInsight(insightRow?.content ?? null)}
       insightDate={today} snapshot={null} currentMonth={monthKey}
-      adminExtra={{ totalRev, totalSales, totalLeadsHS:(allLeads??[]).length, byType, byVertical, bizTotal, bizPassed, bizLeft, totalNewRev, totalRecurringRev, forecast }}
+      adminExtra={{ totalRev, totalSales, totalLeadsHS:(allLeads??[]).length, byType, byVertical, bizTotal, bizPassed, bizLeft, totalNewRev, totalRecurringRev, forecast, totalCerts }}
     />
   }
 

@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       const r = normalize(raw)
       const data_disparo = parsePtbrDate(r.data_disparo ?? r.data ?? r.date ?? '')
       const proprietario  = r.proprietario ?? r.owner ?? r.owner_name ?? ''
+      const proprietario_hubspot_id = r.proprietario_hubspot_id ?? r.owner_hubspot_id ?? r.owner_id ?? r.hubspot_owner_id ?? r.hubspot_id ?? null
       const nome_lead     = r.nome_lead ?? r.lead ?? r.contact ?? r.nome ?? ''
       const template      = r.template ?? r.template_name ?? ''
 
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
       const { data, error } = await admin.from('disparos').insert({
         id_negocio:   r.id_negocio ?? r.deal_id ?? null,
         proprietario,
+        proprietario_hubspot_id,
         nome_lead,
         etapa:        r.etapa ?? r.stage ?? null,
         vertical:     r.vertical ?? null,

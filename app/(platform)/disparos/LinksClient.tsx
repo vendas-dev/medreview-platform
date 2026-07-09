@@ -12,7 +12,7 @@ import { Link2, Users, BarChart2, Package, Calendar, List, ChevronDown,
 // ── Tipos ─────────────────────────────────────────────────────
 interface GeracaoLink {
   id:string; deal_id:string|null; deal_name:string|null; deal_value:number|null
-  deal_created_at:string|null; generated_at:string; owner_name:string
+  deal_created_at:string|null; generated_at:string; owner_name:string; owner_hubspot_id?:string|null
   vertical:string|null; product_name:string|null; generation_mode:string|null
   selected_option:string|null; payment_link:string|null; expires_at:string|null
   pipeline_name:string|null; stage_name:string|null; created_at:string
@@ -174,7 +174,7 @@ function DealModal({ dealId, dealName, rows, onClose }: { dealId:string;dealName
 }
 
 // ── Main ──────────────────────────────────────────────────────
-export function LinksClient({ isAdmin }:{ isAdmin:boolean }) {
+export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boolean; ownerName?:string; ownerHubspotId?:string|null }) {
   const supabase  = createClient()
   const [data,    setData]    = useState<GeracaoLink[]>([])
   const [loading, setLoading] = useState(true)
@@ -203,8 +203,17 @@ export function LinksClient({ isAdmin }:{ isAdmin:boolean }) {
         .order('generated_at',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
+    // Usuário comum só vê os próprios links — mesmo critério do módulo de disparos
+    // e do telão: hubspot_id primeiro, nome como fallback pros registros antigos.
+    if(!isAdmin){
+      const nameNorm=(ownerName??'').trim().toLowerCase()
+      all=all.filter(d=>
+        (ownerHubspotId && d.owner_hubspot_id && d.owner_hubspot_id===ownerHubspotId) ||
+        (!d.owner_hubspot_id && nameNorm && d.owner_name.trim().toLowerCase()===nameNorm)
+      )
+    }
     setData(all);setLoading(false)
-  },[fFrom,fTo])
+  },[fFrom,fTo,isAdmin,ownerName,ownerHubspotId])
 
   useEffect(()=>{fetchData()},[fetchData])
   useEffect(()=>{

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
-import { Copy, Check, CopyCheck, ClipboardList, Sparkles } from 'lucide-react'
-import { SimResult, fmt, buildCopyText, buildFullNegotiationText } from '../lib/pricing'
+import { Copy, Check, Sparkles } from 'lucide-react'
+import { SimResult, fmt, pmt } from '../lib/pricing'
 
 function useCopy() {
   const [copied, setCopied] = useState<string | null>(null)
@@ -13,6 +13,8 @@ function useCopy() {
 
 interface Props {
   result:        SimResult | null
+  cursoLabel?:   string
+  tempoAcesso?:  string
   produtoLabel:  string
   precoCheio:    number
   precoBase:     number
@@ -24,7 +26,7 @@ interface Props {
 }
 
 export function PaymentCard({
-  result, produtoLabel, precoCheio, precoBase,
+  result, cursoLabel, tempoAcesso, produtoLabel, precoCheio, precoBase,
   upsellLabel, upsellPrice = 0, vertical, eventDiscount, cashDiscountPct,
 }: Props) {
   const { copied, copy } = useCopy()
@@ -43,15 +45,31 @@ export function PaymentCard({
   const pctOff      = Math.round((1 - totalBase / totalCheio) * 100)
   const isSemJuros  = result.rate === 0
 
-  const allText     = buildCopyText(result, produtoLabel)
-  const fullText    = buildFullNegotiationText({ produtoLabel, precoCheio, precoBase, result, upsellLabel, upsellPrice })
-
   const modeLabel =
     result.mode === 'avista'    ? '💵 Pagamento à Vista' :
     result.mode === 'parcelado' ? (isSemJuros ? '📅 Parcelamento Sem Juros' : '📅 Parcelamento') :
     result.mode === '3x'        ? '3️⃣ 3x Sem Juros' :
     result.mode === 'manual'    ? '⚙️ Parcelamento Manual' :
     `🎯 Evento${eventDiscount ? ` — ${eventDiscount}% off` : ''}`
+
+  // Monta a mensagem no padrão único de copiar (Curso / Tempo de Acesso / [Parcelado] / À vista).
+  // A linha "Parcelado" só entra quando for uma parcela de verdade (2x ou mais) — pra
+  // 1x ou pagamento à vista, o valor já é o mesmo do "À vista", então fica redundante.
+  function buildMessage(parcela?: { n: number; valor: number }) {
+    const cursoTxt = cursoLabel || produtoLabel
+    const lines: (string | null)[] = [
+      `*Curso:* ${cursoTxt}`,
+      tempoAcesso ? `*Tempo de Acesso:* ${tempoAcesso}` : null,
+    ]
+    if (parcela && parcela.n >= 2) {
+      // Valor "cheio" dessa mesma parcela (sem o desconto do preço especial),
+      // pra dar o efeito "De X por Y" — mesma taxa/quantidade de parcelas.
+      const valorCheioParcela = pmt(totalCheio, result!.rate, parcela.n)
+      lines.push(`*Parcelado:* De ${fmt(valorCheioParcela)} por ${parcela.n}x de ${fmt(parcela.valor)}`)
+    }
+    lines.push(`*À vista:* De ${fmt(totalCheio)} por ${fmt(totalBase)}`)
+    return lines.filter(Boolean).join('\n')
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -102,19 +120,6 @@ export function PaymentCard({
               {produtoLabel}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button onClick={() => copy(allText, 'all')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: '0 14px', borderRadius: 10, border: `1.5px solid ${copied === 'all' ? '#22c55e' : 'rgba(99,102,241,0.3)'}`, background: copied === 'all' ? 'rgba(34,197,94,0.08)' : 'rgba(99,102,241,0.06)', color: copied === 'all' ? '#16a34a' : '#6366f1', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', flexShrink: 0 }}>
-              {copied === 'all' ? <><Check size={13} /> Copiado!</> : <><CopyCheck size={13} /> Copiar</>}
-            </button>
-            {/* Ícone para copiar negociação completa apelativa */}
-            <button onClick={() => copy(fullText, 'full')} title="📋 Copiar negociação completa para o lead"
-              style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${copied === 'full' ? '#22c55e' : 'rgba(99,102,241,0.3)'}`, background: copied === 'full' ? 'rgba(34,197,94,0.08)' : 'rgba(99,102,241,0.06)', color: copied === 'full' ? '#16a34a' : '#6366f1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}
-              onMouseEnter={e => { e.currentTarget.style.background='rgba(99,102,241,0.12)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = copied==='full' ? 'rgba(34,197,94,0.08)' : 'rgba(99,102,241,0.06)' }}>
-              {copied === 'full' ? <Check size={15} /> : <ClipboardList size={15} />}
-            </button>
-          </div>
         </div>
 
         {/* À Vista — layout atraente */}
@@ -130,13 +135,13 @@ export function PaymentCard({
               <div>
                 <p style={{ fontSize: 13, color: 'var(--muted-foreground)', margin: '0 0 6px' }}>Valor à vista</p>
                 <p style={{ fontSize: 38, fontWeight: 900, color: '#22c55e', margin: '0 0 8px', letterSpacing: '-0.04em', lineHeight: 1 }}>{fmt(result.aVista)}</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 8, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', display: 'inline-flex' as any }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 8, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>
                     💚 Economize mais {fmt(totalBase - result.aVista)} pagando hoje!
                   </span>
                 </div>
               </div>
-              <button onClick={() => copy(`${produtoLabel}\n\n💵 À vista (${cashDiscountPct}% off): ${fmt(result.aVista!)}\n💚 Economize ${fmt(totalBase - result.aVista!)} pagando hoje!`, 'av')}
+              <button onClick={() => copy(buildMessage(), 'av')}
                 style={{ width: 44, height: 44, borderRadius: 12, border: `1.5px solid ${copied === 'av' ? '#22c55e' : 'var(--border)'}`, background: copied === 'av' ? 'rgba(34,197,94,0.08)' : 'var(--secondary)', color: copied === 'av' ? '#16a34a' : 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
                 {copied === 'av' ? <Check size={16} /> : <Copy size={16} />}
               </button>
@@ -177,7 +182,7 @@ export function PaymentCard({
                     )}
                   </div>
 
-                  <button onClick={() => copy(`${n}x de ${fmt(valor)}`, `p${n}`)}
+                  <button onClick={() => copy(buildMessage({ n, valor }), `p${n}`)}
                     style={{ width: 36, height: 36, borderRadius: 10, border: `1.5px solid ${isCopied ? '#22c55e' : 'var(--border)'}`, background: isCopied ? 'rgba(34,197,94,0.08)' : 'var(--secondary)', color: isCopied ? '#16a34a' : 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}
                     onMouseEnter={e => { if (!isCopied) { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#6366f1' } }}
                     onMouseLeave={e => { if (!isCopied) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted-foreground)' } }}>

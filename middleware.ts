@@ -35,6 +35,11 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
+  // Fluxo de "esqueci minha senha" — precisa ser acessível sem sessão ativa
+  if (pathname.startsWith('/forgot-password') || pathname.startsWith('/auth/callback')) {
+    return response
+  }
+
   if (!user) return NextResponse.redirect(new URL('/login', request.url))
   return response
 }
