@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
-  Brain, Target,
+  Target,
 } from 'lucide-react'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -18,7 +18,7 @@ import { usePresence } from '@/hooks/usePresence'
 import { useActiveModuleKeys, useActiveModules } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
-interface NavChild { label: string; icon: any; href: string; children?: NavChild[] }
+interface NavChild { key?: string; label: string; icon: any; href: string; always?: boolean; children?: NavChild[] }
 interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; children?: NavChild[] }
 
 const buildNav = (isAdmin: boolean): NavItem[] => [
@@ -41,32 +41,33 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
       { label: 'Simulado Final', icon: FlaskConical,  href: '/onboarding/simulado' },
     ],
   },
-  { key: 'telao',        label: 'Telão',          icon: Monitor,    href: '/telao' },
-  { key: 'calculadora',  label: 'Calculadora',    icon: Calculator, href: '/calculadora' },
-  { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator, href: '/calculadora2' },
-  { key: 'milestones',   label: 'Milestones',     icon: CalendarDays, href: '/milestones', always: true },
-  { key: 'disparos', label: 'Disparos', icon: Send, href: '/disparos',
-    children: [
-      { label: 'Copys',              icon: Send,  href: '/disparos' },
-      { label: 'Links de Pagamento', icon: Link2, href: '/disparos/links' },
-    ]
-  },
-  { key: 'templates',    label: 'Templates',      icon: FileText,   href: '/templates',    always: true },
-  // ── Inteligência Comercial — nova seção ──
+  // ── Ferramentas — agrupa tudo que antes ficava solto na raiz do menu.
+  // Cada item carrega sua própria key de módulo, então é filtrado
+  // individualmente (some sozinho se não estiver liberado pro usuário).
   {
-    key: 'intel', label: 'Inteligência Comercial', icon: Brain, href: '/intel', always: true,
-    children: isAdmin ? [
-      { label: 'Visão Geral',       icon: BarChart2,  href: '/intel' },
-      { label: 'Metas dos Closers', icon: Target,     href: '/intel/goals' },
-    ] : [
-      { label: 'Meu Painel', icon: BarChart2, href: '/intel' },
+    key: 'ferramentas', label: 'Ferramentas', icon: Zap, href: '/ferramentas', always: true,
+    children: [
+      { key: 'telao',        label: 'Telão',          icon: Monitor,      href: '/telao' },
+      { key: 'calculadora',  label: 'Calculadora',    icon: Calculator,   href: '/calculadora' },
+      { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator,   href: '/calculadora2' },
+      { key: 'milestones',   label: 'Milestones',     icon: CalendarDays, href: '/milestones', always: true },
+      { key: 'disparos',     label: 'Disparos',       icon: Send,         href: '/disparos' },
+      { key: 'disparos',     label: 'Links',          icon: Link2,        href: '/disparos/links' },
+      { key: 'templates',    label: 'Templates',      icon: FileText,     href: '/templates',  always: true },
     ],
   },
+  // ── Administração — unifica o que antes era "Inteligência Comercial"
+  // (Visão Geral / Metas / Meu Painel) e "Administração" (Usuários / Módulos)
+  // numa seção só. Sempre visível — o conteúdo é que muda por role.
   {
-    key: 'admin', label: 'Administração', icon: Users, href: '/admin', adminOnly: true,
-    children: [
-      { label: 'Usuários', icon: Users,   href: '/admin' },
-      { label: 'Módulos',  icon: Package, href: '/admin/modules' },
+    key: 'administracao', label: 'Administração', icon: Users, href: '/administracao', always: true,
+    children: isAdmin ? [
+      { label: 'Visão Geral',      icon: BarChart2, href: '/intel' },
+      { label: 'Meta dos Closers', icon: Target,    href: '/intel/goals' },
+      { label: 'Módulos',          icon: Package,   href: '/admin/modules' },
+      { label: 'Usuários',         icon: Users,     href: '/admin' },
+    ] : [
+      { label: 'Meu Painel', icon: BarChart2, href: '/intel' },
     ],
   },
 ]
@@ -76,7 +77,7 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
   const Icon = item.icon
   const hasChildren = item.children?.length > 0
   const isActive = depth === 0
-    ? ['/','/dashboard','/onboarding','/admin','/intel'].includes(item.href)
+    ? ['/','/dashboard','/onboarding','/ferramentas','/administracao'].includes(item.href)
         ? pathname === item.href
         : pathname.startsWith(item.href)
     : pathname === item.href
@@ -151,12 +152,27 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const isDark = theme === 'dark'
   const isAdmin = profile?.role === 'superadmin'
   const nav = buildNav(isAdmin)
-  const visible = nav.filter(i => {
-    if (i.adminOnly) return isAdmin
-    if (i.always)    return true
-    if (activeKeys !== null && !activeKeys.includes(i.key)) return false
-    return canAccessModule(profile?.role ?? 'consultor', modules, i.key as ModuleKey)
-  })
+
+  // Cada item de "Ferramentas" carrega sua própria key de módulo — filtra
+  // individualmente (some sozinho o que não estiver liberado), e some a
+  // seção inteira se não sobrar nenhuma ferramenta liberada.
+  const gate = (key: string, always?: boolean) => {
+    if (always) return true
+    if (activeKeys !== null && !activeKeys.includes(key)) return false
+    return canAccessModule(profile?.role ?? 'consultor', modules, key as ModuleKey)
+  }
+
+  const visible = nav
+    .map(i => i.key === 'ferramentas' && i.children
+      ? { ...i, children: i.children.filter(c => gate(c.key!, c.always)) }
+      : i
+    )
+    .filter(i => {
+      if (i.adminOnly) return isAdmin
+      if (i.key === 'ferramentas') return (i.children?.length ?? 0) > 0
+      if (i.always) return true
+      return gate(i.key, i.always)
+    })
 
   usePresence()
 
