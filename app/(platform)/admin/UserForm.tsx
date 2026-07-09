@@ -51,9 +51,17 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
   const [avatarFile,     setAvatarFile] = useState<File | null>(null)
   const [loading,        setLoading]    = useState(false)
   const [error,          setError]      = useState('')
+  const [name,           setName]       = useState(user?.name ?? '')
+  const [email,          setEmail]      = useState(user?.email ?? '')
+  const [password,       setPassword]   = useState('')
   const [jobRole,        setJobRole]    = useState(user?.job_role ?? '')
   const [team,           setTeam]       = useState(user?.team ?? '')
+  const [hubspotId,      setHubspotId]  = useState(user?.hubspot_id ?? '')
   const [role,           setRole]       = useState(user?.role ?? 'consultor')
+  // Checklist só existe na criação de um closer novo — pra edição de um closer
+  // já existente não faz sentido reexigir isso toda vez que alguém só quer
+  // corrigir um dado.
+  const [checklist, setChecklist] = useState({ avatar: false, hubspot: false, botmaker: false })
   const [checkedModules, setChecked]    = useState<string[]>(
     mode === 'edit'
       ? grantedModuleIds
@@ -61,6 +69,20 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
   )
   const fileRef = useRef<HTMLInputElement>(null)
   const initials = user?.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() ?? ''
+
+  const isNewCloser = mode === 'create' && jobRole === 'closer'
+  // Só quando TODAS as exigências do closer novo estiverem batidas (time,
+  // hubspot id e as 3 caixas do checklist) o botão libera — além dos campos
+  // básicos (nome/email/senha) já preenchidos.
+  const closerRequirementsMet = !isNewCloser || (
+    !!team && hubspotId.trim() !== '' && checklist.avatar && checklist.hubspot && checklist.botmaker
+  )
+  const baseFieldsFilled = name.trim() !== '' && email.trim() !== '' && (mode === 'edit' || password.trim() !== '')
+  const canSubmit = baseFieldsFilled && closerRequirementsMet && !loading
+
+  function toggleChecklist(k: keyof typeof checklist) {
+    setChecklist(prev => ({ ...prev, [k]: !prev[k] }))
+  }
 
   function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
@@ -75,18 +97,18 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault(); setLoading(true); setError('')
-    const form     = e.currentTarget
-    const getValue = (n: string) => (form.elements.namedItem(n) as HTMLInputElement)?.value ?? ''
+    e.preventDefault()
+    if (!canSubmit) return
+    setLoading(true); setError('')
     const formData = new FormData()
     formData.append('mode',       mode)
-    formData.append('name',       getValue('name'))
-    formData.append('email',      getValue('email'))
-    formData.append('password',   getValue('password'))
+    formData.append('name',       name)
+    formData.append('email',      email)
+    formData.append('password',   password)
     formData.append('role',       role)
     formData.append('job_role',   jobRole)
     formData.append('team',       team)
-    formData.append('hubspot_id', getValue('hubspot_id'))
+    formData.append('hubspot_id', hubspotId)
     formData.append('modules',    JSON.stringify(checkedModules))
     if (mode === 'edit' && user) formData.append('userId', user.id)
     if (avatarFile) formData.append('avatar', avatarFile)
@@ -154,12 +176,12 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 26 }}>
           <div>
             <label style={labelStyle}>Nome completo *</label>
-            <input name="name" type="text" required defaultValue={user?.name} placeholder="Ex: Maria Silva"
+            <input name="name" type="text" required value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Maria Silva"
               style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
           </div>
           <div>
             <label style={labelStyle}>Email *</label>
-            <input name="email" type="email" required defaultValue={user?.email} placeholder="maria@medreview.com"
+            <input name="email" type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="maria@medreview.com"
               style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
           </div>
 
@@ -187,10 +209,38 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
                 />
               </div>
 
+              {/* Checklist de setup — só obrigatório na criação de um closer novo */}
+              {isNewCloser && (
+                <div>
+                  <label style={labelStyle}>Checklist de setup *</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {([
+                      ['avatar',   'Avatar criado'],
+                      ['hubspot',  'Acesso ao HubSpot'],
+                      ['botmaker', 'Acesso à Botmaker'],
+                    ] as const).map(([k, label]) => {
+                      const checked = checklist[k]
+                      return (
+                        <label key={k} onClick={() => toggleChecklist(k)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 11, border: `1.5px solid ${checked ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`, background: checked ? 'rgba(34,197,94,0.06)' : 'var(--background)', cursor: 'pointer', transition: 'all 0.15s' }}>
+                          <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${checked ? '#22c55e' : 'var(--border)'}`, background: checked ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
+                            {checked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>{label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 8, lineHeight: 1.5 }}>
+                    Confirme os 3 itens (junto com o time e o ID do HubSpot) pra liberar a criação.
+                  </p>
+                </div>
+              )}
+
               {/* HubSpot ID */}
               <div>
-                <label style={labelStyle}>ID no HubSpot</label>
-                <input name="hubspot_id" type="text" defaultValue={user?.hubspot_id ?? ''}
+                <label style={labelStyle}>ID no HubSpot{isNewCloser ? ' *' : ''}</label>
+                <input name="hubspot_id" type="text" value={hubspotId} onChange={e => setHubspotId(e.target.value)}
                   placeholder="Ex: 123456789" style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
                 <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 6, lineHeight: 1.5 }}>
                   💡 Vincula automaticamente este usuário às vendas no telão.
@@ -201,7 +251,7 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
           )}
 
           {/* Campo oculto se não for closer */}
-          {jobRole !== 'closer' && <input name="hubspot_id" type="hidden" defaultValue={user?.hubspot_id ?? ''} />}
+          {jobRole !== 'closer' && <input name="hubspot_id" type="hidden" value={hubspotId} readOnly />}
         </div>
 
         <div style={{ height: 1, background: 'var(--border)', margin: '0 0 26px' }} />
@@ -211,7 +261,7 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 26 }}>
           <div>
             <label style={labelStyle}>{mode === 'create' ? 'Senha inicial *' : 'Nova senha'}</label>
-            <input name="password" type="text" required={mode === 'create'}
+            <input name="password" type="text" required={mode === 'create'} value={password} onChange={e => setPassword(e.target.value)}
               placeholder={mode === 'edit' ? 'Deixe em branco para manter' : 'Senha de acesso'}
               style={inputStyle} onFocus={focusFn} onBlur={blurFn} />
             {mode === 'edit' && <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 5 }}>Em branco = mantém a senha atual.</p>}
@@ -260,8 +310,9 @@ export function UserForm({ modules, mode, user, grantedModuleIds = [], isSelf = 
               Cancelar
             </button>
           </Link>
-          <button type="submit" disabled={loading}
-            style={{ flex: 2, height: 46, borderRadius: 11, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', fontSize: 14, fontWeight: 800, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loading ? 0.7 : 1, transition: 'all 0.15s', boxShadow: '0 4px 16px rgba(79,70,229,0.35)' }}>
+          <button type="submit" disabled={!canSubmit}
+            title={!canSubmit && isNewCloser ? 'Preencha o time, o ID do HubSpot e marque as 3 caixas do checklist' : undefined}
+            style={{ flex: 2, height: 46, borderRadius: 11, background: canSubmit ? 'linear-gradient(135deg,#4f46e5,#7c3aed)' : 'var(--secondary)', color: canSubmit ? '#fff' : 'var(--muted-foreground)', fontSize: 14, fontWeight: 800, border: 'none', cursor: canSubmit ? 'pointer' : 'not-allowed', fontFamily: 'inherit', transition: 'all 0.15s', boxShadow: canSubmit ? '0 4px 16px rgba(79,70,229,0.35)' : 'none' }}>
             {loading ? 'Salvando...' : mode === 'create' ? '🚀 Adicionar ao time' : '✓ Salvar alterações'}
           </button>
         </div>
