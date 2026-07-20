@@ -7,7 +7,10 @@ export function computeUnlockedStepIds(
   progressByStepId: Record<string, string>
 ): Set<string> {
   const ordered = [...steps].sort((a, b) => {
-    const da = a.day_number ?? 0, db = b.day_number ?? 0
+    // Etapa sem dia definido não pode furar a fila pra ANTES do Dia 1 —
+    // isso criava uma trava invisível (a etapa fantasma virava "a primeira"
+    // pro algoritmo, mesmo sem aparecer como tal na tela). Vai pro fim.
+    const da = a.day_number ?? Infinity, db = b.day_number ?? Infinity
     if (da !== db) return da - db
     return (a.order_index ?? 0) - (b.order_index ?? 0)
   })
