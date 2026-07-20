@@ -25,3 +25,5 @@ node_modules
 *.log
 .next
 node_modules
+.next
+node_modules

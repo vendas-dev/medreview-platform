@@ -54,3 +54,19 @@ export function addDaysToDateStr(dateStr: string, days: number): string {
   dt.setUTCDate(dt.getUTCDate() + days)
   return dt.toISOString().slice(0, 10)
 }
+
+// Dia da semana (0=domingo...6=sábado) de um instante, em horário de SP —
+// não usar `.getDay()` direto num Date, isso lê o fuso do servidor (UTC).
+export function weekdayInSaoPaulo(isoOrDate: string | Date): number {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short' }).format(d)
+  const map: Record<string, number> = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }
+  return map[wd] ?? 0
+}
+
+// Hora do dia (0-23) de um instante, em horário de SP.
+export function hourInSaoPaulo(isoOrDate: string | Date): number {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate
+  const h = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hourCycle: 'h23', hour: '2-digit' }).format(d)
+  return Number(h)
+}

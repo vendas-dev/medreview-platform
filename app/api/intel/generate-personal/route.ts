@@ -3,6 +3,7 @@ export const maxDuration = 30
 import { createClient }      from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
+import { todayInSaoPaulo, monthBoundsSaoPaulo } from '@/lib/timezone'
 
 const VERT_LABEL: Record<string,string> = {
   medreview:'Med-Review R1', anestreview:'Anest-Review',
@@ -38,11 +39,10 @@ export async function POST(req: NextRequest) {
     .from('profiles').select('name,team,hubspot_id').eq('id', user.id).single()
 
   const admin     = createAdminClient()
-  const today     = new Date().toISOString().slice(0, 10)
+  const today     = todayInSaoPaulo()
   const monthKey  = today.slice(0, 7)
   const [y, m]    = monthKey.split('-').map(Number)
-  const mStart    = new Date(y, m - 1, 1).toISOString()
-  const mEnd      = new Date(y, m, 0, 23, 59, 59).toISOString()
+  const { start: mStart, end: mEnd } = monthBoundsSaoPaulo(monthKey)
   const hubId     = (profile as any)?.hubspot_id ?? null
   const uName     = (profile as any)?.name ?? ''
   const firstName = uName.split(' ')[0]
@@ -56,8 +56,14 @@ export async function POST(req: NextRequest) {
     hubId ? admin.from('telao_events').select('id,value,vertical').eq('event_type','sale').eq('closer_hubspot_id',hubId).gte('occurred_at',mStart).lte('occurred_at',mEnd) : Promise.resolve({ data: [] }),
     hubId ? admin.from('hubspot_leads').select('deal_stage').eq('owner_id',hubId).gte('created_at_hs',mStart).lte('created_at_hs',mEnd) : Promise.resolve({ data: [] }),
     admin.from('closer_goals').select('goal_sales').eq('user_id',user.id).eq('month',monthKey).maybeSingle(),
-    admin.from('disparos').select('template,id_negocio').ilike('proprietario', '%' + firstName + '%').gte('data_disparo',mStart).lte('data_disparo',mEnd),
-    admin.from('geracoes_links').select('deal_value,deal_id').ilike('owner_name', '%' + firstName + '%').gte('generated_at',mStart).lte('generated_at',mEnd),
+    // Disparos/links: casa por hubspot_id (confiável) quando disponível;
+    // ILIKE por primeiro nome só como fallback pra registros antigos sem o id.
+    hubId
+      ? admin.from('disparos').select('template,id_negocio').eq('proprietario_hubspot_id',hubId).gte('data_disparo',mStart).lte('data_disparo',mEnd)
+      : admin.from('disparos').select('template,id_negocio').ilike('proprietario', '%' + firstName + '%').gte('data_disparo',mStart).lte('data_disparo',mEnd),
+    hubId
+      ? admin.from('geracoes_links').select('deal_value,deal_id').eq('owner_hubspot_id',hubId).gte('generated_at',mStart).lte('generated_at',mEnd)
+      : admin.from('geracoes_links').select('deal_value,deal_id').ilike('owner_name', '%' + firstName + '%').gte('generated_at',mStart).lte('generated_at',mEnd),
   ])
 
   const salesMap = new Map()

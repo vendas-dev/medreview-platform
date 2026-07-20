@@ -3,6 +3,7 @@ export const maxDuration = 60
 import { createClient }      from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
+import { todayInSaoPaulo, monthBoundsSaoPaulo } from '@/lib/timezone'
 
 async function assertAdmin() {
   const supabase = await createClient()
@@ -71,11 +72,10 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin    = createAdminClient()
-  const today    = new Date().toISOString().slice(0, 10)
+  const today    = todayInSaoPaulo()
   const monthKey = today.slice(0, 7)
   const [y, m]   = monthKey.split('-').map(Number)
-  const mStart   = new Date(y, m - 1, 1).toISOString()
-  const mEnd     = new Date(y, m, 0, 23, 59, 59).toISOString()
+  const { start: mStart, end: mEnd } = monthBoundsSaoPaulo(monthKey)
 
   const [
     { data: closers }, { data: allSales }, { data: allLeads },
@@ -85,8 +85,8 @@ export async function POST(req: NextRequest) {
     admin.from('telao_events').select('closer_id,closer_hubspot_id,value,vertical').eq('event_type','sale').gte('occurred_at',mStart).lte('occurred_at',mEnd),
     admin.from('hubspot_leads').select('owner_id,deal_stage').gte('created_at_hs',mStart).lte('created_at_hs',mEnd),
     admin.from('closer_goals').select('*').eq('month',monthKey),
-    admin.from('disparos').select('proprietario,template,id_negocio').gte('data_disparo',mStart).lte('data_disparo',mEnd),
-    admin.from('geracoes_links').select('owner_name,deal_value,deal_id').gte('generated_at',mStart).lte('generated_at',mEnd),
+    admin.from('disparos').select('proprietario,proprietario_hubspot_id,template,id_negocio').gte('data_disparo',mStart).lte('data_disparo',mEnd),
+    admin.from('geracoes_links').select('owner_name,owner_hubspot_id,deal_value,deal_id').gte('generated_at',mStart).lte('generated_at',mEnd),
   ])
 
   const goalsMap     = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
@@ -94,9 +94,17 @@ export async function POST(req: NextRequest) {
 
   const context = (closers ?? []).map((c: any) => {
     const sales    = matchSales(allSales ?? [], c)
-    const leads    = (allLeads ?? []).filter((l: any) => c.hubspot_id && l.owner_id === c.hubspot_id)
-    const disparos = (allDisparos ?? []).filter((d: any) => matchByFullName(d.proprietario ?? '', c.name))
-    const links    = (allLinks ?? []).filter((l: any) => matchByFullName(l.owner_name ?? '', c.name))
+    const leads    = (allLeads ?? []).filter((l: any) => c.hubspot_id && l.owner_id != null && String(l.owner_id).trim() === String(c.hubspot_id).trim())
+    // Disparos/links: casa por hubspot_id primeiro (confiável); nome exato só
+    // como fallback pros registros antigos que ainda não têm o hubspot_id.
+    const disparos = (allDisparos ?? []).filter((d: any) =>
+      (c.hubspot_id && d.proprietario_hubspot_id && String(d.proprietario_hubspot_id).trim() === String(c.hubspot_id).trim()) ||
+      (!d.proprietario_hubspot_id && matchByFullName(d.proprietario ?? '', c.name))
+    )
+    const links    = (allLinks ?? []).filter((l: any) =>
+      (c.hubspot_id && l.owner_hubspot_id && String(l.owner_hubspot_id).trim() === String(c.hubspot_id).trim()) ||
+      (!l.owner_hubspot_id && matchByFullName(l.owner_name ?? '', c.name))
+    )
     const goal     = goalsMap[c.id]
     const rev      = sales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
     const goalV    = Number(goal?.goal_sales ?? 0)

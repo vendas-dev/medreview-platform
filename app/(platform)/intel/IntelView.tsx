@@ -6,6 +6,28 @@ import {
   TrendingUp, TrendingDown, Users, BarChart2, Lightbulb,
   AlertCircle, Star, Activity, ChevronLeft, ChevronRight, ChevronDown, Check, X,
 } from 'lucide-react'
+import { computeForecast, RecurringSale } from '@/lib/telao/forecast'
+import { weekdayInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
+
+// Mesma tradução de vertical usada no servidor (page.tsx) — precisa existir
+// aqui também porque os dados brutos (rawSales/rawLeads) chegam com a chave
+// crua do banco, não com o rótulo já traduzido.
+const VERT_LABEL: Record<string, string> = {
+  medreview:   'Med-Review R1',
+  anestreview: 'Anest-Review',
+  oftreview:   'Oft-Review',
+  ortoprev:    'Ortop-Review',
+  ortopreview: 'Ortop-Review',
+}
+const VERT_CANON: Record<string, string> = {}
+Object.values(VERT_LABEL).forEach(label => { VERT_CANON[label.toLowerCase().replace(/[\s-]/g, '')] = label })
+const vLabelClient = (k: string) => {
+  if (!k) return 'outros'
+  const key = String(k).trim()
+  if (VERT_LABEL[key]) return VERT_LABEL[key]
+  const norm = key.toLowerCase().replace(/[\s-]/g, '')
+  return VERT_CANON[norm] ?? key
+}
 
 const fmtBRL = (v: number) => (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})
 const fmtPct = (v: number) => `${(v||0).toFixed(1)}%`
@@ -369,6 +391,144 @@ function InsightPanel({ data: iD, date, isAdmin, isCloserType }: any) {
 }
 
 // ── ADMIN ──────────────────────────────────────────────────
+// Ranking dos produtos mais vendidos, em formato de pódium — 1º/2º/3º lugar
+// como blocos elevados (altura proporcional à posição), 4º e 5º numa lista
+// simples embaixo. Agrupado por produto+vertical (produtos repetem nome
+// entre verticais diferentes, por isso a vertical aparece pequena embaixo).
+function ProductRankingCard({ data, title }: { data: {product:string;vertical:string;count:number;rev:number}[]; title?: string }) {
+  if (!data || data.length === 0) return null
+  const top3 = data.slice(0, 3)
+  const rest = data.slice(3, 5)
+  // Ordem visual clássica de pódium: 2º à esquerda, 1º no meio (mais alto), 3º à direita.
+  const visualOrder = [top3[1], top3[0], top3[2]].filter(Boolean) as typeof top3
+  const rankOf = (p: typeof top3[0]) => top3.indexOf(p) // posição real (0,1,2) de quem está naquele slot visual
+  const PODIUM_HEIGHT = [130, 96, 74] // altura do bloco por posição real (1º,2º,3º) — 1º sempre o mais alto
+  const MEDAL  = ['🥇','🥈','🥉']
+  const GRAD   = ['linear-gradient(180deg,#fbbf24,#d97706)','linear-gradient(180deg,#cbd5e1,#94a3b8)','linear-gradient(180deg,#fb923c,#c2410c)']
+  return (
+    <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
+      <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)' }}>{title ?? 'Ranking de produtos mais vendidos'}</p>
+      <p style={{ margin:'2px 0 6px', fontSize:11, color:'var(--muted-foreground)' }}>Top 5 por receita no mês</p>
+
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'center', gap:14, marginTop:24, padding:'0 8px' }}>
+        {visualOrder.map((p) => {
+          const rank = rankOf(p)
+          return (
+            <div key={`${p.product}-${p.vertical}`} style={{ display:'flex', flexDirection:'column', alignItems:'center', width:130 }}>
+              <span style={{ fontSize:26 }}>{MEDAL[rank]}</span>
+              <span style={{ fontSize:12.5, fontWeight:800, color:'var(--foreground)', textAlign:'center', marginTop:6, lineHeight:1.3, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{p.product}</span>
+              <span style={{ fontSize:10.5, color:'var(--muted-foreground)', marginTop:2 }}>{p.vertical}</span>
+              <span style={{ fontSize:15, fontWeight:900, color:'var(--foreground)', marginTop:6, fontVariantNumeric:'tabular-nums' }}>{fmtBRL(p.rev)}</span>
+              <div style={{ width:'100%', height:PODIUM_HEIGHT[rank], background:GRAD[rank], borderRadius:'10px 10px 0 0', marginTop:12, display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:10, boxShadow:'0 4px 16px rgba(0,0,0,.12)' }}>
+                <span style={{ fontSize:20, fontWeight:900, color:'rgba(255,255,255,.85)' }}>{rank+1}º</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {rest.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:22 }}>
+          {rest.map((p, i) => (
+            <div key={`${p.product}-${p.vertical}`} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:11, background:'var(--secondary)' }}>
+              <span style={{ width:20, textAlign:'center', fontSize:12, fontWeight:800, color:'var(--muted-foreground)', flexShrink:0 }}>{i+4}º</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <span style={{ fontSize:12.5, fontWeight:700, color:'var(--foreground)' }}>{p.product}</span>
+                <span style={{ fontSize:10.5, color:'var(--muted-foreground)', marginLeft:7 }}>{p.vertical}</span>
+              </div>
+              <span style={{ fontSize:13, fontWeight:800, color:'var(--foreground)', flexShrink:0, fontVariantNumeric:'tabular-nums' }}>{fmtBRL(p.rev)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Ticket médio por vertical — um quadrante (card) por vertical, lado a lado.
+function AvgTicketCard({ data }: { data: {label:string;avgTicket:number;count:number}[] }) {
+  const filtered = (data ?? []).filter(d => d.count > 0)
+  if (filtered.length === 0) return null
+  return (
+    <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
+      <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Ticket médio por vertical</p>
+      <p style={{ margin:'2px 0 20px', fontSize:11, color:'var(--muted-foreground)' }}>Valor médio por venda em cada vertical, somando o mês inteiro</p>
+      <div style={{ display:'grid', gridTemplateColumns:`repeat(${Math.min(filtered.length,4)}, 1fr)`, gap:14 }}>
+        {filtered.map(d => {
+          const isR1 = d.label.includes('R1')
+          const accent = isR1 ? '#7c3aed' : '#2563eb'
+          return (
+            <div key={d.label} style={{ padding:'18px 16px', borderRadius:14, background:'var(--secondary)', border:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:8, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ width:7, height:7, borderRadius:'50%', background:accent, flexShrink:0 }}/>
+                <span style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.label}</span>
+              </div>
+              <span style={{ fontSize:21, fontWeight:900, color:'var(--foreground)', letterSpacing:'-.02em', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(d.avgTicket)}</span>
+              <span style={{ fontSize:10.5, color:'var(--muted-foreground)' }}>{d.count} {d.count===1?'venda':'vendas'}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Distribuição de vendas por dia da semana (em cima) e por horário (embaixo) —
+// soma TODAS as vendas do mês corrente, agrupadas pelo dia/hora em que cada
+// uma aconteceu (sempre em horário de SP). Não é "só hoje" nem média.
+function WeekdayHourCard({ weekday, hour }: { weekday:{label:string;count:number;rev:number}[]; hour:{hour:number;count:number}[] }) {
+  const hasData = (weekday ?? []).some(d => d.count > 0) || (hour ?? []).some(h => h.count > 0)
+  if (!hasData) return null
+  const maxWd = Math.max(...weekday.map(d => d.count), 1)
+  const businessHours = hour.filter(h => h.hour >= 6 && h.hour <= 23)
+  const maxHr = Math.max(...businessHours.map(h => h.count), 1)
+  const WD_BAR_MAX = 60   // altura máxima da barra (px) — dia da semana
+  const HR_BAR_MAX = 56   // altura máxima da barra (px) — horário
+  return (
+    <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
+      <p style={{ margin:0, fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Distribuição de vendas por dia e horário</p>
+      <p style={{ margin:'2px 0 24px', fontSize:11, color:'var(--muted-foreground)', lineHeight:1.5 }}>
+        Soma de todas as vendas do mês, agrupadas pelo dia da semana e pela hora em que cada uma aconteceu
+      </p>
+
+      <p style={{ margin:'0 0 16px', fontSize:10.5, fontWeight:700, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.06em' }}>Por dia da semana</p>
+      <div style={{ display:'flex', gap:10, alignItems:'flex-end', marginBottom:36 }}>
+        {weekday.map(d => {
+          const barH = d.count > 0 ? Math.max((d.count/maxWd)*WD_BAR_MAX, 8) : 2
+          return (
+            <div key={d.label} title={`${d.label}: ${d.count} venda${d.count!==1?'s':''}`} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center' }}>
+              {/* Rótulo + barra num único bloco "colado embaixo" — o valor sempre
+                  fica rente à barra, seja ela alta ou baixa (sem vão no meio). */}
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', height:WD_BAR_MAX+20, width:'100%' }}>
+                {d.count>0 && <span style={{ fontSize:11, fontWeight:800, color:'var(--foreground)', marginBottom:5 }}>{d.count}</span>}
+                <div style={{ width:'100%', maxWidth:44, height:barH, borderRadius:'6px 6px 0 0', background:'linear-gradient(180deg,#818cf8,#6366f1)' }}/>
+              </div>
+              <span style={{ fontSize:10.5, marginTop:8, color:'var(--muted-foreground)', fontWeight:600 }}>{d.label}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p style={{ margin:'0 0 16px', fontSize:10.5, fontWeight:700, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.06em' }}>Por horário</p>
+      <div style={{ display:'flex', gap:5, alignItems:'flex-end' }}>
+        {businessHours.map(h => {
+          const isPeak = h.count === maxHr && h.count > 0
+          const barH = h.count > 0 ? Math.max((h.count/maxHr)*HR_BAR_MAX, 6) : 2
+          return (
+            <div key={h.hour} title={`${h.hour}h: ${h.count} venda${h.count!==1?'s':''}`} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', cursor:'default' }}>
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', height:HR_BAR_MAX+16, width:'100%' }}>
+                {h.count>0 && <span style={{ fontSize:9, fontWeight:700, color: isPeak?'var(--foreground)':'var(--muted-foreground)', marginBottom:4 }}>{h.count}</span>}
+                <div style={{ width:'100%', maxWidth:20, height:barH, borderRadius:'3px 3px 0 0', background: isPeak?'#7c3aed':'rgba(124,58,237,.32)' }}/>
+              </div>
+              <span style={{ fontSize:9, marginTop:6, color:'var(--muted-foreground)' }}>{h.hour}h</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function AdminView({ closerStats, insightData, insightDate, adminExtra, currentMonth }: any) {
   const [filterTeam,   setFilterTeam]   = useState<string>('todos')
   const [filterVert,   setFilterVert]   = useState<string[]>([])  // labels: ["Anest-Review", ...]
@@ -391,12 +551,25 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   }
 
   const allClosers  = (closerStats ?? []) as any[]
-  const verticals   = Object.entries(byVertical).sort(([,a]:any,[,b]:any) => b.rev - a.rev) as any[]
+  // Mescla entradas de byVertical que caem no mesmo rótulo — pode acontecer de
+  // duas chaves brutas diferentes (ex: variação de grafia salva no banco em
+  // épocas diferentes) traduzirem pro mesmo nome de vertical. Sem isso, o
+  // dropdown de filtro recebia duas opções idênticas (key duplicada no React)
+  // e os totais dessa vertical ficavam divididos entre as duas entradas.
+  const vertMerged: Record<string, any> = {}
+  Object.values(byVertical).forEach((v: any) => {
+    if (!vertMerged[v.label]) { vertMerged[v.label] = { ...v }; return }
+    const m = vertMerged[v.label]
+    ;['rev','count','leads','closer','ambassador','selfcheckout','closerRev','ambassadorRev','selfcheckoutRev'].forEach(k => {
+      m[k] = (m[k] ?? 0) + (v[k] ?? 0)
+    })
+  })
+  const verticals   = Object.entries(vertMerged).sort(([,a]:any,[,b]:any) => b.rev - a.rev) as any[]
   const vertLabels  = verticals.map(([,v]:any) => v.label)
 
-  // Opções de dropdown
+  // Opções de dropdown — "outros" (sem vertical identificada) não entra como opção
   const teamOpts   = [{value:'todos',label:'Todos os times'},{value:'R1',label:'Time R1',dot:'#7c3aed'},{value:'OAO',label:'Time OAO',dot:'#2563eb'}]
-  const vertOpts   = verticals.map(([,v]:any) => ({ value:v.label, label:v.label, dot: v.label.includes('R1')?'#7c3aed':'#2563eb' }))
+  const vertOpts   = verticals.filter(([,v]:any) => v.label !== 'outros').map(([,v]:any) => ({ value:v.label, label:v.label, dot: v.label.includes('R1')?'#7c3aed':'#2563eb' }))
   const closerOpts = [{value:'todos',label:'Todos os closers'},...allClosers.map((c:any)=>({value:c.id,label:c.name}))]
 
   const handleVert = (val: string) => {
@@ -431,37 +604,65 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
 
   const hasFilters = filterTeam!=='todos' || filterVert.length>0 || filterCloser!=='todos'
 
-  // Totais filtrados
-  const filteredTotalRev   = filtered.reduce((s:number,c:any) => s + closerRev(c), 0)
-  const filteredTotalSales = filtered.reduce((s:number,c:any) => s + closerSales(c), 0)
-  const filteredTotalLeads = filtered.reduce((s:number,c:any) => s + closerLeads(c), 0)
-  const displayTotalRev    = hasFilters ? filteredTotalRev   : totalRev
-  const displayTotalSales  = hasFilters ? filteredTotalSales : totalSales
-  const displayTotalLeads  = hasFilters ? filteredTotalLeads : totalLeadsHS
+  // ── Motor de filtragem sobre os dados BRUTOS (não só o que foi somado por closer) ──
+  // Isso é o que garante que filtrar só por vertical traga TUDO daquela vertical
+  // (inclusive vendas que não bateram com nenhum closer cadastrado), não só a
+  // fatia que por acaso também tinha um closer identificado.
+  const closerLookup = useMemo(() => {
+    const byId: Record<string, any> = {}, byHub: Record<string, any> = {}
+    allClosers.forEach((c: any) => { byId[c.id] = c; if (c.hubspot_id) byHub[c.hubspot_id] = c })
+    return { byId, byHub }
+  }, [allClosers])
+
+  function matchesTeamCloser(e: any, ownerKeyField: 'closer'|'lead' = 'closer') {
+    if (filterTeam === 'todos' && filterCloser === 'todos') return true
+    const owner = ownerKeyField === 'closer'
+      ? ((e.closer_id && closerLookup.byId[e.closer_id]) || (e.closer_hubspot_id && closerLookup.byHub[e.closer_hubspot_id]))
+      : (e.owner_id && closerLookup.byHub[e.owner_id])
+    if (!owner) return false
+    if (filterTeam !== 'todos' && owner.team !== filterTeam) return false
+    if (filterCloser !== 'todos' && owner.id !== filterCloser) return false
+    return true
+  }
+
+  const scopedSales = useMemo(() => {
+    return (adminExtra?.rawSales ?? []).filter((e: any) => {
+      if (filterVert.length > 0 && !filterVert.includes(vLabelClient(e.vertical ?? 'outros'))) return false
+      return matchesTeamCloser(e, 'closer')
+    })
+  }, [adminExtra?.rawSales, filterVert, filterTeam, filterCloser, closerLookup])
+
+  const scopedLeads = useMemo(() => {
+    return (adminExtra?.rawLeads ?? []).filter((l: any) => {
+      if (filterVert.length > 0 && !filterVert.includes(vLabelClient(l.vertical ?? 'outros'))) return false
+      return matchesTeamCloser(l, 'lead')
+    })
+  }, [adminExtra?.rawLeads, filterVert, filterTeam, filterCloser, closerLookup])
+
+  const scopedTotalRev   = scopedSales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
+  const scopedTotalSales = scopedSales.length
+  const scopedTotalLeads = scopedLeads.length
+
+  const displayTotalRev    = hasFilters ? scopedTotalRev   : totalRev
+  const displayTotalSales  = hasFilters ? scopedTotalSales : totalSales
+  const displayTotalLeads  = hasFilters ? scopedTotalLeads : totalLeadsHS
   const proj = bizPassed > 0 ? (displayTotalRev / bizPassed) * bizTotal : 0
   const maxRev = Math.max(...filtered.map((c:any) => closerRev(c)), 1)
 
-  // byType filtrado por closer/team/vertical
+  // byType filtrado — agora a partir das vendas brutas de verdade (antes, com
+  // filtro de vertical ativo, tudo virava "closer" por aproximação; agora conta
+  // embaixador/self-checkout corretamente também).
   const displayByType = useMemo(() => {
     if (!hasFilters) return byType
     const agg = { closer:{rev:0,count:0}, ambassador:{rev:0,count:0}, selfcheckout:{rev:0,count:0} }
-    filtered.forEach((c: any) => {
-      if (filterVert.length === 0) {
-        agg.closer.count      += c.closer_count      ?? 0
-        agg.closer.rev        += c.closer_rev        ?? 0
-        agg.ambassador.count  += c.ambassador_count  ?? 0
-        agg.ambassador.rev    += c.ambassador_rev    ?? 0
-        agg.selfcheckout.count+= c.selfco_count      ?? 0
-        agg.selfcheckout.rev  += c.selfco_rev        ?? 0
-      } else {
-        // Com filtro de vertical: usar revenue_by_vertical como proxy (só rev disponível)
-        const rev = closerRev(c)
-        agg.closer.rev   += rev
-        agg.closer.count += closerSales(c)
-      }
+    scopedSales.forEach((e: any) => {
+      const v = Number(e.value) || 0
+      if (e.is_self_checkout || e.seller_type === 'self_checkout') { agg.selfcheckout.rev += v; agg.selfcheckout.count++ }
+      else if (e.sold_by_ambassador || e.seller_type === 'ambassador') { agg.ambassador.rev += v; agg.ambassador.count++ }
+      else { agg.closer.rev += v; agg.closer.count++ }
     })
     return agg
-  }, [filtered, filterVert, hasFilters, byType])
+  }, [hasFilters, scopedSales, byType])
 
   // byVertical filtrado — recompõe dos closerStats
   const displayByVertical = useMemo(() => {
@@ -492,20 +693,19 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   // Conversão por vertical: agrupa sales + leads por vertical dos closers filtrados
   const convByVertical = useMemo(() => {
     const cv: Record<string, { label: string; sales: number; leads: number }> = {}
-    filtered.forEach((c: any) => {
-      const salesV = c.sales_by_vertical ?? {}
-      const leadsV = c.leads_by_vertical ?? {}
-      const allLabels = new Set([...Object.keys(salesV), ...Object.keys(leadsV)])
-      allLabels.forEach((label: string) => {
-        if (filterVert.length > 0 && !filterVert.includes(label)) return
-        if (!cv[label]) cv[label] = { label, sales:0, leads:0 }
-        cv[label].sales += salesV[label] ?? 0
-        cv[label].leads += leadsV[label] ?? 0
-      })
+    scopedLeads.forEach((l: any) => {
+      const label = vLabelClient(l.vertical ?? 'outros')
+      if (!cv[label]) cv[label] = { label, sales:0, leads:0 }
+      cv[label].leads++
     })
-    return Object.values(cv).filter(v => v.leads > 0)
+    scopedSales.forEach((e: any) => {
+      const label = vLabelClient(e.vertical ?? 'outros')
+      if (!cv[label]) cv[label] = { label, sales:0, leads:0 }
+      cv[label].sales++
+    })
+    return Object.values(cv).filter(v => v.leads > 0 && v.label !== 'outros')
       .sort((a, b) => (b.leads > 0 ? b.sales/b.leads : 0) - (a.leads > 0 ? a.sales/a.leads : 0))
-  }, [filtered, filterVert])
+  }, [scopedLeads, scopedSales])
 
   // Verticals para exibição
   const displayVerts = useMemo(() => {
@@ -515,6 +715,79 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
       : source.sort(([,a]:any,[,b]:any) => b.rev - a.rev)
   }, [displayByVertical, filterVert])
 
+  // Ranking de produtos filtrado
+  const scopedProductRanking = useMemo(() => {
+    if (!hasFilters) return adminExtra?.productRanking ?? []
+    const map: Record<string, {product:string;vertical:string;count:number;rev:number}> = {}
+    scopedSales.forEach((e: any) => {
+      if (!e.product) return
+      const vlabel = vLabelClient(e.vertical ?? 'outros')
+      if (vlabel === 'outros') return
+      const key = `${e.product}|||${vlabel}`
+      if (!map[key]) map[key] = { product:e.product, vertical:vlabel, count:0, rev:0 }
+      map[key].count++; map[key].rev += Number(e.value) || 0
+    })
+    return Object.values(map).sort((a,b) => b.rev - a.rev).slice(0, 5)
+  }, [hasFilters, scopedSales, adminExtra?.productRanking])
+
+  // Ticket médio por vertical filtrado — só vendas 'nova' (parcela recorrente não conta)
+  const scopedAvgTicketByVertical = useMemo(() => {
+    if (!hasFilters) return adminExtra?.avgTicketByVertical ?? []
+    const map: Record<string, {rev:number;count:number}> = {}
+    scopedSales.filter((e: any) => (e.sale_type ?? 'nova') === 'nova').forEach((e: any) => {
+      const label = vLabelClient(e.vertical ?? 'outros')
+      if (label === 'outros') return
+      if (!map[label]) map[label] = { rev:0, count:0 }
+      map[label].rev += Number(e.value) || 0; map[label].count++
+    })
+    return Object.entries(map).map(([label, v]) => ({
+      label, avgTicket: v.count > 0 ? v.rev / v.count : 0, count: v.count,
+    })).sort((a,b) => b.avgTicket - a.avgTicket)
+  }, [hasFilters, scopedSales, adminExtra?.avgTicketByVertical])
+
+  // Distribuição por dia/hora filtrada (sempre em horário de SP)
+  const WEEKDAY_LABELS_C = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+  const scopedWeekdayHour = useMemo(() => {
+    if (!hasFilters) return { weekday: adminExtra?.salesByWeekday ?? [], hour: adminExtra?.salesByHour ?? [] }
+    const weekday = WEEKDAY_LABELS_C.map(label => ({ label, count:0, rev:0 }))
+    const hour = Array.from({ length:24 }, (_, h) => ({ hour:h, count:0 }))
+    scopedSales.forEach((e: any) => {
+      if (!e.occurred_at) return
+      const wd = weekdayInSaoPaulo(e.occurred_at)
+      weekday[wd].count++; weekday[wd].rev += Number(e.value) || 0
+      hour[hourInSaoPaulo(e.occurred_at)].count++
+    })
+    return { weekday, hour }
+  }, [hasFilters, scopedSales, adminExtra?.salesByWeekday, adminExtra?.salesByHour])
+
+  // Nova vs recorrente filtrado
+  const scopedNewVsRecurring = useMemo(() => {
+    if (!hasFilters) return { newRev: totalNewRev, recRev: totalRecurringRev }
+    let newRev = 0, recRev = 0
+    scopedSales.forEach((e: any) => {
+      const v = Number(e.value) || 0
+      if ((e.sale_type ?? 'nova') === 'nova') newRev += v; else recRev += v
+    })
+    return { newRev, recRev }
+  }, [hasFilters, scopedSales, totalNewRev, totalRecurringRev])
+
+  // Forecast filtrado — recalcula com o histórico completo de recorrência,
+  // já filtrado pelos mesmos critérios (vertical/time/closer).
+  const scopedForecast = useMemo(() => {
+    if (!hasFilters) return forecast
+    const filteredRecurring = (adminExtra?.rawRecurring ?? []).filter((e: any) => {
+      if (filterVert.length > 0 && !filterVert.includes(vLabelClient(e.vertical ?? 'outros'))) return false
+      return matchesTeamCloser(e, 'closer')
+    })
+    const recurringForForecast = filteredRecurring
+      .filter((e: any) => e.subscription_id && e.installment_number && e.total_installments)
+      .map((e: any) => ({
+        subscription_id: e.subscription_id, installment_number: e.installment_number,
+        total_installments: e.total_installments, value: Number(e.value) || 0, occurred_at: e.occurred_at,
+      }))
+    return computeForecast(recurringForForecast, scopedNewVsRecurring.recRev)
+  }, [hasFilters, adminExtra?.rawRecurring, filterVert, filterTeam, filterCloser, closerLookup, scopedNewVsRecurring.recRev])
+
   const hasTipoData  = (displayByType?.closer?.rev??0)+(displayByType?.ambassador?.rev??0)+(displayByType?.selfcheckout?.rev??0) > 0
   const hasLeadsData = filtered.filter((c:any)=>closerLeads(c)>0).length > 0
   const tipoConvCols  = (hasTipoData && hasLeadsData) ? '1fr 1fr' : '1fr'
@@ -523,12 +796,14 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   // Importante: parte de `allClosers` (não de `filtered`), porque `filtered` some com quem
   // tem receita zero na vertical selecionada — e certificação não é métrica de receita,
   // então um filtro de vertical não pode esconder um closer que certificou embaixador.
-  const ambassadorGoalRows = allClosers
-    .filter((c:any) => c.team === 'R1')
-    .filter((c:any) => filterTeam === 'todos' || filterTeam === 'R1')
-    .filter((c:any) => filterCloser === 'todos' || c.id === filterCloser)
-    .filter((c:any) => (c.goal_ambassador??0) > 0 || (c.ambassadors_certified??0) > 0)
-    .sort((a:any,b:any) => (b.ambassadors_certified??0) - (a.ambassadors_certified??0))
+  const ambassadorGoalRows = (filterVert.length > 0 && !filterVert.includes('Med-Review R1'))
+    ? []
+    : allClosers
+        .filter((c:any) => c.team === 'R1')
+        .filter((c:any) => filterTeam === 'todos' || filterTeam === 'R1')
+        .filter((c:any) => filterCloser === 'todos' || c.id === filterCloser)
+        .filter((c:any) => (c.goal_ambassador??0) > 0 || (c.ambassadors_certified??0) > 0)
+        .sort((a:any,b:any) => (b.ambassadors_certified??0) - (a.ambassadors_certified??0))
   const hasAmbassadorGoalData  = ambassadorGoalRows.length > 0
   const totalCertsR1           = ambassadorGoalRows.reduce((s:number,c:any) => s + (c.ambassadors_certified??0), 0)
   const totalGoalAmbassadorR1  = ambassadorGoalRows.reduce((s:number,c:any) => s + (c.goal_ambassador??0), 0)
@@ -610,33 +885,45 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
         ))}
       </div>
 
-      {/* Receita nova vs recorrente — gráfico de barras */}
-      {(totalNewRev > 0 || totalRecurringRev > 0) && (
+      {/* Receita nova vs recorrente — dois quadrantes com o valor total de cada */}
+      {(scopedNewVsRecurring.newRev > 0 || scopedNewVsRecurring.recRev > 0) && (
         <FadeIn delay={240}>
           <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
             <p style={{ margin:'0 0 4px', fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Receita nova vs recorrente</p>
-            <p style={{ margin:'0 0 18px', fontSize:11, color:'var(--muted-foreground)' }}>Split do mês corrente</p>
-            <BarChart
-              data={[
-                { label:'Vendas novas',       value:totalNewRev,       color:'#6366f1', tooltipSub: `${fmtPct(totalNewRev+totalRecurringRev>0?(totalNewRev/(totalNewRev+totalRecurringRev))*100:0)} do total` },
-                { label:'Receita recorrente', value:totalRecurringRev, color:'#0d9488', tooltipSub: `${fmtPct(totalNewRev+totalRecurringRev>0?(totalRecurringRev/(totalNewRev+totalRecurringRev))*100:0)} do total` },
-              ]}
-              height={140}
-            />
+            <p style={{ margin:'0 0 20px', fontSize:11, color:'var(--muted-foreground)' }}>Split do mês corrente{hasFilters?' · filtrado':''}</p>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:14 }}>
+              {[
+                { label:'Vendas novas',       value:scopedNewVsRecurring.newRev, color:'#6366f1' },
+                { label:'Receita recorrente', value:scopedNewVsRecurring.recRev, color:'#0d9488' },
+              ].map(x => {
+                const total = scopedNewVsRecurring.newRev + scopedNewVsRecurring.recRev
+                const pct = total > 0 ? (x.value/total)*100 : 0
+                return (
+                  <div key={x.label} style={{ padding:'18px 16px', borderRadius:14, background:'var(--secondary)', border:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ width:7, height:7, borderRadius:'50%', background:x.color, flexShrink:0 }}/>
+                      <span style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)' }}>{x.label}</span>
+                    </div>
+                    <span style={{ fontSize:22, fontWeight:900, color:'var(--foreground)', letterSpacing:'-.02em', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(x.value)}</span>
+                    <span style={{ fontSize:10.5, color:'var(--muted-foreground)' }}>{fmtPct(pct)} do total</span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </FadeIn>
       )}
 
       {/* Forecast de recorrência — próximos meses (até dezembro) */}
-      {forecast && forecast.monthlyForecast?.length > 0 && (
+      {scopedForecast && scopedForecast.monthlyForecast?.length > 0 && (
         <FadeIn delay={270}>
           <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:18, padding:'22px 24px' }}>
             <p style={{ margin:'0 0 4px', fontSize:14, fontWeight:800, color:'var(--foreground)' }}>Forecast de recorrência — próximos meses</p>
             <p style={{ margin:'0 0 18px', fontSize:11, color:'var(--muted-foreground)' }}>
-              Receita recorrente esperada por mês, já descontado o histórico de cancelamento/atraso.
+              Receita recorrente esperada por mês, já descontado o histórico de cancelamento/atraso.{hasFilters?' Filtrado.':''}
             </p>
             <BarChart
-              data={forecast.monthlyForecast.map((m: any) => ({
+              data={scopedForecast.monthlyForecast.map((m: any) => ({
                 label: m.label,
                 value: m.ajustado,
                 color: '#6366f1',
@@ -648,28 +935,28 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
             <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginTop:18, paddingTop:16, borderTop:'1px solid var(--border)' }}>
               <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(13,148,136,.05)', border:'1px solid rgba(13,148,136,.18)' }}>
                 <p style={{ margin:'0 0 3px', fontSize:9, fontWeight:800, color:'#0d9488', textTransform:'uppercase', letterSpacing:'.08em' }}>Recebido este mês (recorrência)</p>
-                <p style={{ margin:0, fontSize:17, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.mrrAtual)}</p>
+                <p style={{ margin:0, fontSize:17, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(scopedForecast.mrrAtual)}</p>
               </div>
               <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(99,102,241,.05)', border:'1px solid rgba(99,102,241,.18)' }}>
                 <p style={{ margin:'0 0 3px', fontSize:9, fontWeight:800, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.08em' }}>Esperado até dezembro</p>
-                <p style={{ margin:0, fontSize:17, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(forecast.parcelasRestantesAjustado)}</p>
-                <p style={{ margin:'2px 0 0', fontSize:9, color:'var(--muted-foreground)' }}>{fmtPct(forecast.persistenceRate*100)} de aderência histórica aplicada</p>
+                <p style={{ margin:0, fontSize:17, fontWeight:900, color:'var(--foreground)', fontVariantNumeric:'tabular-nums' }}>{fmtBRL(scopedForecast.parcelasRestantesAjustado)}</p>
+                <p style={{ margin:'2px 0 0', fontSize:9, color:'var(--muted-foreground)' }}>{fmtPct(scopedForecast.persistenceRate*100)} de aderência histórica aplicada</p>
               </div>
             </div>
 
             <div style={{ display:'flex', gap:16, marginTop:14, flexWrap:'wrap' }}>
               {[
-                { label:'Ativas',    count:forecast.ativas,    color:'#16a34a' },
-                { label:'Atrasadas', count:forecast.atrasadas, color:'#b45309' },
-                { label:'Em risco',  count:forecast.emRisco,   color:'#dc2626' },
-                { label:'Completas', count:forecast.completas, color:'#94a3b8' },
+                { label:'Ativas',    count:scopedForecast.ativas,    color:'#16a34a' },
+                { label:'Atrasadas', count:scopedForecast.atrasadas, color:'#b45309' },
+                { label:'Em risco',  count:scopedForecast.emRisco,   color:'#dc2626' },
+                { label:'Completas', count:scopedForecast.completas, color:'#94a3b8' },
               ].filter(x => x.count > 0).map(({ label, count, color }) => (
                 <div key={label} style={{ display:'flex', alignItems:'center', gap:6 }}>
                   <div style={{ width:7, height:7, borderRadius:'50%', background:color }}/>
                   <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{count} assinatura{count!==1?'s':''} <span style={{ color, fontWeight:700 }}>{label.toLowerCase()}</span></span>
                 </div>
               ))}
-              {forecast.sampleSize < 5 && (
+              {scopedForecast.sampleSize < 5 && (
                 <span style={{ fontSize:10, color:'var(--muted-foreground)', fontStyle:'italic' }}>· amostra histórica pequena, aderência é uma estimativa conservadora</span>
               )}
             </div>
@@ -849,8 +1136,12 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {convByVertical.map((v: any) => {
+                // Vendas > leads é fisicamente impossível (não existe venda sem
+                // lead antes) — sinal de que o lead não tem a vertical gravada
+                // no HubSpot pra essa venda, não de que a conversão é real.
+                const dadoInsuficiente = v.sales > v.leads
                 const conv = v.leads > 0 ? (v.sales / v.leads) * 100 : 0
-                const maxConv = Math.max(...convByVertical.map((x: any) => x.leads > 0 ? (x.sales/x.leads)*100 : 0), 1)
+                const maxConv = Math.max(...convByVertical.filter((x:any)=>x.sales<=x.leads).map((x: any) => x.leads > 0 ? (x.sales/x.leads)*100 : 0), 1)
                 const isR1 = v.label.includes('R1')
                 const accent = isR1 ? '#7c3aed' : '#2563eb'
                 return (
@@ -861,16 +1152,46 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
                         <span style={{ fontSize:13, fontWeight:700, color:'var(--foreground)' }}>{v.label}</span>
                         <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{v.sales}/{v.leads} leads</span>
                       </div>
-                      <span style={{ fontSize:14, fontWeight:900, color:conv >= 30 ? '#16a34a' : conv >= 15 ? '#b45309' : '#dc2626', fontVariantNumeric:'tabular-nums' }}>{conv.toFixed(1)}%</span>
+                      {dadoInsuficiente ? (
+                        <span title="Vendas maior que leads não é possível — sinal de que os leads dessa vertical não têm o campo vertical preenchido no HubSpot" style={{ fontSize:11, fontWeight:700, color:'#b45309' }}>⚠ dado insuficiente</span>
+                      ) : (
+                        <span style={{ fontSize:14, fontWeight:900, color:conv >= 30 ? '#16a34a' : conv >= 15 ? '#b45309' : '#dc2626', fontVariantNumeric:'tabular-nums' }}>{conv.toFixed(1)}%</span>
+                      )}
                     </div>
                     <div style={{ height:10, background:'var(--secondary)', borderRadius:999, overflow:'hidden' }}>
-                      <div style={{ height:'100%', width:`${(conv/maxConv)*100}%`, background:isR1?'linear-gradient(90deg,#7c3aed,#a855f7)':'linear-gradient(90deg,#2563eb,#6366f1)', borderRadius:999, transition:'width .6s ease' }}/>
+                      <div style={{ height:'100%', width: dadoInsuficiente ? '100%' : `${(conv/maxConv)*100}%`, background: dadoInsuficiente ? 'repeating-linear-gradient(45deg,#fde68a,#fde68a 6px,#fbbf24 6px,#fbbf24 12px)' : (isR1?'linear-gradient(90deg,#7c3aed,#a855f7)':'linear-gradient(90deg,#2563eb,#6366f1)'), borderRadius:999, transition:'width .6s ease' }}/>
                     </div>
                   </div>
                 )
               })}
             </div>
+            {convByVertical.some((v:any) => v.sales > v.leads) && (
+              <p style={{ margin:'16px 0 0', fontSize:10.5, color:'var(--muted-foreground)', lineHeight:1.5, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+                ⚠ Verticais marcadas como "dado insuficiente" têm mais vendas do que leads registrados — isso indica que a maioria dos leads dessa vertical não tem o campo de vertical preenchido no HubSpot (não é um erro de cálculo, é falta de dado na origem).
+              </p>
+            )}
           </div>
+        </FadeIn>
+      )}
+
+      {/* Ranking de produtos mais vendidos (top 5, todos os closers) */}
+      {scopedProductRanking?.length > 0 && (
+        <FadeIn delay={370}>
+          <ProductRankingCard data={scopedProductRanking} title="Ranking de produtos mais vendidos"/>
+        </FadeIn>
+      )}
+
+      {/* Ticket médio por vertical */}
+      {scopedAvgTicketByVertical?.length > 0 && (
+        <FadeIn delay={380}>
+          <AvgTicketCard data={scopedAvgTicketByVertical}/>
+        </FadeIn>
+      )}
+
+      {/* Distribuição de vendas por dia da semana / horário */}
+      {(scopedWeekdayHour.weekday?.length > 0 || scopedWeekdayHour.hour?.length > 0) && (
+        <FadeIn delay={390}>
+          <WeekdayHourCard weekday={scopedWeekdayHour.weekday ?? []} hour={scopedWeekdayHour.hour ?? []}/>
         </FadeIn>
       )}
 
@@ -1068,6 +1389,23 @@ function CloserView({ profile, snapshot, insightData, insightDate }: any) {
               })}
             </div>
           </div>
+        </FadeIn>
+      )}
+      {(s.productRanking?.length ?? 0) > 0 && (
+        <FadeIn delay={340}>
+          <ProductRankingCard data={s.productRanking} title="Meus produtos mais vendidos"/>
+        </FadeIn>
+      )}
+
+      {(s.avgTicketByVertical?.length ?? 0) > 0 && (
+        <FadeIn delay={350}>
+          <AvgTicketCard data={s.avgTicketByVertical}/>
+        </FadeIn>
+      )}
+
+      {(s.salesByWeekday || s.salesByHour) && (
+        <FadeIn delay={360}>
+          <WeekdayHourCard weekday={s.salesByWeekday ?? []} hour={s.salesByHour ?? []}/>
         </FadeIn>
       )}
     </div>

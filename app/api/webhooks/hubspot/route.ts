@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { event_type, deal_id, deal_name, owner_id, deal_stage, pipeline, created_at_hs } = body
+  const { event_type, deal_id, deal_name, owner_id, deal_stage, pipeline, created_at_hs, vertical } = body
 
   // ── Validações básicas ─────────────────────────────────────
   if (!event_type) {
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
     if (deal_stage) updates.deal_stage = deal_stage
     if (deal_name)  updates.deal_name  = deal_name
     if (pipeline)   updates.pipeline   = pipeline
+    if (vertical && String(vertical).trim()) updates.vertical = String(vertical).trim()
 
     const { error } = await admin
       .from('hubspot_leads')
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
           owner_id:   String(owner_id),
           deal_stage: deal_stage ?? null,
           pipeline:   pipeline   ?? null,
+          vertical:   (vertical && String(vertical).trim()) ? String(vertical).trim() : null,
           updated_at: new Date().toISOString(),
         })
         .eq('deal_id', String(deal_id))
@@ -112,6 +114,7 @@ export async function POST(req: NextRequest) {
         owner_id:      String(owner_id),
         deal_stage:    deal_stage    ?? null,
         pipeline:      pipeline      ?? null,
+        vertical:      (vertical && String(vertical).trim()) ? String(vertical).trim() : null,
         created_at_hs: created_at_hs,
         updated_at:    new Date().toISOString(),
       })
