@@ -3,8 +3,6 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft }          from 'lucide-react'
 import { StepDetail }         from './StepDetail'
-import { computeUnlockedStepIds } from '@/lib/onboarding/trilhaSequence'
-import { ensureStepCompletion } from '../../actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,37 +17,58 @@ export default async function StepDetailPage(
 
   const { data: profile } = await supabase
     .from('profiles').select('role, team').eq('id', user.id).single()
-  const isAdmin = (profile as any)?.role === 'superadmin'
+  const p       = profile as any
+  const isAdmin = p?.role === 'superadmin'
 
   const { data: step } = await supabase
     .from('onboarding_steps').select('*').eq('id', stepId).single()
   if (!step) notFound()
 
-  // Trilha sequencial: bloqueia acesso direto por URL a uma etapa ainda
-  // travada (a validação visual na listagem é só cosmética sem isso).
-  // Respeita o "Modo da Trilha" configurado em /onboarding/config.
+  // ── Verificação de modo sequencial ────────────────────────
+  // IMPORTANTE: filtrar steps pelo time do usuário antes de checar o índice.
+  // Sem esse filtro, steps OAO-only bloqueiam o primeiro step visível do R1.
   if (!isAdmin) {
     const { data: settings } = await supabase
-      .from('onboarding_settings').select('track_mode')
-      .eq('id', '00000000-0000-0000-0000-000000000001').maybeSingle()
-    const trackMode = (settings as any)?.track_mode ?? 'sequencial'
+      .from('onboarding_settings')
+      .select('track_mode')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single()
 
-    if (trackMode === 'sequencial') {
-      const { data: allStepsRaw } = await supabase
-        .from('onboarding_steps').select('id, day_number, order_index, team').eq('is_active', true)
-      const teamSteps = (allStepsRaw ?? []).filter((s: any) => s.team === 'ambos' || s.team === (profile as any)?.team)
-      const { data: progressRows } = await supabase
-        .from('onboarding_progress').select('step_id, status').eq('user_id', user.id)
-      const progressMap = Object.fromEntries((progressRows ?? []).map((r: any) => [r.step_id, r.status]))
-      const unlocked = computeUnlockedStepIds(teamSteps, progressMap)
-      if (!unlocked.has(stepId)) redirect('/onboarding/trilha')
+    if ((settings as any)?.track_mode === 'sequencial') {
+      // Buscar todos os steps VISÍVEIS para o time deste usuário
+      const { data: allSteps } = await supabase
+        .from('onboarding_steps')
+        .select('id, order_index, team')
+        .eq('is_active', true)
+        .order('order_index')
+
+      // Filtrar apenas os que o usuário pode ver (mesmo time ou 'ambos')
+      const userTeam = p?.team ?? null
+      const visibleSteps = (allSteps ?? []).filter(
+        (s: any) => s.team === 'ambos' || s.team === userTeam
+      )
+
+      // Posição desta etapa dentro dos steps VISÍVEIS ao usuário
+      const stepIndex = visibleSteps.findIndex((s: any) => s.id === stepId)
+
+      // Se não é a primeira etapa visível, verificar se a anterior foi concluída
+      if (stepIndex > 0) {
+        const prevStep = visibleSteps[stepIndex - 1]
+        const { data: prevProgress } = await supabase
+          .from('onboarding_progress')
+          .select('status')
+          .eq('user_id', user.id)
+          .eq('step_id', prevStep.id)
+          .maybeSingle()
+
+        if (!prevProgress || (prevProgress as any).status !== 'concluido') {
+          // Etapa anterior não concluída → redirecionar para a trilha
+          redirect('/onboarding/trilha')
+        }
+      }
+      // stepIndex === 0: é a primeira etapa visível → sempre acessível
     }
   }
-
-  // Autocorrige: se o critério de conclusão mudou (ex: pra 'apenas_visualizar')
-  // depois que a etapa já estava em andamento, fecha ela agora sem precisar
-  // de nenhuma ação manual.
-  if (!isAdmin) await ensureStepCompletion(stepId)
 
   const [
     { data: materials },
@@ -57,18 +76,15 @@ export default async function StepDetailPage(
     { data: questions },
     { data: userProgress },
     { data: materialViews },
-    { data: faqReviewRows },
   ] = await Promise.all([
     supabase.from('onboarding_materials').select('*').eq('step_id', stepId).order('order_index'),
     supabase.from('onboarding_faqs').select('*').eq('step_id', stepId).order('created_at'),
     supabase.from('onboarding_questions').select('*, onboarding_answers(*)').eq('step_id', stepId).order('created_at'),
     supabase.from('onboarding_progress').select('*').eq('user_id', user.id).eq('step_id', stepId).maybeSingle(),
     supabase.from('onboarding_material_views').select('material_id').eq('user_id', user.id),
-    supabase.from('onboarding_faq_reviews').select('faq_id, status').eq('user_id', user.id),
   ])
 
   const viewedMaterialIds = (materialViews ?? []).map((v: any) => v.material_id)
-  const faqReviews = Object.fromEntries((faqReviewRows ?? []).map((r: any) => [r.faq_id, r.status]))
 
   return (
     <div style={{ padding:24, maxWidth:860, margin:'0 auto' }}>
@@ -89,7 +105,6 @@ export default async function StepDetailPage(
         stepId={stepId}
         userProgress={userProgress}
         viewedMaterialIds={viewedMaterialIds}
-        faqReviews={faqReviews}
       />
     </div>
   )
