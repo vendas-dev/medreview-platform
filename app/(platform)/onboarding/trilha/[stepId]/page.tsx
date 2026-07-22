@@ -3,6 +3,7 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft }          from 'lucide-react'
 import { StepDetail }         from './StepDetail'
+import { computeUnlockedStepIds } from '@/lib/onboarding/trilhaSequence'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,8 +26,11 @@ export default async function StepDetailPage(
   if (!step) notFound()
 
   // ── Verificação de modo sequencial ────────────────────────
-  // IMPORTANTE: filtrar steps pelo time do usuário antes de checar o índice.
-  // Sem esse filtro, steps OAO-only bloqueiam o primeiro step visível do R1.
+  // Usa a MESMA função da listagem (lib/onboarding/trilhaSequence) — ordena
+  // por Dia da trilha primeiro, depois por order_index dentro do dia. Antes,
+  // esse arquivo tinha uma checagem própria que ordenava só por order_index
+  // (ignorando o Dia), o que travava o usuário numa etapa de um dia mais
+  // adiante só porque ela tinha sido criada antes no sistema.
   if (!isAdmin) {
     const { data: settings } = await supabase
       .from('onboarding_settings')
@@ -35,38 +39,22 @@ export default async function StepDetailPage(
       .single()
 
     if ((settings as any)?.track_mode === 'sequencial') {
-      // Buscar todos os steps VISÍVEIS para o time deste usuário
-      const { data: allSteps } = await supabase
+      const { data: allStepsRaw } = await supabase
         .from('onboarding_steps')
-        .select('id, order_index, team')
+        .select('id, day_number, order_index, team')
         .eq('is_active', true)
-        .order('order_index')
 
-      // Filtrar apenas os que o usuário pode ver (mesmo time ou 'ambos')
       const userTeam = p?.team ?? null
-      const visibleSteps = (allSteps ?? []).filter(
+      const teamSteps = (allStepsRaw ?? []).filter(
         (s: any) => s.team === 'ambos' || s.team === userTeam
       )
 
-      // Posição desta etapa dentro dos steps VISÍVEIS ao usuário
-      const stepIndex = visibleSteps.findIndex((s: any) => s.id === stepId)
+      const { data: progressRows } = await supabase
+        .from('onboarding_progress').select('step_id, status').eq('user_id', user.id)
+      const progressMap = Object.fromEntries((progressRows ?? []).map((r: any) => [r.step_id, r.status]))
 
-      // Se não é a primeira etapa visível, verificar se a anterior foi concluída
-      if (stepIndex > 0) {
-        const prevStep = visibleSteps[stepIndex - 1]
-        const { data: prevProgress } = await supabase
-          .from('onboarding_progress')
-          .select('status')
-          .eq('user_id', user.id)
-          .eq('step_id', prevStep.id)
-          .maybeSingle()
-
-        if (!prevProgress || (prevProgress as any).status !== 'concluido') {
-          // Etapa anterior não concluída → redirecionar para a trilha
-          redirect('/onboarding/trilha')
-        }
-      }
-      // stepIndex === 0: é a primeira etapa visível → sempre acessível
+      const unlocked = computeUnlockedStepIds(teamSteps, progressMap)
+      if (!unlocked.has(stepId)) redirect('/onboarding/trilha')
     }
   }
 
