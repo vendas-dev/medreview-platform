@@ -1,13 +1,13 @@
 'use client'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Maximize2, Settings, RefreshCw, SlidersHorizontal, X, Volume2, VolumeX, TrendingUp, Award } from 'lucide-react'
 import Link from 'next/link'
 import { useLiveData, LiveDataProvider } from '@/hooks/useLiveData'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import { VERTICALS, VERTICAL_LIST, GOLD, VerticalId, FilterState, EMPTY_FILTER, Closer, TelaoEvent, CloserStats } from '@/lib/telao/types'
-import { computeCloserStats, computeHourBuckets, fmtBRL, todayKey, monthKey, initials, timeAgo } from '@/lib/telao/format'
-import { todayInSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr } from '@/lib/timezone'
+import { computeCloserStats, fmtBRL, todayKey, monthKey, initials, timeAgo, eventMoneyLeftOnTable } from '@/lib/telao/format'
+import { todayInSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, hourInSaoPaulo, weekdayInSaoPaulo } from '@/lib/timezone'
 
 // ── Áudio ────────────────────────────────────────────────────
 let _ctx: AudioContext | null = null, _ready = false
@@ -95,40 +95,168 @@ function findCloser(
 }
 
 // ── Relógio ───────────────────────────────────────────────────
-function Clock() {
+function Clock({ isDark=true }: { isDark?:boolean }) {
   const [t,setT]=useState(''); const [d,setD]=useState('')
   useEffect(()=>{ const tick=()=>{ const n=new Date(); setT(n.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})); setD(n.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})) }; tick(); const id=setInterval(tick,1000); return ()=>clearInterval(id) },[])
-  return <div suppressHydrationWarning style={{textAlign:'right'}}><p style={{fontSize:22,fontWeight:900,color:'var(--tw-text,#e9d5ff)',margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.06em'}}>{t}</p><p style={{fontSize:10,color:'var(--tw-muted,#6b21a8)',margin:0,textTransform:'capitalize',fontFamily:"'Space Grotesk',sans-serif"}}>{d}</p></div>
+  return <div suppressHydrationWarning style={{textAlign:'right'}}><p style={{fontSize:15,fontWeight:900,color:isDark?'#e9d5ff':'#4c1d95',margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.06em'}}>{t}</p><p style={{fontSize:7,color:isDark?'#a78bfa':'#7c3aed',margin:0,textTransform:'capitalize',fontFamily:"'Space Grotesk',sans-serif"}}>{d}</p></div>
 }
 
 // ── Hero ─────────────────────────────────────────────────────
-function HeroMetrics({ events, accent, vf }: { events:TelaoEvent[]; accent:string; vf:VerticalId|null }) {
+function TrendBadge({ label, pct, isDark=true }: { label:string; pct:number|null; isDark?:boolean }) {
+  if (pct === null) return null
+  const up = pct >= 0
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:10, fontWeight:800, color: up?'#16a34a':'#dc2626', fontFamily:"'JetBrains Mono',monospace" }}>
+      {up?'▲':'▼'} {Math.abs(pct).toFixed(0)}% <span style={{ color:isDark?'rgba(196,181,253,.75)':'rgba(91,33,182,.8)', fontWeight:700 }}>{label}</span>
+    </span>
+  )
+}
+
+function HeroMetrics({ events, accent, vf, yesterdayRev, yesterdaySameHourRev, trend, isDark=true }: { events:TelaoEvent[]; accent:string; vf:VerticalId|null; yesterdayRev?:number; yesterdaySameHourRev?:number; trend?:{label:string;value:number}[]; isDark?:boolean }) {
   const sales=events.filter(e=>e.event_type==='sale'), certs=events.filter(e=>e.event_type==='ambassador_certified')
   const revenue=sales.reduce((s,e)=>s+(e.value??0),0)
   const vert=vf?VERTICALS[vf]:null
+
+  const avgTicket = sales.length>0 ? revenue/sales.length : 0
+  const hoursElapsed = Math.max(hourInSaoPaulo(new Date()) + (new Date().getMinutes()/60), 1)
+  const salesPerHour = sales.length/hoursElapsed
+
+  const pctVsYesterday = (yesterdayRev && yesterdayRev>0) ? ((revenue-yesterdayRev)/yesterdayRev)*100 : null
+  const pctVsSameHour  = (yesterdaySameHourRev && yesterdaySameHourRev>0) ? ((revenue-yesterdaySameHourRev)/yesterdaySameHourRev)*100 : null
+  const labelMuted = isDark ? '#a78bfa' : '#6d28d9'
+  const heroText   = isDark ? '#e9d5ff' : '#3b0764'
+
   return (
-    <div style={{background:'linear-gradient(135deg,rgba(88,28,135,.35),rgba(59,7,100,.25),rgba(15,3,25,.4))',border:'1px solid rgba(168,85,247,.25)',borderRadius:24,padding:'24px 28px',position:'relative',overflow:'hidden',backdropFilter:'blur(20px)',boxShadow:'0 0 60px rgba(88,28,135,.2),inset 0 1px 0 rgba(255,255,255,.06)'}}>
-      <div style={{position:'absolute',top:-60,right:-60,width:240,height:240,borderRadius:'50%',background:`radial-gradient(${accent}22,transparent 70%)`,pointerEvents:'none'}}/>
+    <div style={{background:isDark?'linear-gradient(135deg,rgba(88,28,135,.35),rgba(59,7,100,.25),rgba(15,3,25,.4))':'linear-gradient(135deg,rgba(196,181,253,.55),rgba(233,213,255,.65),rgba(255,255,255,.5))',border:isDark?'1px solid rgba(168,85,247,.25)':'1px solid rgba(139,92,246,.35)',borderRadius:24,padding:'24px 28px',position:'relative',overflow:'hidden',backdropFilter:'blur(20px)',boxShadow:isDark?'0 0 60px rgba(88,28,135,.2),inset 0 1px 0 rgba(255,255,255,.06)':'0 8px 32px rgba(139,92,246,.18),inset 0 1px 0 rgba(255,255,255,.5)'}}>
+      <div style={{position:'absolute',top:-60,right:-60,width:240,height:240,borderRadius:'50%',background:`radial-gradient(${accent}${isDark?'22':'33'},transparent 70%)`,pointerEvents:'none'}}/>
       {vert&&<motion.img src={vert.mascot} alt={vert.label} initial={{opacity:0,scale:.8,x:20}} animate={{opacity:1,scale:1,x:0}} transition={{type:'spring',stiffness:220,damping:18}} style={{position:'absolute',right:16,bottom:0,height:130,objectFit:'contain',filter:`drop-shadow(0 0 20px ${accent}66)`,pointerEvents:'none'}}/>}
+      {trend && <Sparkline data={trend} accent={accent} compact={!!vert} isDark={isDark}/>}
       <div style={{position:'relative',zIndex:1}}>
-        <p style={{fontSize:10,fontWeight:800,color:'#7c3aed',textTransform:'uppercase',letterSpacing:'.12em',margin:'0 0 4px',fontFamily:"'JetBrains Mono',monospace"}}>{vert?`${vert.label} · Hoje`:'Geral · Hoje'}</p>
-        <p style={{fontSize:44,fontWeight:900,color:accent,margin:'0 0 20px',fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.03em',lineHeight:1}}>{fmtBRL(revenue)}</p>
-        <div style={{display:'flex',gap:28}}>
+        <p style={{fontSize:10,fontWeight:800,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.12em',margin:'0 0 4px',fontFamily:"'JetBrains Mono',monospace"}}>{vert?`${vert.label} · Hoje`:'Geral · Hoje'}</p>
+        <div style={{display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap',marginBottom:6}}>
+          <motion.p key={revenue} initial={{scale:1}} animate={{scale:[1,1.04,1]}} transition={{duration:.4}} style={{fontSize:44,fontWeight:900,color:accent,margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.03em',lineHeight:1}}>{fmtBRL(revenue)}</motion.p>
+        </div>
+        <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+          <TrendBadge label="vs ontem" pct={pctVsYesterday} isDark={isDark}/>
+          <TrendBadge label="vs mesma hora ontem" pct={pctVsSameHour} isDark={isDark}/>
+        </div>
+        <div style={{display:'flex',gap:24,flexWrap:'wrap'}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <div style={{width:32,height:32,borderRadius:10,background:'rgba(168,85,247,.15)',border:'1px solid rgba(168,85,247,.2)',display:'flex',alignItems:'center',justifyContent:'center'}}><TrendingUp size={15} style={{color:'#a855f7'}}/></div>
-            <div><p style={{fontSize:20,fontWeight:900,color:'var(--tw-text,#e9d5ff)',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{sales.length}</p><p style={{fontSize:9,color:'#6b21a8',margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Vendas</p></div>
+            <div style={{width:32,height:32,borderRadius:10,background:isDark?'rgba(168,85,247,.15)':'rgba(124,58,237,.15)',border:isDark?'1px solid rgba(168,85,247,.2)':'1px solid rgba(124,58,237,.3)',display:'flex',alignItems:'center',justifyContent:'center'}}><TrendingUp size={15} style={{color:isDark?'#a855f7':'#7c3aed'}}/></div>
+            <div><p style={{fontSize:20,fontWeight:900,color:heroText,margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{sales.length}</p><p style={{fontSize:9,color:labelMuted,margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Vendas</p></div>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <div style={{width:32,height:32,borderRadius:10,background:'rgba(245,158,11,.12)',border:'1px solid rgba(245,158,11,.2)',display:'flex',alignItems:'center',justifyContent:'center'}}><Award size={15} style={{color:GOLD}}/></div>
-            <div><p style={{fontSize:20,fontWeight:900,color:GOLD,margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{certs.length}</p><p style={{fontSize:9,color:'#6b21a8',margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Embaixadores</p></div>
+            <div style={{width:32,height:32,borderRadius:10,background:'rgba(245,158,11,.15)',border:'1px solid rgba(245,158,11,.3)',display:'flex',alignItems:'center',justifyContent:'center'}}><Award size={15} style={{color:GOLD}}/></div>
+            <div><p style={{fontSize:20,fontWeight:900,color:GOLD,margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{certs.length}</p><p style={{fontSize:9,color:labelMuted,margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Embaixadores</p></div>
           </div>
+          {sales.length>0 && (
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{width:32,height:32,borderRadius:10,background:'rgba(34,197,94,.15)',border:'1px solid rgba(34,197,94,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🎯</div>
+              <div><p style={{fontSize:20,fontWeight:900,color:isDark?'#4ade80':'#16a34a',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{fmtBRL(avgTicket)}</p><p style={{fontSize:9,color:labelMuted,margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Ticket médio</p></div>
+            </div>
+          )}
+          {sales.length>0 && (
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{width:32,height:32,borderRadius:10,background:'rgba(59,130,246,.15)',border:'1px solid rgba(59,130,246,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>⚡</div>
+              <div><p style={{fontSize:20,fontWeight:900,color:isDark?'#60a5fa':'#2563eb',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{salesPerHour.toFixed(1)}</p><p style={{fontSize:9,color:labelMuted,margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Vendas/h</p></div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-// ── Cards verticais ───────────────────────────────────────────
+// ── Sparkline ─── linha suave, sem rigidez, valores nas pontas ──
+function smoothPath(pts: {x:number;y:number}[]): string {
+  if (pts.length < 2) return ''
+  let d = `M ${pts[0].x},${pts[0].y}`
+  for (let i=0; i<pts.length-1; i++) {
+    const p0 = pts[i-1] ?? pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i+1]
+    const p3 = pts[i+2] ?? p2
+    const c1x = p1.x + (p2.x-p0.x)/6, c1y = p1.y + (p2.y-p0.y)/6
+    const c2x = p2.x - (p3.x-p1.x)/6, c2y = p2.y - (p3.y-p1.y)/6
+    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
+  }
+  return d
+}
+
+function CompactBars({ data, accent, isDark=true }: { data:{label:string;value:number}[]; accent:string; isDark?:boolean }) {
+  if (data.length < 2 || !data.some(d=>d.value>0)) return null
+  const max = Math.max(...data.map(d=>d.value), 1)
+  const H = 90
+  const fmtShort = (v:number) => v>=1000?`${(v/1000).toFixed(1)}k`:v.toFixed(0)
+  const labelC = isDark ? 'rgba(168,85,247,.45)' : 'rgba(109,40,217,.55)'
+  const valueC = isDark ? 'rgba(233,213,255,.5)' : 'rgba(91,33,182,.55)'
+  return (
+    <div style={{ position:'absolute', top:'50%', right:260, transform:'translateY(-50%)', width:210, pointerEvents:'none' }}>
+      <p style={{ margin:'0 0 11px', fontSize:9, fontWeight:800, color:labelC, textTransform:'uppercase', letterSpacing:'.1em', fontFamily:"'JetBrains Mono',monospace", textAlign:'center' }}>Últimos dias</p>
+      <div style={{ display:'flex', alignItems:'flex-end', gap:7, height:H }}>
+        {data.map((d,i)=>{
+          const isLast = i===data.length-1
+          const h = Math.max((d.value/max)*H, d.value>0?7:2)
+          return (
+            <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:5, height:'100%', justifyContent:'flex-end' }}>
+              <span style={{ fontSize:8.5, fontWeight:isLast?900:700, color:isLast?accent:valueC, fontFamily:"'JetBrains Mono',monospace", whiteSpace:'nowrap' }}>
+                {d.value>0?fmtShort(d.value):''}
+              </span>
+              <motion.div initial={{height:0}} animate={{height:h}} transition={{duration:.5,delay:i*.05,ease:'easeOut'}}
+                style={{ width:'100%', borderRadius:'4px 4px 0 0', background:isLast?accent:`${accent}55`, boxShadow:isLast?`0 0 8px ${accent}66`:'none' }}/>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function Sparkline({ data, accent, compact=false, isDark=true }: { data:{label:string;value:number}[]; accent:string; compact?:boolean; isDark?:boolean }) {
+  if (compact) return <CompactBars data={data} accent={accent} isDark={isDark}/>
+  if (data.length < 2 || !data.some(d=>d.value>0)) return null
+  const W=380, H=130, padX=10, padY=24
+  const max = Math.max(...data.map(d=>d.value), 1)
+  const min = Math.min(...data.map(d=>d.value), 0)
+  const range = Math.max(max-min, 1)
+  const step = (W-padX*2)/(data.length-1)
+  const pts = data.map((d,i)=>({ x: padX+i*step, y: padY + (H-padY-12) * (1-(d.value-min)/range) }))
+  const linePath = smoothPath(pts)
+  const areaPath = `${linePath} L ${pts[pts.length-1].x},${H} L ${pts[0].x},${H} Z`
+  const gid = 'sparkgrad'
+  const titleC = isDark ? 'rgba(168,85,247,.45)' : 'rgba(109,40,217,.55)'
+  const valueC = isDark ? 'rgba(233,213,255,.55)' : 'rgba(91,33,182,.6)'
+  const dayC   = isDark ? 'rgba(168,85,247,.4)'  : 'rgba(109,40,217,.45)'
+  const dotFill = isDark ? '#fff' : '#f5f3ff'
+  return (
+    <div style={{ position:'absolute', right:28, top:'50%', transform:'translateY(-50%)', width:W, height:H, pointerEvents:'none' }}>
+      <p style={{ position:'absolute', top:-18, left:0, right:0, textAlign:'center', margin:0, fontSize:8, fontWeight:800, color:titleC, textTransform:'uppercase', letterSpacing:'.12em', fontFamily:"'JetBrains Mono',monospace" }}>Últimos dias</p>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ overflow:'visible' }}>
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={accent} stopOpacity=".35"/>
+            <stop offset="100%" stopColor={accent} stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        <motion.path d={areaPath} fill={`url(#${gid})`} initial={{opacity:0}} animate={{opacity:1}} transition={{duration:.6}}/>
+        <motion.path d={linePath} fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+          initial={{ pathLength:0 }} animate={{ pathLength:1 }} transition={{ duration:1.1, ease:'easeOut' }}/>
+        {pts.map((p,i)=>{
+          const isLast = i===pts.length-1
+          return (
+            <g key={i}>
+              <circle cx={p.x} cy={p.y} r={isLast?4:2.5} fill={isLast?accent:dotFill} stroke={accent} strokeWidth={isLast?0:1.5}/>
+              <text x={p.x} y={p.y-8} textAnchor="middle" fontSize={9} fontWeight={isLast?900:700} fill={isLast?accent:valueC} fontFamily="'JetBrains Mono',monospace">
+                {data[i].value>=1000?`${(data[i].value/1000).toFixed(1)}k`:data[i].value.toFixed(0)}
+              </text>
+              <text x={p.x} y={H+6} textAnchor="middle" fontSize={8} fill={dayC} fontFamily="'JetBrains Mono',monospace">{data[i].label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
 function VerticalCards({ events, selected, onSelect, isDark, verticals=VERTICAL_LIST }: { events:TelaoEvent[]; selected:VerticalId|null; onSelect:(v:VerticalId|null)=>void; isDark:boolean; verticals?:typeof VERTICAL_LIST }) {
   return (
     <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
@@ -141,9 +269,9 @@ function VerticalCards({ events, selected, onSelect, isDark, verticals=VERTICAL_
             style={{background:active?`linear-gradient(135deg,${v.accent}25,${v.accent}10)`:'rgba(255,255,255,.02)',border:`1.5px solid ${active?v.accent+'66':'rgba(255,255,255,.06)'}`,borderRadius:18,padding:'14px 14px 8px',cursor:'pointer',textAlign:'left',position:'relative',overflow:'hidden',backdropFilter:'blur(8px)',boxShadow:active?`0 0 24px ${v.glow},inset 0 1px 0 rgba(255,255,255,.06)`:'none',transition:'all .2s'}}>
             <img src={v.mascot} alt={v.label} style={{position:'absolute',right:-10,bottom:-6,height:72,objectFit:'contain',opacity:active?1:(isDark?0.35:0.72),filter:`drop-shadow(0 0 12px ${active?v.accent+'99':v.accent+'44'})`,transition:'opacity .2s, filter .2s',pointerEvents:'none'}}/>
             <div style={{position:'relative',zIndex:1}}>
-              <span style={{fontSize:9,fontWeight:800,color:active?v.accent:'#4a2d6b',letterSpacing:'.1em',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase'}}>{v.short}</span>
-              <p style={{fontSize:16,fontWeight:900,color:active?v.accent:'#9ca3af',margin:'4px 0 4px',fontFamily:"'Space Grotesk',sans-serif",fontVariantNumeric:'tabular-nums'}}>{fmtBRL(revenue)}</p>
-              <p style={{fontSize:10,color:active?v.accent+'aa':'#374151',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{count}v · {v.label.split('-')[0]}</p>
+              <span style={{fontSize:9,fontWeight:800,color:active?v.accent:(isDark?'#4a2d6b':'#6d28d9'),letterSpacing:'.1em',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase'}}>{v.short}</span>
+              <p style={{fontSize:16,fontWeight:900,color:active?v.accent:(isDark?'#9ca3af':'#4c1d95'),margin:'4px 0 4px',fontFamily:"'Space Grotesk',sans-serif",fontVariantNumeric:'tabular-nums'}}>{fmtBRL(revenue)}</p>
+              <p style={{fontSize:10,color:active?v.accent+'aa':(isDark?'#374151':'#7c3aed'),margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{count}v · {v.label.split('-')[0]}</p>
             </div>
           </motion.button>
         )
@@ -153,19 +281,21 @@ function VerticalCards({ events, selected, onSelect, isDark, verticals=VERTICAL_
 }
 
 // ── GoalBar ───────────────────────────────────────────────────
-function GoalBar({ period, periodKey, vertical, current, goals, accent, extra }: { period:'day'|'month'; periodKey:string; vertical:string|null; current:number; goals:any[]; accent:string; extra?:{label:string;value:number} }) {
+function GoalBar({ period, periodKey, vertical, current, goals, accent, extra, isDark=true }: { period:'day'|'month'; periodKey:string; vertical:string|null; current:number; goals:any[]; accent:string; extra?:{label:string;value:number}; isDark?:boolean }) {
   const goal=goals.find(g=>g.period===period&&g.period_key===periodKey&&g.vertical===vertical)
   const target=goal?.target_value??0, pct=target>0?Math.min((current/target)*100,100):0, done=pct>=100
+  const muted = isDark ? '#4a2d6b' : '#6d28d9'
+  const muted2 = isDark ? '#3b1d6e' : '#7c3aed'
   return (
-    <div style={{background:'rgba(255,255,255,.025)',border:'1px solid rgba(168,85,247,.1)',borderRadius:18,padding:'16px 18px',backdropFilter:'blur(8px)'}}>
+    <div style={{background:isDark?'rgba(255,255,255,.025)':'rgba(255,255,255,.55)',border:isDark?'1px solid rgba(168,85,247,.1)':'1px solid rgba(139,92,246,.25)',borderRadius:18,padding:'16px 18px',backdropFilter:'blur(8px)'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
-        <div><p style={{fontSize:9,fontWeight:800,color:'#4a2d6b',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 4px',fontFamily:"'JetBrains Mono',monospace"}}>{period==='day'?'Meta do Dia':'Meta do Mês'}</p>{extra&&<p style={{fontSize:9,color:'#3b1d6e',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{extra.label}: {fmtBRL(extra.value)}</p>}</div>
-        <div style={{textAlign:'right'}}><p style={{fontSize:22,fontWeight:900,color:done?'#22c55e':accent,margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.02em'}}>{fmtBRL(current)}</p>{target>0&&<p style={{fontSize:10,color:'#3b1d6e',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>/ {fmtBRL(target)}</p>}</div>
+        <div><p style={{fontSize:9,fontWeight:800,color:muted,textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 4px',fontFamily:"'JetBrains Mono',monospace"}}>{period==='day'?'Meta do Dia':'Meta do Mês'}</p>{extra&&<p style={{fontSize:9,color:muted2,margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{extra.label}: {fmtBRL(extra.value)}</p>}</div>
+        <div style={{textAlign:'right'}}><p style={{fontSize:22,fontWeight:900,color:done?'#16a34a':accent,margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.02em'}}>{fmtBRL(current)}</p>{target>0&&<p style={{fontSize:10,color:muted2,margin:0,fontFamily:"'JetBrains Mono',monospace"}}>/ {fmtBRL(target)}</p>}</div>
       </div>
-      <div style={{height:5,background:'rgba(168,85,247,.1)',borderRadius:999,overflow:'hidden',marginBottom:8}}>
+      <div style={{height:5,background:isDark?'rgba(168,85,247,.1)':'rgba(139,92,246,.18)',borderRadius:999,overflow:'hidden',marginBottom:8}}>
         <motion.div initial={{width:0}} animate={{width:`${pct}%`}} transition={{duration:.9,ease:'easeOut'}} style={{height:'100%',borderRadius:999,background:done?'linear-gradient(90deg,#22c55e,#16a34a)':`linear-gradient(90deg,${accent}66,${accent})`,boxShadow:`0 0 8px ${done?'#22c55e66':accent+'44'}`}}/>
       </div>
-      <p style={{fontSize:10,color:done?'#22c55e':'#3b1d6e',margin:0,fontFamily:"'JetBrains Mono',monospace",fontWeight:done?800:400}}>{done?'✅ META BATIDA!':target>0?`${pct.toFixed(0)}% — faltam ${fmtBRL(target-current)}`:'— sem meta definida'}</p>
+      <p style={{fontSize:10,color:done?'#16a34a':muted2,margin:0,fontFamily:"'JetBrains Mono',monospace",fontWeight:done?800:600}}>{done?'✅ META BATIDA!':target>0?`${pct.toFixed(0)}% — faltam ${fmtBRL(target-current)}`:'— sem meta definida'}</p>
     </div>
   )
 }
@@ -220,66 +350,90 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
 function Ranking({ stats, accent }: { stats:CloserStats[]; accent:string }) {
   const max=stats[0]?.revenue??1
   return (
-    <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6,paddingBottom:4}}>
+    <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4,paddingBottom:4}}>
+      <AnimatePresence initial={false}>
       {stats.slice(0,15).map((s,i)=>{
         const pct=max>0?(s.revenue/max)*100:0, top3=i<3, halos=['#FFD700','#C0C0C0','#CD7F32']
         return (
-          <motion.div key={s.closer?.id??s.name} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*.04,type:'spring',stiffness:220,damping:20}}
-            style={{background:top3?`linear-gradient(135deg,${halos[i]}08,rgba(255,255,255,.02))`:'rgba(255,255,255,.02)',border:`1px solid ${top3?halos[i]+'22':'rgba(255,255,255,.05)'}`,borderRadius:12,padding:'10px 14px',position:'relative',overflow:'hidden',flexShrink:0}}>
-            <div style={{position:'absolute',inset:0,width:`${pct}%`,background:top3?`${halos[i]}06`:'rgba(168,85,247,.03)',borderRadius:12,transition:'width .6s ease'}}/>
-            <div style={{position:'relative',display:'flex',alignItems:'center',gap:10}}>
-              <span style={{fontSize:top3?20:12,width:26,textAlign:'center',fontWeight:900,color:top3?halos[i]:'var(--muted-foreground)',fontFamily:top3?'inherit':"'JetBrains Mono',monospace",flexShrink:0}}>{top3?['🥇','🥈','🥉'][i]:`#${i+1}`}</span>
-              <Avatar closer={s.closer} name={s.name} size={top3?38:30} rank={i}/>
+          <motion.div key={s.closer?.id??s.name} layout initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{delay:i*.03,type:'spring',stiffness:260,damping:24}}
+            style={{background:top3?`linear-gradient(135deg,${halos[i]}08,rgba(255,255,255,.02))`:'rgba(255,255,255,.02)',border:`1px solid ${top3?halos[i]+'22':'rgba(255,255,255,.05)'}`,borderRadius:10,padding:'7px 11px',position:'relative',overflow:'hidden',flexShrink:0}}>
+            <div style={{position:'absolute',inset:0,width:`${pct}%`,background:top3?`${halos[i]}06`:'rgba(168,85,247,.03)',borderRadius:10,transition:'width .6s ease'}}/>
+            <div style={{position:'relative',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:top3?15:10,width:20,textAlign:'center',fontWeight:900,color:top3?halos[i]:'var(--muted-foreground)',fontFamily:top3?'inherit':"'JetBrains Mono',monospace",flexShrink:0}}>{top3?['🥇','🥈','🥉'][i]:`#${i+1}`}</span>
+              <Avatar closer={s.closer} name={s.name} size={top3?30:24} rank={i}/>
               <div style={{flex:1,minWidth:0}}>
-                <p style={{fontSize:top3?14:12,fontWeight:800,color:'var(--foreground)',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:"'Space Grotesk',sans-serif"}}>{s.name}{s.isAmbassador&&<span style={{fontSize:9,color:'#22c55e',marginLeft:4}}>🌟</span>}</p>
-                <p style={{fontSize:9,color:'var(--muted-foreground)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{s.sales}v{s.certs>0?` · ${s.certs}★`:''}</p>
+                <p style={{fontSize:top3?12:11,fontWeight:800,color:'var(--foreground)',margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:"'Space Grotesk',sans-serif"}}>{s.name}{s.isAmbassador&&<span style={{fontSize:8,color:'#22c55e',marginLeft:3}}>🌟</span>}</p>
+                <p style={{fontSize:8,color:'var(--muted-foreground)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{s.sales}v{s.certs>0?` · ${s.certs}★`:''}</p>
               </div>
-              <span style={{fontSize:top3?16:13,fontWeight:900,color:top3?accent:'var(--muted-foreground)',fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",flexShrink:0}}>{fmtBRL(s.revenue)}</span>
+              <motion.span key={s.revenue} initial={{scale:1}} animate={{scale:[1,1.12,1]}} transition={{duration:.35}} style={{fontSize:top3?13:11,fontWeight:900,color:top3?accent:'var(--muted-foreground)',fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",flexShrink:0}}>{fmtBRL(s.revenue)}</motion.span>
             </div>
           </motion.div>
         )
       })}
+      </AnimatePresence>
       {stats.length===0&&<div style={{textAlign:'center',padding:'32px 0',color:'#2d1b4e'}}><p style={{fontSize:24}}>🏆</p><p style={{fontSize:11,marginTop:8,fontFamily:"'JetBrains Mono',monospace"}}>Sem dados ainda</p></div>}
     </div>
   )
 }
 
-// ── HourlyChart ─── CORRIGIDO: lookup por hubspot_id ─────────
-function HourlyChart({ events, closers, byHubId, accent }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string }) {
-  const byId    = Object.fromEntries(closers.map(c=>[c.id,c]))
-  const buckets = computeHourBuckets(events, byId)
-  const max     = Math.max(...buckets.map(b=>b.topRevenue),1)
-  const ref     = useRef<HTMLDivElement>(null)
-  useEffect(()=>{ if(ref.current) ref.current.scrollLeft=ref.current.scrollWidth },[])
+// ── HourlyChart ─── Heatmap de vendas por hora (últimas 12h) ──
+function HourlyChart({ events, closers, byHubId, accent, pulseHour, isDark=true }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string; pulseHour?:number|null; isDark?:boolean }) {
+  const byId = useMemo(() => Object.fromEntries(closers.map(c=>[c.id,c])), [closers])
+
+  const buckets = useMemo(() => {
+    const curHour = hourInSaoPaulo(new Date())
+    const hours = Array.from({length:12}, (_,i) => (curHour-11+i+24)%24)
+    const b = hours.map(h => ({ hour:h, total:0, count:0, topName:null as string|null, topRevenue:0, topHubId:null as string|null, topCloserId:null as string|null }))
+    events.forEach(e => {
+      if (e.event_type!=='sale') return
+      const h = hourInSaoPaulo(e.occurred_at)
+      const bucket = b.find(x=>x.hour===h)
+      if (!bucket) return
+      bucket.total += (e.value??0)
+      bucket.count += 1
+      if ((e.value??0) >= bucket.topRevenue) {
+        bucket.topRevenue = e.value??0
+        bucket.topName    = e.closer_name ?? null
+        bucket.topHubId   = (e as any).closer_hubspot_id ?? null
+        bucket.topCloserId= e.closer_id ?? null
+      }
+    })
+    return b
+  }, [events])
+
+  const maxTotal = Math.max(...buckets.map(b=>b.total), 1)
+  const curHour = hourInSaoPaulo(new Date())
+  const emptyBg     = isDark ? 'rgba(255,255,255,.03)' : 'rgba(139,92,246,.08)'
+  const emptyBorder = isDark ? '1px solid rgba(255,255,255,.06)' : '1px solid rgba(139,92,246,.18)'
 
   return (
-    <div ref={ref} style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
-      {buckets.map((b,i)=>{
-        const pct=(b.topRevenue/max)*100, empty=b.total===0, now=i===buckets.length-1
-        // Enriquecer closer com avatar via hubspot_id
-        const closer = b.topCloser
-          ?? (b.topName ? (Object.values(byId).find(c=>c.name===b.topName) ?? null) : null)
-          ?? null
-        const enriched = closer && !closer.avatar_url && (b as any).topHubspotId
-          ? (byHubId[(b as any).topHubspotId] ?? closer)
-          : closer
-        const hasContent=!empty&&b.topName
+    <div style={{display:'flex',gap:5}}>
+      {buckets.map(b=>{
+        const intensity = b.total/maxTotal // 0..1
+        const isNow = b.hour===curHour
+        const closer = b.topCloserId ? byId[b.topCloserId] : (b.topHubId ? byHubId[b.topHubId] : null)
+        const label = String(b.hour).padStart(2,'0')+'h'
         return (
-          <div key={b.hourIso} style={{flexShrink:0,width:80,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
-            <div style={{background:now?'rgba(168,85,247,.12)':'rgba(255,255,255,.02)',border:`1px solid ${now?'rgba(168,85,247,.3)':'rgba(255,255,255,.05)'}`,borderRadius:14,width:'100%',minHeight:80,padding:'8px 6px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,opacity:empty?.25:1,backdropFilter:'blur(4px)',boxShadow:now?'0 0 16px rgba(168,85,247,.15)':'none'}}>
-              {hasContent ? (
-                <>
-                  <Avatar closer={enriched} name={b.topName||'?'} size={28} rank={0}/>
-                  <p style={{fontSize:8,color:'#c4b5fd',fontWeight:700,margin:0,textAlign:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'100%',padding:'0 3px',fontFamily:"'Space Grotesk',sans-serif"}}>{(b.topName||'?').split(' ')[0]}</p>
-                  <p style={{fontSize:8,color:accent,margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'JetBrains Mono',monospace"}}>{fmtBRL(b.topRevenue)}</p>
-                  <span style={{fontSize:8,color:'#2d1b4e',fontFamily:"'JetBrains Mono',monospace"}}>{b.total}v</span>
-                </>
-              ) : <span style={{fontSize:16,color:'#1a0533'}}>—</span>}
+          <div key={b.hour} title={b.total>0?`${label} — ${fmtBRL(b.total)} · ${b.count}v${b.topName?` · top: ${b.topName}`:''}`:label}
+            style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
+            <div style={{
+              width:'100%',height:52,borderRadius:9,position:'relative',overflow:'hidden',
+              background: b.total>0 ? `${accent}${Math.round((isDark?18:30)+intensity*70).toString(16).padStart(2,'0')}` : emptyBg,
+              border: isNow ? `1.5px solid ${accent}` : (b.total>0 ? `1px solid ${accent}33` : emptyBorder),
+              boxShadow: isNow ? `0 0 14px ${accent}55` : 'none',
+              animation: isNow && pulseHour===b.hour ? 'cellPulse .7s ease-out' : 'none',
+              display:'flex',alignItems:'center',justifyContent:'center',
+            }}>
+              {closer && b.total>0 && (
+                <div style={{position:'absolute',top:3,right:3}}><Avatar closer={closer} name={b.topName||'?'} size={16}/></div>
+              )}
+              {b.total>0 && (
+                <span style={{fontSize:intensity>.45?10:9,fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
+                  {b.total>=1000?`${(b.total/1000).toFixed(1)}k`:b.total.toFixed(0)}
+                </span>
+              )}
             </div>
-            <div style={{height:36,width:'68%',background:'rgba(168,85,247,.07)',borderRadius:6,overflow:'hidden',display:'flex',alignItems:'flex-end'}}>
-              <div style={{width:'100%',height:`${pct}%`,background:empty?'transparent':`linear-gradient(0deg,${accent},${accent}44)`,borderRadius:6,transition:'height .5s ease'}}/>
-            </div>
-            <span style={{fontSize:9,color:now?accent:'#2d1b4e',fontFamily:"'JetBrains Mono',monospace",fontWeight:now?800:400}}>{b.label}</span>
+            <span style={{fontSize:8,color:isNow?accent:(isDark?'#2d1b4e':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
           </div>
         )
       })}
@@ -342,6 +496,40 @@ function Celebration({ ev, byId, byHubId, onDone }: { ev:TelaoEvent; byId:Record
   )
 }
 
+// ── Presets rápidos de data (estilo HubSpot), sempre em horário de SP ──
+function datePresets(): { label:string; start:string; end:string }[] {
+  const today = todayInSaoPaulo()
+  const wd = weekdayInSaoPaulo(new Date()) // 0=dom..6=sáb
+  const daysSinceMonday = (wd+6)%7
+  return [
+    { label:'Hoje',            start:today,                              end:today },
+    { label:'Ontem',           start:addDaysToDateStr(today,-1),          end:addDaysToDateStr(today,-1) },
+    { label:'Esta semana',     start:addDaysToDateStr(today,-daysSinceMonday), end:today },
+    { label:'Este mês',        start:today.slice(0,8)+'01',               end:today },
+    { label:'Últimos 7 dias',  start:addDaysToDateStr(today,-6),          end:today },
+    { label:'Últimos 30 dias', start:addDaysToDateStr(today,-29),         end:today },
+    { label:'Últimos 3 meses', start:addDaysToDateStr(today,-89),         end:today },
+  ]
+}
+
+// ── Dinheiro deixado na mesa ─── calculado a partir do cupom (_X% no final) ──
+function MoneyLeftOnTable({ value, isDark=true }: { value:number; isDark?:boolean }) {
+  const muted = isDark ? '#4a2d6b' : '#6d28d9'
+  return (
+    <div style={{background:isDark?'linear-gradient(135deg,rgba(245,158,11,.06),rgba(255,255,255,.02))':'linear-gradient(135deg,rgba(245,158,11,.1),rgba(255,255,255,.5))',border:isDark?'1px solid rgba(245,158,11,.15)':'1px solid rgba(245,158,11,.3)',borderRadius:20,padding:'16px 18px',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',gap:16}}>
+      <div style={{width:44,height:44,borderRadius:12,background:'rgba(245,158,11,.15)',border:'1px solid rgba(245,158,11,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>💸</div>
+      <div style={{flex:1,minWidth:0}}>
+        <p style={{fontSize:9,fontWeight:800,color:'#d97706',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 3px',fontFamily:"'JetBrains Mono',monospace"}}>Dinheiro deixado na mesa</p>
+        <p style={{fontSize:10,color:muted,margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>Desconto concedido pelos closers (via cupom) no período, sem contar self-checkout nem parcelas repetidas</p>
+      </div>
+      <div style={{textAlign:'right',flexShrink:0}}>
+        <p style={{fontSize:24,fontWeight:900,color:value>0?'#f59e0b':muted,margin:0,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.02em'}}>{fmtBRL(value)}</p>
+        <p style={{fontSize:8,color:muted,margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{value===0?'sem descontos no período':'no período'}</p>
+      </div>
+    </div>
+  )
+}
+
 // ── FilterBar ─────────────────────────────────────────────────
 function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical, isDark=true }: { filter:FilterState; onChange:(f:FilterState)=>void; closers:Closer[]; events:TelaoEvent[]; isAdmin:boolean; activeVertical:VerticalId|null; isDark?:boolean }) {
   const [open,setOpen]=useState(false)
@@ -376,6 +564,11 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical,
   if(!isAdmin) return (
     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
       <span style={{fontSize:10,fontWeight:500,letterSpacing:'.04em',whiteSpace:'nowrap',userSelect:'none',color: isDark ? 'rgba(255,255,255,.4)' : 'rgba(80,20,120,.5)'}}>Período</span>
+      <select value="" onChange={e=>{ const p=datePresets().find(x=>x.label===e.target.value); if(!p) return; const nd={...draft,start:p.start,end:p.end}; setDraft(nd); onChange(nd) }}
+        style={{...DI, cursor:'pointer'}}>
+        <option value="" disabled>Atalho rápido…</option>
+        {datePresets().map(p=><option key={p.label} value={p.label}>{p.label}</option>)}
+      </select>
       <input type="date" value={draft.start??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,start:v}; setDraft(nd); onChange(nd) }} style={DI}
         onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
         onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
@@ -407,10 +600,24 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical,
             <div style={{position:'fixed',inset:0,zIndex:50}} onClick={()=>setOpen(false)}/>
             <motion.div initial={{opacity:0,y:-6,scale:.97}} animate={{opacity:1,y:0,scale:1}} exit={{opacity:0,y:-6}}
               style={{position:'absolute',top:40,right:0,zIndex:100,width:300,background:'var(--card)',border:'1px solid var(--border)',borderRadius:18,padding:20,boxShadow:'0 24px 60px rgba(0,0,0,.25)',backdropFilter:'blur(20px)'}}>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}>
                 <span style={{fontSize:13,fontWeight:800,color:'var(--foreground)'}}>Filtros</span>
                 <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',color:'var(--muted-foreground)',cursor:'pointer'}}><X size={14}/></button>
               </div>
+
+              <p style={{fontSize:9,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8,fontFamily:"'JetBrains Mono',monospace"}}>Atalhos rápidos</p>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:14}}>
+                {datePresets().map(p=>{
+                  const active = draft.start===p.start && draft.end===p.end
+                  return (
+                    <button key={p.label} onClick={()=>{ const nd={...draft,start:p.start,end:p.end}; setDraft(nd); onChange(nd) }}
+                      style={{height:26,padding:'0 10px',borderRadius:7,border:`1px solid ${active?'#a855f7':'var(--border)'}`,background:active?'rgba(168,85,247,.15)':'transparent',color:active?'#a855f7':'var(--muted-foreground)',fontSize:10.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
                 {(['start','end'] as const).map(k=>(
                   <div key={k}><label style={{fontSize:9,color:'var(--muted-foreground)',display:'block',marginBottom:4,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>{k==='start'?'De':'Até'}</label><input type="date" value={draft[k]??''} onChange={e=>setDraft(p=>({...p,[k]:e.target.value||null}))} style={{width:'100%',height:34,padding:'0 8px',borderRadius:9,border:'1px solid var(--border)',background:'var(--background)',color:'var(--foreground)',fontSize:11,fontFamily:"'JetBrains Mono',monospace",outline:'none'}}/></div>
@@ -513,8 +720,8 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     let evs=baseEvents
     if(vf) evs=evs.filter(e=>e.vertical===vf)
     if(!rangeEvents) {
-      if(filter.start) evs=evs.filter(e=>e.occurred_at>=filter.start!)
-      if(filter.end)   evs=evs.filter(e=>e.occurred_at<=filter.end!+'T23:59:59')
+      if(filter.start) evs=evs.filter(e=>e.occurred_at>=dayBoundsSaoPaulo(filter.start!).start)
+      if(filter.end)   evs=evs.filter(e=>e.occurred_at<=dayBoundsSaoPaulo(filter.end!).end)
     }
     if(filter.closerKeys.length>0)
       evs=evs.filter(e=>e.is_self_checkout?filter.closerKeys.includes('self'):(filter.closerKeys.includes(e.closer_id??'')||filter.closerKeys.includes(`name-${e.closer_name??''}`)))
@@ -583,14 +790,80 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     return days
   },[allUserEvs,vf])
 
+  // ── Dados dos últimos dias pro admin (ontem + tendência do sparkline) ──
+  // Consultor já tem isso via allUserEvs (histórico completo).
+  const [recentSalesAdmin, setRecentSalesAdmin] = useState<{value:number;vertical:string;occurred_at:string}[]>([])
+  useEffect(() => {
+    if (!isAdmin) return
+    const supabase = createBrowserClient()
+    const startDate = addDaysToDateStr(todayInSaoPaulo(), -7)
+    const { start } = dayBoundsSaoPaulo(startDate)
+    const { end }   = dayBoundsSaoPaulo(todayInSaoPaulo())
+    supabase.from('telao_events').select('value,vertical,occurred_at').eq('event_type','sale')
+      .gte('occurred_at', start).lte('occurred_at', end)
+      .then(({ data }) => setRecentSalesAdmin((data ?? []) as any))
+  }, [isAdmin])
+
+  const nowHourSP = hourInSaoPaulo(new Date())
+
+  const yesterdayRevAdmin = useMemo(() =>
+    recentSalesAdmin.filter(e => (!vf || e.vertical === vf) && e.occurred_at>=yesterdayBounds.start && e.occurred_at<=yesterdayBounds.end)
+      .reduce((s, e) => s + (e.value || 0), 0)
+  , [recentSalesAdmin, vf, yesterdayBounds])
+
+  const yesterdaySameHourRevAdmin = useMemo(() =>
+    recentSalesAdmin.filter(e => (!vf || e.vertical === vf) && e.occurred_at>=yesterdayBounds.start && e.occurred_at<=yesterdayBounds.end && hourInSaoPaulo(e.occurred_at) <= nowHourSP)
+      .reduce((s, e) => s + (e.value || 0), 0)
+  , [recentSalesAdmin, vf, yesterdayBounds, nowHourSP])
+
+  // Tendência dos últimos dias, pro sparkline do Hero
+  const trendAdmin = useMemo(() => {
+    const today = todayInSaoPaulo()
+    const days: {label:string;value:number}[] = []
+    for (let i=6; i>=0; i--) {
+      const dateStr = addDaysToDateStr(today, -i)
+      const { start, end } = dayBoundsSaoPaulo(dateStr)
+      const rev = recentSalesAdmin.filter(e => (!vf||e.vertical===vf) && e.occurred_at>=start && e.occurred_at<=end)
+        .reduce((s,e)=>s+(e.value||0),0)
+      const [dy,dm,dd] = dateStr.split('-').map(Number)
+      const d = new Date(Date.UTC(dy,dm-1,dd))
+      days.push({ label:['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getUTCDay()], value:rev })
+    }
+    return days
+  }, [recentSalesAdmin, vf])
+
+  const trendUser = useMemo(() => last7Days.map(d => ({ label:d.label, value:d.rev })), [last7Days])
+
+  // Consultor já tem allUserEvs (todo o histórico) — calcula "mesma hora ontem" a partir dele
+  const yesterdaySameHourRevUser = useMemo(() => allUserEvs.filter(e => {
+    if (e.event_type!=='sale') return false
+    if (vf && e.vertical!==vf) return false
+    if (!(e.occurred_at>=yesterdayBounds.start && e.occurred_at<=yesterdayBounds.end)) return false
+    return hourInSaoPaulo(e.occurred_at) <= nowHourSP
+  }).reduce((s,e)=>s+(e.value??0),0), [allUserEvs, vf, nowHourSP])
+
+  // Pulso na célula do heatmap quando uma venda nova chega
+  const [pulseHour, setPulseHour] = useState<number|null>(null)
+  useEffect(() => {
+    if (!latest || latest.event_type!=='sale') return
+    const h = hourInSaoPaulo(latest.occurred_at)
+    setPulseHour(h)
+    const t = setTimeout(() => setPulseHour(null), 700)
+    return () => clearTimeout(t)
+  }, [latest])
+
+  const moneyLeftTotal = useMemo(() =>
+    viewEvents.reduce((s,e) => s + eventMoneyLeftOnTable(e), 0)
+  , [viewEvents])
+
   const streak = viewEvents.filter(e=>Date.now()-new Date(e.occurred_at).getTime()<90000).length
 
   useEffect(()=>{
     if(!filter.start){ setRangeEvents(null); return }
     const supabase = createBrowserClient()
     setRangeFetching(true)
-    const startISO = filter.start + 'T00:00:00'
-    const endISO   = (filter.end ?? filter.start) + 'T23:59:59'
+    const { start: startISO } = dayBoundsSaoPaulo(filter.start)
+    const { end:   endISO }   = dayBoundsSaoPaulo(filter.end ?? filter.start)
     supabase.from('telao_events')
       .select('*').gte('occurred_at', startISO).lte('occurred_at', endISO)
       .order('occurred_at', { ascending: false }).limit(2000)
@@ -624,6 +897,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
         @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        @keyframes cellPulse{0%{box-shadow:0 0 0 0 ${accent}88}70%{box-shadow:0 0 0 10px ${accent}00}100%{box-shadow:0 0 0 0 ${accent}00}}
         @media(max-width:960px){.tw-main{grid-template-columns:1fr!important;}.tw-vert{grid-template-columns:repeat(2,1fr)!important;}}
       `}</style>
 
@@ -671,7 +945,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
             <motion.button whileTap={{scale:.95}} onClick={()=>document.documentElement.requestFullscreen?.()} style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#2d1b4e',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <Maximize2 size={13}/>
             </motion.button>
-            <Clock/>
+            <Clock isDark={isDark}/>
           </div>
         </div>
       </div>
@@ -683,7 +957,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
         {/* Esquerda */}
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          <HeroMetrics events={viewEvents} accent={accent} vf={vf}/>
+          <HeroMetrics events={viewEvents} accent={accent} vf={vf} isDark={isDark}
+            yesterdayRev={isAdmin?yesterdayRevAdmin:yesterdayRev}
+            yesterdaySameHourRev={isAdmin?yesterdaySameHourRevAdmin:yesterdaySameHourRevUser}
+            trend={isAdmin?trendAdmin:trendUser}/>
 
           {/* Painel acumulado — apenas consultor */}
           {!isAdmin && (
@@ -734,22 +1011,24 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
           {isAdmin&&(
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-              <GoalBar period="day" periodKey={todayKey()} vertical={vf} current={todayRev} goals={goals} accent={accent} extra={{label:'Mês acumulado',value:monthRev}}/>
-              <GoalBar period="month" periodKey={monthKey()} vertical={vf} current={monthRev} goals={goals} accent={accent}/>
+              <GoalBar period="day" periodKey={todayKey()} vertical={vf} current={todayRev} goals={goals} accent={accent} extra={{label:'Mês acumulado',value:monthRev}} isDark={isDark}/>
+              <GoalBar period="month" periodKey={monthKey()} vertical={vf} current={monthRev} goals={goals} accent={accent} isDark={isDark}/>
             </div>
           )}
+
+          {isAdmin && <MoneyLeftOnTable value={moneyLeftTotal} isDark={isDark}/>}
 
           {isAdmin && (
             <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
               <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 12px',fontFamily:"'JetBrains Mono',monospace"}}>⏱ Batalha por hora</p>
-              <HourlyChart events={viewEvents} closers={closers} byHubId={byHubId} accent={accent}/>
+              <HourlyChart events={viewEvents} closers={closers} byHubId={byHubId} accent={accent} pulseHour={pulseHour} isDark={isDark}/>
             </div>
           )}
         </div>
 
         {/* Direita — Feed + Ranking */}
         {isAdmin && <div style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)'}}>
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'0 0 50%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
+          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'0 0 62%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
             <p style={{fontSize:9,fontWeight:800,color:'#2d1b4e',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>⚡ Feed ao vivo — {viewEvents.length} eventos</p>
             <EventFeed events={viewEvents} byId={byId} byHubId={byHubId}/>
           </div>

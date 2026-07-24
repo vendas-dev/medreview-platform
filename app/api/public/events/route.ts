@@ -40,6 +40,11 @@ const SaleSchema = z.object({
   subscription_id:      z.string().nullable().optional(),
   installment_number:   z.number().int().positive().optional(),
   total_installments:   z.number().int().positive().optional(),
+  // Cupom usado na venda (opcional — só manda se teve cupom). Só conta como
+  // desconto "de verdade" pra fins de dinheiro deixado na mesa quando termina
+  // em _X% ou _XX.X% (ex: NT12345678901_7.5%). Cupom sem esse sufixo (ex: só
+  // "NT12345678901") é tratado como cupom sem desconto atrelado.
+  coupon_code:          z.string().nullable().optional(),
 })
 
 const AmbassadorSchema = z.object({
@@ -127,6 +132,7 @@ export async function POST(req: NextRequest) {
         installment_number:  data.installment_number ?? (data.is_recurring ? 1 : null),
         total_installments:  data.total_installments ?? null,
         sale_type:           saleType,
+        coupon_code:         data.coupon_code || null,
       }
     } else {
       insertData = { ...insertData, ambassador_name: data.ambassador_name, college: data.college, class: data.class }

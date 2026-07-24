@@ -45,11 +45,18 @@ export interface TelaoEvent {
   class:             string | null
   closer_name:       string | null
   closer_id:         string | null
+  closer_hubspot_id?:string | null
   is_self_checkout:  boolean
   seller_type:       SellerKind
   sold_by_ambassador:boolean
   occurred_at:       string
   created_at:        string
+  // Recorrência / cupom — opcionais pra não quebrar nada que já lia esse tipo
+  is_recurring?:       boolean
+  installment_number?: number | null
+  total_installments?: number | null
+  sale_type?:          'nova' | 'recorrente'
+  coupon_code?:        string | null
 }
 
 export interface Goal {

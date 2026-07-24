@@ -141,3 +141,39 @@ export function todayKey()  { return todayInSaoPaulo() }
 export function monthKey()  { return todayInSaoPaulo().slice(0, 7) }
 export function todayStart(){ return dayBoundsSaoPaulo(todayInSaoPaulo()).start }
 export function monthStart(){ return monthBoundsSaoPaulo(todayInSaoPaulo().slice(0, 7)).start }
+
+// ── Dinheiro deixado na mesa ──────────────────────────────────
+// Cupom padronizado termina em _X% ou _XX.X% (ex: NT12345678901_7.5%).
+// Cupom sem esse sufixo (ex: só "NT12345678901") não representa desconto
+// conhecido — não entra na conta.
+const COUPON_DISCOUNT_RE = /_(\d+(?:\.\d+)?)%\s*$/
+
+export function extractCouponDiscountPct(couponCode?: string | null): number | null {
+  if (!couponCode) return null
+  const m = couponCode.trim().match(COUPON_DISCOUNT_RE)
+  if (!m) return null
+  const pct = parseFloat(m[1])
+  if (!isFinite(pct) || pct <= 0 || pct >= 100) return null
+  return pct
+}
+
+// Se o valor cobrado (com desconto já aplicado) foi `value` e o desconto foi
+// `pct`%, o preço original seria value / (1 - pct/100). A diferença é o que
+// ficou "na mesa".
+export function moneyLeftOnTable(value: number, pct: number): number {
+  const original = value / (1 - pct / 100)
+  return Math.max(original - value, 0)
+}
+
+// Quanto esse evento específico deixou na mesa — já aplicando as regras
+// combinadas: só vendas de closer (não self-checkout), e só a primeira
+// parcela quando for recorrência (senão a mesma negociação seria contada
+// em dobro/triplo a cada parcela).
+export function eventMoneyLeftOnTable(e: { event_type:string; seller_type?:string; is_self_checkout?:boolean; is_recurring?:boolean; installment_number?:number|null; value:number|null; coupon_code?:string|null }): number {
+  if (e.event_type !== 'sale') return 0
+  if (e.is_self_checkout || e.seller_type === 'self_checkout') return 0
+  if (e.is_recurring && (e.installment_number ?? 1) > 1) return 0
+  const pct = extractCouponDiscountPct(e.coupon_code)
+  if (pct === null) return 0
+  return moneyLeftOnTable(e.value ?? 0, pct)
+}
