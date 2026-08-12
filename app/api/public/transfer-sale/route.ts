@@ -11,25 +11,34 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS })
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-// Acha o closer pelo identificador enviado — que hoje é sempre o
-// hubspot_id (ID do proprietário no HubSpot). Se por algum motivo vier um
-// UUID interno da plataforma, também funciona (checa qual formato bate
-// primeiro), mas o caso normal de uso é sempre hubspot_id.
+// Busca o closer pelo hubspot_id NAS DUAS TABELAS — porque telao_events tem
+// duas constraints de chave estrangeira diferentes:
+//   - closer_id      → exige um ID que exista em "closers"
+//   - co_closer_id    → exige um ID que exista em "profiles"
+// Mesma pessoa, mesmo hubspot_id, mas UUID interno DIFERENTE em cada tabela.
+// Por isso guardamos os dois IDs separados, e cada campo usa o seu.
 //
-// A comparação usa trim() nos dois lados (igual ao resto do sistema faz em
-// matchesCloser) — sem isso, um espaço em branco escondido ou o hubspot_id
-// salvo como tipo numérico faz a busca direta (.eq) falhar silenciosamente,
-// mesmo com o closer cadastrado certinho.
-async function findCloser(admin: any, identifier: string) {
-  if (UUID_RE.test(identifier)) {
-    const { data } = await admin.from('profiles').select('id, name, hubspot_id').eq('id', identifier).maybeSingle()
-    if (data) return data
-  }
+// Comparação com trim() dos dois lados — sem isso, espaço em branco ou
+// diferença de tipo no hubspot_id salvo faz a busca falhar silenciosamente.
+async function findCloserIdentities(admin: any, identifier: string) {
   const target = String(identifier).trim()
-  const { data: candidates } = await admin.from('profiles').select('id, name, hubspot_id').not('hubspot_id', 'is', null)
-  return (candidates ?? []).find((c: any) => String(c.hubspot_id).trim() === target) ?? null
+
+  const [{ data: profileCandidates }, { data: closerCandidates }] = await Promise.all([
+    admin.from('profiles').select('id, name, hubspot_id').not('hubspot_id', 'is', null),
+    admin.from('closers').select('id, name, hubspot_id').not('hubspot_id', 'is', null),
+  ])
+
+  const profile   = (profileCandidates ?? []).find((c: any) => String(c.hubspot_id).trim() === target) ?? null
+  const closerRow = (closerCandidates ?? []).find((c: any) => String(c.hubspot_id).trim() === target) ?? null
+
+  if (!profile && !closerRow) return null
+
+  return {
+    name:       profile?.name ?? closerRow?.name ?? null,
+    hubspotId:  target,
+    profileId:  profile?.id ?? null,   // usar em co_closer_id (FK → profiles)
+    closerId:   closerRow?.id ?? null, // usar em closer_id (FK → closers)
+  }
 }
 
 // Transfere/co-atribui uma venda pra outro closer, a partir do transaction_id
@@ -39,17 +48,20 @@ async function findCloser(admin: any, identifier: string) {
 // SEM autenticação, de propósito — mesmo padrão do /api/public/events, pra
 // automações externas (n8n) chamarem direto.
 //
-// co_closer_id: SEMPRE o ID do proprietário no HubSpot (não o UUID interno
-// da plataforma) — é assim que o n8n identifica o closer em todos os casos.
+// co_closer_id (no corpo da requisição): SEMPRE o hubspot_id do proprietário
+// — não o UUID interno de nenhuma tabela. A tradução pro UUID certo (de
+// "closers" ou "profiles", dependendo do caso) é feita aqui dentro.
 //
 // Regra de decisão:
 //  - Se a venda original era self-checkout (sem closer de verdade por trás)
-//    → CORRIGE: vira venda do closer indicado. Não é duplicata, é o mesmo
-//    negócio, só com a atribuição certa agora.
+//    → CORRIGE: vira venda do closer indicado, grava em closer_id (exige
+//    existir em "closers"). Não é duplicata, é o mesmo negócio, só com a
+//    atribuição certa agora.
 //  - Se a venda já tinha um "dono" (embaixador ou outro closer) → SOMA:
-//    grava co_closer_id, mantendo a atribuição original intacta. Uma linha
-//    só no banco — o total da empresa nunca dobra, mas cada estatística
-//    "por closer" passa a contar pra os dois.
+//    grava co_closer_id (exige existir em "profiles"), mantendo a
+//    atribuição original intacta. Uma linha só no banco — o total da
+//    empresa nunca dobra, mas cada estatística "por closer" passa a contar
+//    pra os dois.
 //
 // Se a venda for recorrente (subscription_id preenchido), a decisão fica
 // "em pé" numa tabela separada (subscription_transfers) — assim, quando
@@ -78,9 +90,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Nenhuma venda encontrada com ${idLabel}. Confirme se esse evento já chegou na plataforma com esse identificador preenchido.` }, { status: 404, headers: CORS })
   }
 
-  const closer = await findCloser(admin, coCloserId)
+  const closer = await findCloserIdentities(admin, coCloserId)
   if (!closer) {
-    return NextResponse.json({ error: `Closer não encontrado com o hubspot_id "${coCloserId}". Confirme se esse proprietário está cadastrado na plataforma com esse hubspot_id.` }, { status: 404, headers: CORS })
+    return NextResponse.json({ error: `Closer não encontrado com o hubspot_id "${coCloserId}" (nem em profiles, nem em closers).` }, { status: 404, headers: CORS })
   }
 
   const isCorrection = (sale as any).is_self_checkout === true
@@ -88,13 +100,19 @@ export async function POST(req: NextRequest) {
 
   const updates: Record<string, unknown> = { transferred_at: now, transfer_reason: reason }
   if (isCorrection) {
+    if (!closer.closerId) {
+      return NextResponse.json({ error: `Closer com hubspot_id "${coCloserId}" não está cadastrado na tabela "closers" — necessário pra corrigir uma venda self-checkout (closer_id exige existir ali).` }, { status: 404, headers: CORS })
+    }
     updates.is_self_checkout  = false
     updates.seller_type       = 'closer'
-    updates.closer_id         = closer.id
-    updates.closer_hubspot_id = closer.hubspot_id
+    updates.closer_id         = closer.closerId
+    updates.closer_hubspot_id = closer.hubspotId
   } else {
-    updates.co_closer_id         = closer.id
-    updates.co_closer_hubspot_id = closer.hubspot_id
+    if (!closer.profileId) {
+      return NextResponse.json({ error: `Closer com hubspot_id "${coCloserId}" não está cadastrado na tabela "profiles" — necessário pra co-atribuir a venda (co_closer_id exige existir ali).` }, { status: 404, headers: CORS })
+    }
+    updates.co_closer_id         = closer.profileId
+    updates.co_closer_hubspot_id = closer.hubspotId
   }
 
   const { error: updateError } = await admin.from('telao_events').update(updates).eq('id', (sale as any).id)
@@ -103,13 +121,15 @@ export async function POST(req: NextRequest) {
   // Se for recorrência, deixa a regra "em pé" pras parcelas futuras (que
   // ainda não existem) já nascerem com essa atribuição, sem precisar
   // transferir manualmente parcela por parcela todo mês.
+  // subscription_transfers.co_closer_id também exige "profiles" (mesma FK
+  // de telao_events.co_closer_id) — só cria a regra se esse ID existir.
   let subscriptionRuleCreated = false
-  if ((sale as any).subscription_id) {
+  if ((sale as any).subscription_id && closer.profileId) {
     const { error: subError } = await admin.from('subscription_transfers').upsert({
       subscription_id:      (sale as any).subscription_id,
       mode:                 isCorrection ? 'correct' : 'co_closer',
-      co_closer_id:         closer.id,
-      co_closer_hubspot_id: closer.hubspot_id,
+      co_closer_id:         closer.profileId,
+      co_closer_hubspot_id: closer.hubspotId,
       reason,
       created_by:           null,
     }, { onConflict: 'subscription_id' })
