@@ -29,6 +29,12 @@ function normalize(raw: any): any {
   return r
 }
 
+// Modalidade de pagamento — só 3 valores aceitos, pra dar pra contar/comparar
+// depois sem depender de texto solto. 'sem_juros' pode ter qualquer número de
+// parcelas (installments_no_interest), não só 3 — hoje só existe 3x, mas o
+// campo já aceita 4x, 2x etc. se um dia isso mudar.
+const VALID_PAYMENT_MODES = ['a_vista', 'parcelado', 'sem_juros']
+
 export async function POST(req: NextRequest) {
   try {
     const secret = process.env.WEBHOOK_SECRET
@@ -56,6 +62,25 @@ export async function POST(req: NextRequest) {
       const deal_created_at= parsePtbrDate(r.deal_created_at ?? r.data_criacao ?? null)
       const expires_at     = parsePtbrDate(r.expires_at ?? r.expira_em ?? null)
 
+      // Desconto — aceita vir já como número (ex: 7.5) ou extraído de um
+      // cupom no padrão "_X%" no final (mesmo padrão usado nas vendas).
+      const coupon_code = r.coupon_code ?? r.cupom ?? null
+      let discount_pct = parseFloat(r.discount_pct ?? r.desconto ?? r.porcentagem_desconto ?? '') || null
+      if (discount_pct === null) {
+        const couponSrc = coupon_code ?? r.payment_link ?? r.link ?? ''
+        const m = String(couponSrc).match(/_(\d+(?:\.\d+)?)%/)
+        if (m) discount_pct = parseFloat(m[1])
+      }
+
+      // Modalidade de pagamento — novo campo, separado do discount_pct.
+      // generation_mode/selected_option continuam sendo gravados como já
+      // eram (não removidos ainda), payment_mode é adicional.
+      let payment_mode: string | null = r.payment_mode ?? r.modalidade ?? null
+      if (payment_mode && !VALID_PAYMENT_MODES.includes(payment_mode)) payment_mode = null
+      const installments_no_interest = payment_mode === 'sem_juros'
+        ? (parseInt(r.installments_no_interest ?? r.parcelas_sem_juros ?? '', 10) || 3)
+        : null
+
       if (!owner_name || !generated_at) {
         errors.push({ item: raw, reason: 'owner_name e generated_at são obrigatórios' })
         continue
@@ -77,6 +102,10 @@ export async function POST(req: NextRequest) {
         expires_at,
         pipeline_name:   r.pipeline_name ?? r.pipeline ?? null,
         stage_name:      r.stage_name ?? r.etapa ?? null,
+        discount_pct,
+        coupon_code,
+        payment_mode,
+        installments_no_interest,
       }).select().single()
 
       if (error) errors.push({ item: raw, reason: error.message })

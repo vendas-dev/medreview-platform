@@ -117,7 +117,12 @@ function HeroMetrics({ events, accent, vf, yesterdayRev, yesterdaySameHourRev, t
   const revenue=sales.reduce((s,e)=>s+(e.value??0),0)
   const vert=vf?VERTICALS[vf]:null
 
-  const avgTicket = sales.length>0 ? revenue/sales.length : 0
+  // Ticket médio só considera a 1ª parcela de cada venda — parcelas
+  // recorrentes 2+ não entram, senão distorce a média pra baixo (mesma regra
+  // do /intel e do dashboard). A receita acima continua somando tudo.
+  const novaSalesForTicket = sales.filter(e => (e.sale_type ?? 'nova') === 'nova')
+  const novaRevForTicket = novaSalesForTicket.reduce((s,e)=>s+(e.value??0),0)
+  const avgTicket = novaSalesForTicket.length>0 ? novaRevForTicket/novaSalesForTicket.length : 0
   const hoursElapsed = Math.max(hourInSaoPaulo(new Date()) + (new Date().getMinutes()/60), 1)
   const salesPerHour = sales.length/hoursElapsed
 
@@ -308,6 +313,7 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
         {events.slice(0,30).map(ev=>{
           const closer = findCloser(ev.closer_id, (ev as any).closer_hubspot_id, byId, byHubId)
           const name=ev.is_self_checkout?'Self Checkout':(closer?.name??ev.closer_name??'?')
+          const coCloser = findCloser((ev as any).co_closer_id, (ev as any).co_closer_hubspot_id, byId, byHubId)
           const v=VERTICALS[ev.vertical]
           const isSale=ev.event_type==='sale'
           const isAmb=ev.sold_by_ambassador||ev.seller_type==='ambassador'
@@ -325,6 +331,11 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
                   {(ev as any).is_recurring && (ev as any).installment_number > 1 && (
                     <span style={{fontSize:9,color:'#0d9488',background:'rgba(13,148,136,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace"}}>
                       🔄 {(ev as any).installment_number}/{(ev as any).total_installments}
+                    </span>
+                  )}
+                  {(ev as any).transferred_at && (
+                    <span title={(ev as any).transfer_reason ?? 'Venda transferida/co-atribuída'} style={{fontSize:9,color:'#f97316',background:'rgba(249,115,22,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace"}}>
+                      🔁 {coCloser?.name ? `+ ${coCloser.name.split(' ')[0]}` : 'transferida'}
                     </span>
                   )}
                 </div>
@@ -750,7 +761,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     if(isAdmin || allFetched) return
     const supabase = createBrowserClient()
     setAllFetched(true)
-    supabase.from('telao_events').select('*').order('occurred_at',{ascending:false}).limit(5000)
+    supabase.from('telao_events').select('*').order('occurred_at',{ascending:false}).limit(999999)
       .then(({data})=>{
         const myEvs = (data??[]).filter((e:any)=>{
           if(userCloserId  && e.closer_id === userCloserId) return true
@@ -866,7 +877,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     const { end:   endISO }   = dayBoundsSaoPaulo(filter.end ?? filter.start)
     supabase.from('telao_events')
       .select('*').gte('occurred_at', startISO).lte('occurred_at', endISO)
-      .order('occurred_at', { ascending: false }).limit(2000)
+      .order('occurred_at', { ascending: false }).limit(999999)
       .then(({ data }) => { setRangeEvents((data??[]) as TelaoEvent[]); setRangeFetching(false) })
   },[filter.start, filter.end])
 

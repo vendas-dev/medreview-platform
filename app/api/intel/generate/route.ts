@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     { data: goals }, { data: allDisparos }, { data: allLinks },
   ] = await Promise.all([
     admin.from('profiles').select('id,name,team,hubspot_id').neq('role','superadmin').order('name'),
-    admin.from('telao_events').select('closer_id,closer_hubspot_id,value,vertical').eq('event_type','sale').gte('occurred_at',mStart).lte('occurred_at',mEnd),
+    admin.from('telao_events').select('closer_id,closer_hubspot_id,value,vertical').eq('event_type','sale').gte('occurred_at',mStart).lte('occurred_at',mEnd).limit(999999),
     admin.from('hubspot_leads').select('owner_id,deal_stage').gte('created_at_hs',mStart).lte('created_at_hs',mEnd),
     admin.from('closer_goals').select('*').eq('month',monthKey),
     admin.from('disparos').select('proprietario,proprietario_hubspot_id,template,id_negocio').gte('data_disparo',mStart).lte('data_disparo',mEnd),

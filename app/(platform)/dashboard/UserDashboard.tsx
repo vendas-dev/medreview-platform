@@ -1,10 +1,12 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
   Play, CheckCircle2, Circle, Lock, Clock, ArrowRight,
   BookOpen, Video, HelpCircle, Trophy, Zap, Target,
-  ChevronRight, TrendingUp, AlertCircle, Star, Flame
+  ChevronRight, TrendingUp, AlertCircle, Star, Flame,
+  DollarSign, AlertTriangle, Sparkles, Award, Stethoscope
 } from 'lucide-react'
 
 // ── Helpers ────────────────────────────────────────────────
@@ -38,6 +40,190 @@ function StatusIcon({ done, blocked, isNext, active }: any) {
   return <Circle size={18} style={{ color: 'var(--border)', flexShrink: 0 }} />
 }
 
+// ── Formatação de moeda ────────────────────────────────────────
+function fmtBRL(v: number): string {
+  return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+}
+
+// ── Contador animado — conta do zero até o valor ────────────────
+function CountUp({ value, format }: { value: number; format: (v: number) => string }) {
+  const [display, setDisplay] = useState(0)
+  useEffect(() => {
+    const duration = 1100, start = performance.now(), from = display
+    let raf: number
+    const step = (now: number) => {
+      const t = Math.min((now - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setDisplay(from + (value - from) * eased)
+      if (t < 1) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  return <>{format(display)}</>
+}
+
+// ── Curva suave (mesma técnica usada no telão/dashboard) ────────
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ''
+  let d = `M ${pts[0].x},${pts[0].y}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] ?? p2
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
+  }
+  return d
+}
+
+// ── Mini gráfico de linha (receita pessoal, últimos 7 dias) ─────
+function MyRevenueChart({ data }: { data: { day: string; revenue: number }[] }) {
+  const [hovered, setHovered] = useState<number | null>(null)
+  const W = 700, H = 90, padX = 10, padY = 18
+  const max = Math.max(...data.map(d => d.revenue), 1)
+  const step = (W - padX * 2) / (data.length - 1)
+  const pts = data.map((d, i) => ({ x: padX + i * step, y: padY + (H - padY - 14) * (1 - d.revenue / max) }))
+  const linePath = smoothPath(pts)
+  const areaPath = `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z`
+  return (
+    <svg width="100%" height={H + 20} viewBox={`0 0 ${W} ${H + 20}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+      <defs>
+        <linearGradient id="myRevGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#22c55e" stopOpacity=".3" />
+          <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <motion.path d={areaPath} fill="url(#myRevGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
+      <motion.path d={linePath} fill="none" stroke="#22c55e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+        initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
+      {pts.map((p, i) => {
+        const isLast = i === pts.length - 1
+        const isHovered = hovered === i
+        return (
+          <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
+            <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
+            <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6 : isLast ? 4.5 : 3} fill={isHovered || isLast ? '#22c55e' : 'var(--card)'} stroke="#22c55e" strokeWidth={1.5}
+              animate={{ r: isHovered ? 6 : isLast ? 4.5 : 3 }} transition={{ duration: 0.15 }} />
+            <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={isHovered ? 12.5 : 11} fontWeight={isHovered || isLast ? 800 : 600} fill={isHovered || isLast ? '#22c55e' : 'var(--muted-foreground)'}>
+              {data[i].revenue >= 1000 ? `${(data[i].revenue / 1000).toFixed(1)}k` : data[i].revenue.toFixed(0)}
+            </text>
+            <text x={p.x} y={H + 16} textAnchor="middle" fontSize={10} fill="var(--muted-foreground)">{data[i].day}</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+// ── Mini barras por vertical (só as vendas dele) ────────────────
+function MyVerticalBars({ data }: { data: { vertical: string; revenue: number; count: number }[] }) {
+  if (data.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '30px 0' }}>Nenhuma venda registrada este mês ainda.</p>
+  const max = Math.max(...data.map(d => d.revenue), 1)
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 100 }}>
+      {data.map((d, i) => {
+        const h = Math.max((d.revenue / max) * 74, d.revenue > 0 ? 6 : 2)
+        const shortLabel = d.vertical.replace('-Review', '')
+        return (
+          <div key={d.vertical} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 9, fontWeight: 800, color: '#8b5cf6', whiteSpace: 'nowrap' }}>{fmtBRL(d.revenue)}</span>
+            <motion.div initial={{ height: 0 }} animate={{ height: h }} transition={{ duration: 0.65, delay: i * 0.08, ease: 'easeOut' }}
+              style={{ width: '100%', minHeight: 3, borderRadius: '5px 5px 0 0', background: 'linear-gradient(180deg,#8b5cf6,#8b5cf699)', marginTop: 4 }} />
+            <span style={{ fontSize: 8.5, color: 'var(--muted-foreground)', marginTop: 6, textAlign: 'center', lineHeight: 1.2 }}>{shortLabel}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── KPI pessoal compacto ─────────────────────────────────────────
+function MyKpiCard({ icon: Icon, label, rawValue, format = fmtBRL, sub, grad, color }: any) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+      style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px', position: 'relative', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', transition: 'all 0.18s' }}
+      onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = 'var(--shadow-md)' }}
+      onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'none'; el.style.boxShadow = 'var(--shadow-sm)' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: grad }} />
+      <div style={{ width: 38, height: 38, borderRadius: 11, background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10, boxShadow: `0 4px 12px ${color}35` }}>
+        <Icon size={16} style={{ color: '#fff' }} />
+      </div>
+      <p style={{ fontSize: 26, fontWeight: 900, color: 'var(--foreground)', margin: '0 0 2px', lineHeight: 1, letterSpacing: '-0.03em' }}>
+        <CountUp value={rawValue} format={format} />
+      </p>
+      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>{label}</p>
+      {sub && <p style={{ fontSize: 10, color, marginTop: 4, fontWeight: 700 }}>{sub}</p>}
+    </motion.div>
+  )
+}
+
+// ── A carta grande — só dele, com a IA falando ───────────────────
+function MyBigCard({ userName, avatarUrl, teamName, commercial }: { userName: string; avatarUrl?: string | null; teamName: string; commercial: NonNullable<Props['commercial']> }) {
+  let insight: { resumo?: string; destaque?: string | null; atencao?: string | null } = {}
+  try { insight = commercial.insight ? JSON.parse(commercial.insight) : {} } catch { insight = { resumo: commercial.insight } }
+  const teamColor = teamName === 'R1' ? '#8b5cf6' : teamName === 'OAO' ? '#3b82f6' : '#6366f1'
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+      style={{ background: `linear-gradient(135deg,${teamColor}ee,${teamColor}bb)`, borderRadius: 22, padding: 'clamp(20px,3vw,30px)', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: `0 16px 48px ${teamColor}44` }}>
+      <div style={{ position: 'absolute', top: -50, right: -30, width: 220, height: 220, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <Avatar name={userName} url={avatarUrl} size={76} />
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.18)', padding: '3px 12px', borderRadius: 999 }}>Time {teamName || '—'} · #{commercial.rank} de {commercial.totalClosers}</span>
+        </div>
+
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', margin: '0 0 4px' }}>Sua receita este mês</p>
+          <p style={{ fontSize: 'clamp(26px,4vw,38px)', fontWeight: 900, color: '#fff', margin: '0 0 8px', letterSpacing: '-0.03em', lineHeight: 1 }}>
+            <CountUp value={commercial.revenue} format={fmtBRL} />
+          </p>
+          {commercial.goalSales > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 999, overflow: 'hidden', marginBottom: 4 }}>
+                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(commercial.pctGoal, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
+                  style={{ height: '100%', background: commercial.pctGoal >= 100 ? '#4ade80' : '#fff', borderRadius: 999 }} />
+              </div>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)' }}>{commercial.pctGoal.toFixed(0)}% da meta ({fmtBRL(commercial.goalSales)})</span>
+            </div>
+          )}
+
+          {insight.resumo && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ padding: '9px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.12)', display: 'flex', gap: 8 }}>
+                <Sparkles size={13} style={{ color: '#fff', flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 12, color: '#fff', margin: 0, lineHeight: 1.4 }}>{insight.resumo}</p>
+              </div>
+              {insight.destaque && <p style={{ fontSize: 11.5, color: '#dcfce7', margin: 0, paddingLeft: 4 }}>✅ {insight.destaque}</p>}
+              {insight.atencao && <p style={{ fontSize: 11.5, color: '#fef3c7', margin: 0, paddingLeft: 4 }}>⚠️ {insight.atencao}</p>}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, alignContent: 'start', minWidth: 200 }}>
+          {[
+            { label: 'Vendas no mês', value: commercial.salesCount },
+            { label: 'Ticket médio', value: fmtBRL(commercial.avgTicket) },
+            { label: 'Dias sem vender', value: commercial.daysSinceLastSale === null ? '—' : commercial.daysSinceLastSale },
+            teamName === 'R1'
+              ? { label: 'Embaixadores', value: commercial.certsCount }
+              : { label: 'Deixado na mesa', value: fmtBRL(commercial.moneyLeft) },
+          ].map((m, i) => (
+            <div key={i} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px 12px' }}>
+              <p style={{ fontSize: 15, fontWeight: 900, color: '#fff', margin: 0 }}>{m.value}</p>
+              <p style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.7)', margin: '2px 0 0' }}>{m.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 interface Step {
   id: string; title: string; day_number?: number | null
   estimated_minutes?: number | null; status: string
@@ -50,9 +236,18 @@ interface Props {
   completed: number; total: number; pct: number
   steps: Step[]; uncheckedMaterials: any[]
   trailMode: string
+  commercial?: {
+    revenue: number; salesCount: number; avgTicket: number; goalSales: number; pctGoal: number
+    revToday: number; salesTodayCount: number; moneyLeft: number; certsCount: number
+    daysSinceLastSale: number | null; rank: number; totalClosers: number
+    discountByVertical: { vertical: string; avgPct: number; companyAvgPct: number; count: number }[]
+    verticalBreakdown: { vertical: string; revenue: number; count: number }[]
+    revenueByDay: { day: string; revenue: number }[]
+    insight: string
+  }
 }
 
-export function UserDashboard({ userName, avatarUrl, teamName, completed, total, pct, steps, uncheckedMaterials, trailMode }: Props) {
+export function UserDashboard({ userName, avatarUrl, teamName, completed, total, pct, steps, uncheckedMaterials, trailMode, commercial }: Props) {
   const [activities, setActivities] = useState<any[]>([])
   const [loading,    setLoading]    = useState(true)
 
@@ -189,6 +384,46 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
           )}
         </div>
       </div>
+
+      {/* ── MEU DESEMPENHO COMERCIAL ─────────────────────────── */}
+      {commercial && (
+        <>
+          <MyBigCard userName={userName} avatarUrl={avatarUrl} teamName={teamName} commercial={commercial} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }} className="my-kpi-grid">
+            <MyKpiCard icon={DollarSign} label="Receita do mês" rawValue={commercial.revenue} sub={`${commercial.salesCount} vendas`} grad="linear-gradient(135deg,#22c55e,#16a34a)" color="#22c55e" />
+            <MyKpiCard icon={TrendingUp} label="Receita hoje" rawValue={commercial.revToday} sub={`${commercial.salesTodayCount} vendas`} grad="linear-gradient(135deg,#3b82f6,#4f46e5)" color="#3b82f6" />
+            <MyKpiCard icon={Target} label="Ticket médio" rawValue={commercial.avgTicket} sub="só 1ª parcela de cada venda" grad="linear-gradient(135deg,#8b5cf6,#a855f7)" color="#8b5cf6" />
+            <MyKpiCard icon={AlertTriangle} label="Deixado na mesa" rawValue={commercial.moneyLeft} sub={teamName === 'R1' ? `${commercial.certsCount} embaixadores certificados` : undefined} grad="linear-gradient(135deg,#f97316,#ef4444)" color="#f97316" />
+          </div>
+
+          <div className="my-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, marginBottom: 20 }}>
+            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
+              <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 8px' }}>📈 Minha receita — últimos 7 dias</p>
+              <MyRevenueChart data={commercial.revenueByDay} />
+            </div>
+            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
+              <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 14px' }}>🩺 Minhas vendas por vertical</p>
+              <MyVerticalBars data={commercial.verticalBreakdown.filter(v => v.count > 0)} />
+            </div>
+          </div>
+
+          {commercial.discountByVertical.length > 0 && (
+            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '18px 22px', boxShadow: 'var(--shadow-sm)', marginBottom: 20 }}>
+              <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 12px' }}>🏷️ Meu desconto médio por vertical</p>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {commercial.discountByVertical.map(d => (
+                  <div key={d.vertical} style={{ minWidth: 140, textAlign: 'center' }}>
+                    <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 3px' }}>{d.vertical}</p>
+                    <p style={{ fontSize: 18, fontWeight: 900, color: '#ef4444', margin: 0 }}>{d.avgPct.toFixed(1)}%</p>
+                    <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>time: {d.companyAvgPct.toFixed(1)}%</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* ── GRID PRINCIPAL ──────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
@@ -384,7 +619,12 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
         </div>
       </div>
 
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @media (max-width: 1024px) { .my-row2 { grid-template-columns: 1fr !important; } }
+        @media (max-width: 768px) { .my-kpi-grid { grid-template-columns: repeat(2,1fr) !important; } }
+        @media (max-width: 480px) { .my-kpi-grid { grid-template-columns: 1fr !important; } }
+      `}</style>
     </div>
   )
 }

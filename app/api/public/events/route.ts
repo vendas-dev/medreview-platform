@@ -45,6 +45,13 @@ const SaleSchema = z.object({
   // em _X% ou _XX.X% (ex: NT12345678901_7.5%). Cupom sem esse sufixo (ex: só
   // "NT12345678901") é tratado como cupom sem desconto atrelado.
   coupon_code:          z.string().nullable().optional(),
+  // Identificador estável do HubSpot — opcional, útil se algum dia o evento
+  // vier de lá. Não é confiável pra vendas que vêm direto da Hotmart.
+  deal_id:              z.string().nullable().optional(),
+  // Código de transação da Hotmart (ex: HP12345678) — esse é o identificador
+  // que dá pra usar de verdade pra localizar a venda depois, porque existe
+  // tanto na venda (nasce com ela) quanto no card do HubSpot integrado.
+  transaction_id:       z.string().nullable().optional(),
 })
 
 const AmbassadorSchema = z.object({
@@ -133,6 +140,36 @@ export async function POST(req: NextRequest) {
         total_installments:  data.total_installments ?? null,
         sale_type:           saleType,
         coupon_code:         data.coupon_code || null,
+        deal_id:             data.deal_id || null,
+        transaction_id:      data.transaction_id || null,
+      }
+
+      // Se essa venda pertence a uma assinatura que já tem uma transferência
+      // "em pé" (aprovada anteriormente), aplica automaticamente na parcela
+      // nova também — é assim que "todas as parcelas futuras" funciona: elas
+      // nem existem ainda no momento da transferência, então cada parcela
+      // nova precisa checar essa regra sozinha, na hora que é criada.
+      if (data.subscription_id) {
+        const { data: transfer } = await admin
+          .from('subscription_transfers')
+          .select('mode, co_closer_id, co_closer_hubspot_id')
+          .eq('subscription_id', data.subscription_id)
+          .maybeSingle()
+
+        if (transfer) {
+          if (transfer.mode === 'correct') {
+            // Corrige a atribuição (era self-checkout, na prática é venda do closer)
+            insertData.is_self_checkout  = false
+            insertData.seller_type       = 'closer'
+            insertData.closer_id         = transfer.co_closer_id
+            insertData.closer_hubspot_id = transfer.co_closer_hubspot_id
+          } else {
+            // Mantém a atribuição original (embaixador/closer) e soma o co-closer
+            insertData.co_closer_id         = transfer.co_closer_id
+            insertData.co_closer_hubspot_id = transfer.co_closer_hubspot_id
+          }
+          insertData.transferred_at = new Date().toISOString()
+        }
       }
     } else {
       insertData = { ...insertData, ambassador_name: data.ambassador_name, college: data.college, class: data.class }

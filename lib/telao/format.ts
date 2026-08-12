@@ -65,21 +65,26 @@ export function computeCloserStats(
   const closersById = Object.fromEntries(closers.map(c => [c.id, c]))
   const map = new Map<string, CloserStats>()
 
+  const credit = (key: string, closer: Closer | null, name: string, isSelf: boolean, ev: TelaoEvent) => {
+    if (!map.has(key)) map.set(key, { closer, name, isSelf, revenue: 0, sales: 0, certs: 0 })
+    const s = map.get(key)!
+    if (ev.event_type === 'sale') { s.revenue += ev.value ?? 0; s.sales++ }
+    else s.certs++
+  }
+
   for (const ev of events) {
-    const key  = ev.is_self_checkout ? 'self' : (ev.closer_id ?? ev.closer_name ?? 'unknown')
+    const key    = ev.is_self_checkout ? 'self' : (ev.closer_id ?? ev.closer_name ?? 'unknown')
     const isSelf = ev.is_self_checkout
     const closer = ev.closer_id ? closersById[ev.closer_id] ?? null : null
     const name   = closer?.name ?? (isSelf ? 'Self Checkout' : ev.closer_name ?? '?')
+    credit(key, closer, name, isSelf, ev)
 
-    if (!map.has(key)) {
-      map.set(key, { closer, name, isSelf, revenue: 0, sales: 0, certs: 0 })
-    }
-    const s = map.get(key)!
-    if (ev.event_type === 'sale') {
-      s.revenue += ev.value ?? 0
-      s.sales++
-    } else {
-      s.certs++
+    // Venda transferida/co-atribuída — o closer que recebeu crédito também
+    // soma essa venda nas próprias estatísticas (sem tirar da atribuição
+    // original acima; é crédito somado, não substituído).
+    if (ev.co_closer_id) {
+      const coCloser = closersById[ev.co_closer_id] ?? null
+      credit(ev.co_closer_id, coCloser, coCloser?.name ?? '?', false, ev)
     }
   }
 

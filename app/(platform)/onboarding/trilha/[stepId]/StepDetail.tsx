@@ -390,10 +390,10 @@ export function StepDetail({ step, materials, faqs, questions, isAdmin, stepId, 
               <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>🎯 Nota mínima: {s.min_quiz_score}%</span>
             </div>
           </div>
-          {!isAdmin && !userProgress && (
+          {!isAdmin && userProgress?.status !== 'concluido' && (
             <button onClick={() => startStep(stepId).then(() => startTrans(() => router.refresh()))}
               style={{ height:36, padding:'0 16px', borderRadius:10, background:'var(--foreground)', color:'var(--card)', fontSize:13, fontWeight:600, border:'none', cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
-              Iniciar etapa
+              {userProgress ? 'Verificar conclusão' : 'Iniciar etapa'}
             </button>
           )}
         </div>

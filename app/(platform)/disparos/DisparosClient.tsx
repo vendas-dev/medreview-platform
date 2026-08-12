@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { dateInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -146,7 +147,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
   const [fTpl,    setFTpl]    = useState('')
   const [fVert,   setFVert]   = useState('')
   const [fEtapa,  setFEtapa]  = useState('')
-  const [fFrom,   setFFrom]   = useState(new Date(Date.now()-89*86400000).toISOString().slice(0,10))
+  const [fFrom,   setFFrom]   = useState('')
   const [fTo,     setFTo]     = useState(todayIso())
   const [search,  setSearch]  = useState('')
   const channelRef = useRef<any>(null)
@@ -154,9 +155,10 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
   const fetchData = useCallback(async () => {
     setLoading(true); let all:Disparo[]=[], from=0
     while(true){
-      const{data:b}=await supabase.from('disparos').select('*')
-        .gte('data_disparo',fFrom+'T00:00:00').lte('data_disparo',fTo+'T23:59:59')
-        .order('data_disparo',{ascending:false}).range(from,from+999)
+      let q = supabase.from('disparos').select('*')
+      if (fFrom) q = q.gte('data_disparo', fFrom+'T00:00:00')
+      if (fTo)   q = q.lte('data_disparo', fTo+'T23:59:59')
+      const{data:b}=await q.order('data_disparo',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
     // Usuário comum só vê os próprios disparos — casa por hubspot_id (confiável)
@@ -175,10 +177,23 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
   useEffect(()=>{
     if(channelRef.current) supabase.removeChannel(channelRef.current)
     const ch=supabase.channel(`dis-${Math.random()}`)
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'disparos'},()=>fetchData())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'disparos'},(payload:any)=>{
+        // Atualização leve: só adiciona o registro novo na lista, sem recarregar
+        // tudo (evitar o flash de "carregando" cobrindo a tela a cada disparo).
+        const row=payload.new as Disparo
+        if(fFrom && row.data_disparo < fFrom+'T00:00:00') return
+        if(fTo   && row.data_disparo > fTo+'T23:59:59')   return
+        if(!isAdmin){
+          const nameNorm=(ownerName??'').trim().toLowerCase()
+          const matches=(ownerHubspotId && row.proprietario_hubspot_id && row.proprietario_hubspot_id===ownerHubspotId) ||
+            (!row.proprietario_hubspot_id && nameNorm && row.proprietario.trim().toLowerCase()===nameNorm)
+          if(!matches) return
+        }
+        setData(prev=>prev.some(d=>d.id===row.id)?prev:[row,...prev])
+      })
       .subscribe()
     channelRef.current=ch; return()=>{supabase.removeChannel(ch)}
-  },[fetchData])
+  },[fFrom,fTo,isAdmin,ownerName,ownerHubspotId])
 
   const filtered = useMemo(()=>data.filter(d=>{
     if(fOwner&&d.proprietario!==fOwner)return false
@@ -209,8 +224,8 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
     }
   },[filtered])
 
-  const byDay=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const k=d.data_disparo.slice(0,10);m[k]=(m[k]??0)+1});return Object.entries(m).sort().map(([dt,c])=>({date:fmtShortDate(dt),count:c,_date:dt}))},[filtered])
-  const byHour=useMemo(()=>{const m:Record<number,number>={};for(let i=0;i<24;i++)m[i]=0;filtered.forEach(d=>{const h=new Date(d.data_disparo).getHours();m[h]=(m[h]??0)+1});return Object.entries(m).map(([h,c])=>({hora:`${pad(+h)}h`,count:c}))},[filtered])
+  const byDay=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const k=dateInSaoPaulo(d.data_disparo);m[k]=(m[k]??0)+1});return Object.entries(m).sort().map(([dt,c])=>({date:fmtShortDate(dt),count:c,_date:dt}))},[filtered])
+  const byHour=useMemo(()=>{const m:Record<number,number>={};for(let i=0;i<24;i++)m[i]=0;filtered.forEach(d=>{const h=hourInSaoPaulo(d.data_disparo);m[h]=(m[h]??0)+1});return Object.entries(m).map(([h,c])=>({hora:`${pad(+h)}h`,count:c}))},[filtered])
   const byOwner=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.proprietario]=(m[d.proprietario]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,count])=>({name,count}))},[filtered])
   const byTemplate=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.template]=(m[d.template]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([name,count])=>({name,count,_n:name}))},[filtered])
   const byVertical=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const v=d.vertical??'Sem vertical';m[v]=(m[v]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))},[filtered])
@@ -322,7 +337,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
                 <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 16px' }}>Disparos por dia — clique para detalhar</p>
                 <ResponsiveContainer width="100%" height={280}>
                   <AreaChart data={byDay} margin={{ top:20, right:20, bottom:0, left:0 }}
-                    onClick={(p:any)=>p?.activePayload&&setDrill({title:`Dia ${p.activePayload[0].payload._date}`,rows:filtered.filter(d=>d.data_disparo.startsWith(p.activePayload[0].payload._date))})}>
+                    onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Dia ${p.activePayload[0].payload._date}`,rows:filtered.filter(d=>dateInSaoPaulo(d.data_disparo)===p.activePayload[0].payload._date)})}>
                     <defs><linearGradient id="dg1" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={ACCENT} stopOpacity={0.3}/><stop offset="95%" stopColor={ACCENT} stopOpacity={0}/></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
                     <XAxis dataKey="date" tick={{ fontSize:9, fill:'var(--muted-foreground)' }} interval="preserveStartEnd"/>
@@ -340,7 +355,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
                   <h3 style={{ fontSize:14, fontWeight:800, color:'var(--foreground)', margin:'0 0 4px' }}>Por Vertical</h3>
                   <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 12px' }}>Distribuição de disparos</p>
                   <ResponsiveContainer width="100%" height={220}>
-                    <PieChart onClick={(p:any)=>p?.activePayload&&setDrill({title:`Vertical: ${p.activePayload[0].name}`,rows:filtered.filter(d=>(d.vertical??'Sem vertical')===p.activePayload[0].name)})}>
+                    <PieChart onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Vertical: ${p.activePayload[0].name}`,rows:filtered.filter(d=>(d.vertical??'Sem vertical')===p.activePayload[0].name)})}>
                       <Pie data={byVertical} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
                         label={({name,percent})=>`${name}: ${((percent as number)*100).toFixed(0)}%`} labelLine={true}>
                         {byVertical.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
@@ -384,7 +399,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
               <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 16px' }}>Clique para ver detalhes</p>
               <ResponsiveContainer width="100%" height={Math.max(300,byOwner.length*32)}>
                 <BarChart data={byOwner} layout="vertical" margin={{ left:10, right:60 }}
-                  onClick={(p:any)=>p?.activePayload&&setDrill({title:`Closer: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.proprietario===p.activePayload[0].payload.name)})}>
+                  onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Closer: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.proprietario===p.activePayload[0].payload.name)})}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                   <XAxis type="number" tick={{ fontSize:10, fill:'var(--muted-foreground)' }}/>
                   <YAxis type="category" dataKey="name" tick={{ fontSize:11, fill:'var(--foreground)' }} width={140}/>
@@ -406,7 +421,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
                 <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 16px' }}>Clique para ver detalhes</p>
                 <ResponsiveContainer width="100%" height={Math.max(300,byTemplate.length*34)}>
                   <BarChart data={byTemplate} layout="vertical" margin={{ left:10, right:60 }}
-                    onClick={(p:any)=>p?.activePayload&&setDrill({title:`Template: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>d.template===p.activePayload[0].payload._n)})}>
+                    onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Template: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>d.template===p.activePayload[0].payload._n)})}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                     <XAxis type="number" tick={{ fontSize:10, fill:'var(--muted-foreground)' }}/>
                     <YAxis type="category" dataKey="name" tick={{ fontSize:11, fill:'var(--foreground)' }} width={200}/>
@@ -430,7 +445,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
                 <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 16px' }}>Clique para ver detalhes</p>
                 <ResponsiveContainer width="100%" height={260}>
                   <AreaChart data={byDay} margin={{ top:20, right:20, bottom:0, left:0 }}
-                    onClick={(p:any)=>p?.activePayload&&setDrill({title:`Dia ${p.activePayload[0].payload._date}`,rows:filtered.filter(d=>d.data_disparo.startsWith(p.activePayload[0].payload._date))})}>
+                    onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Dia ${p.activePayload[0].payload._date}`,rows:filtered.filter(d=>dateInSaoPaulo(d.data_disparo)===p.activePayload[0].payload._date)})}>
                     <defs><linearGradient id="dg2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={ACCENT} stopOpacity={0.3}/><stop offset="95%" stopColor={ACCENT} stopOpacity={0}/></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
                     <XAxis dataKey="date" tick={{ fontSize:9, fill:'var(--muted-foreground)' }} interval="preserveStartEnd"/>
@@ -446,7 +461,7 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
                 <h3 style={{ fontSize:14, fontWeight:800, color:'var(--foreground)', margin:'0 0 4px' }}>Distribuição por Hora</h3>
                 <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:'0 0 16px' }}>Horários de maior atividade</p>
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={byHour} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Hora ${p.activePayload[0].payload.hora}`,rows:filtered.filter(d=>new Date(d.data_disparo).getHours()===+p.activePayload[0].payload.hora.replace('h',''))})}>
+                  <BarChart data={byHour} onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Hora ${p.activePayload[0].payload.hora}`,rows:filtered.filter(d=>hourInSaoPaulo(d.data_disparo)===+p.activePayload[0].payload.hora.replace('h',''))})}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
                     <XAxis dataKey="hora" tick={{ fontSize:9, fill:'var(--muted-foreground)' }}/>
                     <YAxis tick={{ fontSize:10, fill:'var(--muted-foreground)' }}/>

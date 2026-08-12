@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { dateInSaoPaulo, hourInSaoPaulo, todayInSaoPaulo } from '@/lib/timezone'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
@@ -15,7 +16,18 @@ interface GeracaoLink {
   deal_created_at:string|null; generated_at:string; owner_name:string; owner_hubspot_id?:string|null
   vertical:string|null; product_name:string|null; generation_mode:string|null
   selected_option:string|null; payment_link:string|null; expires_at:string|null
-  pipeline_name:string|null; stage_name:string|null; created_at:string
+  pipeline_name:string|null; stage_name:string|null; created_at:string; discount_pct?:number|null; coupon_code?:string|null
+  payment_mode?:string|null; installments_no_interest?:number|null
+}
+
+// Rótulo legível da Condição — 'sem_juros' mostra o número real de parcelas
+// (hoje sempre 3x, mas o campo aceita outros valores se um dia mudar).
+function conditionLabel(r: { payment_mode?: string|null; installments_no_interest?: number|null }): string | null {
+  if (!r.payment_mode) return null
+  if (r.payment_mode === 'a_vista')   return 'À vista'
+  if (r.payment_mode === 'parcelado') return 'Parcelado'
+  if (r.payment_mode === 'sem_juros') return `${r.installments_no_interest ?? 3}x sem juros`
+  return r.payment_mode
 }
 type TabId = 'geral'|'owners'|'produtos'|'analise'|'tabela'
 
@@ -114,7 +126,7 @@ function RecordModal({ title, rows, onClose }: { title:string;rows:GeracaoLink[]
         <div style={{ overflowY:'auto', flex:1, overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
             <thead><tr style={{ background:'rgba(99,102,241,.08)', position:'sticky', top:0 }}>
-              {['Data','Owner','Deal','Valor','Produto','Tipo','Opção','Etapa'].map(h=>(
+              {['Data','Owner','Deal','Valor','Desconto','Condição','Produto','Tipo','Opção','Etapa'].map(h=>(
                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:700, color:'rgba(99,102,241,.7)', fontSize:9, textTransform:'uppercase', letterSpacing:'.07em', borderBottom:'1px solid var(--border)', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr></thead>
@@ -125,6 +137,8 @@ function RecordModal({ title, rows, onClose }: { title:string;rows:GeracaoLink[]
                   <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--foreground)', whiteSpace:'nowrap' }}>{r.owner_name}</td>
                   <td style={{ padding:'7px 12px', color:'var(--foreground)', maxWidth:130, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.deal_name??'—'}</td>
                   <td style={{ padding:'7px 12px', color:'#34d399', fontWeight:700 }}>{fmtBRL(r.deal_value)}</td>
+                  <td style={{ padding:'7px 12px' }}>{r.discount_pct?<span title={r.coupon_code??undefined} style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(249,115,22,.12)', color:'#f97316', fontWeight:700, cursor: r.coupon_code?'help':'default' }}>{r.discount_pct}%</span>:'—'}</td>
+                  <td style={{ padding:'7px 12px' }}>{conditionLabel(r)?<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(52,211,153,.1)', color:'#34d399', fontWeight:700 }}>{conditionLabel(r)}</span>:'—'}</td>
                   <td style={{ padding:'7px 12px', color:'var(--foreground)' }}>{r.product_name??'—'}</td>
                   <td style={{ padding:'7px 12px' }}>{r.generation_mode&&<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(99,102,241,.1)', color:'#818cf8', fontWeight:700 }}>{r.generation_mode}</span>}</td>
                   <td style={{ padding:'7px 12px', color:'var(--muted-foreground)' }}>{r.selected_option??'—'}</td>
@@ -190,7 +204,8 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const [fMode,   setFMode]   = useState('')
   const [fOpt,    setFOpt]    = useState('')
   const [fEtapa,  setFEtapa]  = useState('')
-  const [fFrom,   setFFrom]   = useState(new Date(Date.now()-89*86400000).toISOString().slice(0,10))
+  const [fCond,   setFCond]   = useState('')
+  const [fFrom,   setFFrom]   = useState('')
   const [fTo,     setFTo]     = useState(todayIso())
   const [search,  setSearch]  = useState('')
   const channelRef=useRef<any>(null)
@@ -198,9 +213,10 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const fetchData=useCallback(async()=>{
     setLoading(true);let all:GeracaoLink[]=[],from=0
     while(true){
-      const{data:b}=await supabase.from('geracoes_links').select('*')
-        .gte('generated_at',fFrom+'T00:00:00').lte('generated_at',fTo+'T23:59:59')
-        .order('generated_at',{ascending:false}).range(from,from+999)
+      let q = supabase.from('geracoes_links').select('*')
+      if (fFrom) q = q.gte('generated_at', fFrom+'T00:00:00')
+      if (fTo)   q = q.lte('generated_at', fTo+'T23:59:59')
+      const{data:b}=await q.order('generated_at',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
     // Usuário comum só vê os próprios links — mesmo critério do módulo de disparos
@@ -218,9 +234,22 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   useEffect(()=>{fetchData()},[fetchData])
   useEffect(()=>{
     if(channelRef.current)supabase.removeChannel(channelRef.current)
-    const ch=supabase.channel(`links-${Math.random()}`).on('postgres_changes',{event:'INSERT',schema:'public',table:'geracoes_links'},()=>fetchData()).subscribe()
+    const ch=supabase.channel(`links-${Math.random()}`).on('postgres_changes',{event:'INSERT',schema:'public',table:'geracoes_links'},(payload:any)=>{
+      // Atualização leve: só adiciona o registro novo na lista, sem recarregar
+      // tudo (evitar o flash de "carregando" cobrindo a tela a cada link gerado).
+      const row=payload.new as GeracaoLink
+      if(fFrom && row.generated_at < fFrom+'T00:00:00') return
+      if(fTo   && row.generated_at > fTo+'T23:59:59')   return
+      if(!isAdmin){
+        const nameNorm=(ownerName??'').trim().toLowerCase()
+        const matches=(ownerHubspotId && row.owner_hubspot_id && row.owner_hubspot_id===ownerHubspotId) ||
+          (!row.owner_hubspot_id && nameNorm && row.owner_name.trim().toLowerCase()===nameNorm)
+        if(!matches) return
+      }
+      setData(prev=>prev.some(d=>d.id===row.id)?prev:[row,...prev])
+    }).subscribe()
     channelRef.current=ch; return()=>{supabase.removeChannel(ch)}
-  },[fetchData])
+  },[fFrom,fTo,isAdmin,ownerName,ownerHubspotId])
 
   const filtered=useMemo(()=>data.filter(d=>{
     if(fOwner&&d.owner_name!==fOwner)return false
@@ -229,11 +258,14 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     if(fMode &&(d.generation_mode??'')!==fMode)return false
     if(fOpt  &&(d.selected_option??'')!==fOpt)return false
     if(fEtapa&&(d.stage_name??'')!==fEtapa)return false
+    if(fCond &&(conditionLabel(d)??'')!==fCond)return false
     if(search){const s=search.toLowerCase();return d.owner_name.toLowerCase().includes(s)||(d.deal_name??'').toLowerCase().includes(s)||(d.product_name??'').toLowerCase().includes(s)}
     return true
-  }),[data,fOwner,fVert,fProd,fMode,fOpt,fEtapa,search])
+  }),[data,fOwner,fVert,fProd,fMode,fOpt,fEtapa,fCond,search])
 
-  // Opções cascateadas
+  // Opções cascateadas — cada filtro só mostra opções que ainda existem
+  // considerando os OUTROS filtros já selecionados (ex: se só existe link
+  // parcelado do Nathan, ao filtrar por Nathan a Condição só mostra "Parcelado").
   const opts=useMemo(()=>{
     const ex=(skip:string)=>data.filter(d=>{
       if(skip!=='owner'&&fOwner&&d.owner_name!==fOwner)return false
@@ -242,6 +274,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       if(skip!=='mode' &&fMode &&(d.generation_mode??'')!==fMode)return false
       if(skip!=='opt'  &&fOpt  &&(d.selected_option??'')!==fOpt)return false
       if(skip!=='etapa'&&fEtapa&&(d.stage_name??'')!==fEtapa)return false
+      if(skip!=='cond' &&fCond &&(conditionLabel(d)??'')!==fCond)return false
       return true
     })
     return{
@@ -251,12 +284,13 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       modes: [...new Set(ex('mode').map(d=>d.generation_mode).filter(Boolean))].sort() as string[],
       opts_: [...new Set(ex('opt').map(d=>d.selected_option).filter(Boolean))].sort() as string[],
       etapas:[...new Set(ex('etapa').map(d=>d.stage_name).filter(Boolean))].sort() as string[],
+      conds: [...new Set(ex('cond').map(d=>conditionLabel(d)).filter(Boolean))].sort() as string[],
     }
-  },[data,fOwner,fVert,fProd,fMode,fOpt,fEtapa])
+  },[data,fOwner,fVert,fProd,fMode,fOpt,fEtapa,fCond])
 
   // KPIs
   const kpis=useMemo(()=>{
-    const hoje=todayIso()
+    const hoje=todayInSaoPaulo()
     const dealMap=new Map<string,GeracaoLink[]>()
     filtered.forEach(r=>{const k=r.deal_id??r.id;if(!dealMap.has(k))dealMap.set(k,[]);dealMap.get(k)!.push(r)})
     const deals=dealMap.size,reem=[...dealMap.values()].filter(v=>v.length>1).length
@@ -269,7 +303,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     filtered.forEach(r=>{if(r.deal_id&&!usedDeals.has(r.deal_id)&&r.deal_value){usedDeals.add(r.deal_id);totalVal+=r.deal_value}})
     const topO=filtered.reduce((m,d)=>{m[d.owner_name]=(m[d.owner_name]??0)+1;return m},{} as Record<string,number>)
     return{
-      total:filtered.length,deals,hoje:filtered.filter(d=>d.generated_at.startsWith(hoje)).length,
+      total:filtered.length,deals,hoje:filtered.filter(d=>dateInSaoPaulo(d.generated_at)===hoje).length,
       taxaRe:deals>0?Math.round(reem/deals*100):0,
       avgTempo:tempos.length>0?formatDuration(tempos.reduce((s,v)=>s+v,0)/tempos.length):'—',
       totalVal,ticketMedio:usedDeals.size>0?totalVal/usedDeals.size:0,
@@ -278,17 +312,20 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   },[filtered])
 
   // Chart data
-  const byDay    =useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const k=d.generated_at.slice(0,10);m[k]=(m[k]??0)+1});return Object.entries(m).sort().map(([date,count])=>({date:fmtShortDate(date),count,_date:date}))},[filtered])
-  const byHour   =useMemo(()=>{const m:Record<number,number>={};for(let i=0;i<24;i++)m[i]=0;filtered.forEach(d=>{const h=new Date(d.generated_at).getHours();m[h]=(m[h]??0)+1});return Object.entries(m).map(([h,count])=>({hora:`${pad(+h)}h`,count}))},[filtered])
+  const byDay    =useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const k=dateInSaoPaulo(d.generated_at);m[k]=(m[k]??0)+1});return Object.entries(m).sort().map(([date,count])=>({date:fmtShortDate(date),count,_date:date}))},[filtered])
+  const byHour   =useMemo(()=>{const m:Record<number,number>={};for(let i=0;i<24;i++)m[i]=0;filtered.forEach(d=>{const h=hourInSaoPaulo(d.generated_at);m[h]=(m[h]??0)+1});return Object.entries(m).map(([h,count])=>({hora:`${pad(+h)}h`,count}))},[filtered])
   const byOwner  =useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.owner_name]=(m[d.owner_name]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([name,count])=>({name,count}))},[filtered])
   const byProduct=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const p=d.product_name??'S/produto';m[p]=(m[p]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([name,count])=>({name:name.length>20?name.slice(0,20)+'…':name,count,_n:name}))},[filtered])
   const byVertical=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const v=d.vertical??'S/vertical';m[v]=(m[v]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))},[filtered])
   const byMode   =useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const mo=d.generation_mode??'S/tipo';m[mo]=(m[mo]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}))},[filtered])
   const reemByOwner=useMemo(()=>{const dm=new Map<string,GeracaoLink[]>();filtered.forEach(r=>{const k=r.deal_id??r.id;if(!dm.has(k))dm.set(k,[]);dm.get(k)!.push(r)});const m:Record<string,number>={};dm.forEach(rows=>{if(rows.length>1)rows.slice(1).forEach(r=>{m[r.owner_name]=(m[r.owner_name]??0)+1})});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([name,count])=>({name,count}))},[filtered])
+  // Mesmo agrupamento acima, mas guardando as linhas de verdade (não só a
+  // contagem) — pra o clique no gráfico de reemissões abrir a tabela certa.
+  const reemRowsByOwner=useMemo(()=>{const dm=new Map<string,GeracaoLink[]>();filtered.forEach(r=>{const k=r.deal_id??r.id;if(!dm.has(k))dm.set(k,[]);dm.get(k)!.push(r)});const m:Record<string,GeracaoLink[]>={};dm.forEach(rows=>{if(rows.length>1)rows.slice(1).forEach(r=>{(m[r.owner_name]??=[]).push(r)})});return m},[filtered])
 
   const tableRows=useMemo(()=>filtered.slice(tblPage*PAGE,(tblPage+1)*PAGE),[filtered,tblPage])
   const totalPages=Math.ceil(filtered.length/PAGE)
-  const hasFilters=fOwner||fVert||fProd||fMode||fOpt||fEtapa
+  const hasFilters=fOwner||fVert||fProd||fMode||fOpt||fEtapa||fCond
   const CARD:React.CSSProperties={background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,padding:'20px 22px',boxShadow:'0 1px 8px rgba(0,0,0,.06)'}
   const TIT:React.CSSProperties={fontSize:14,fontWeight:800,color:'var(--foreground)',margin:'0 0 4px'}
   const SUB:React.CSSProperties={fontSize:11,color:'var(--muted-foreground)',margin:'0 0 16px'}
@@ -317,11 +354,12 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
           <FSelect label="Tipo Geração" value={fMode}  onChange={v=>{setFMode(v);setTblPage(0)}}  options={opts.modes} placeholder="Todos"/>
           <FSelect label="Opção"        value={fOpt}   onChange={v=>{setFOpt(v);setTblPage(0)}}   options={opts.opts_} placeholder="Todas"/>
           <FSelect label="Etapa"        value={fEtapa} onChange={v=>{setFEtapa(v);setTblPage(0)}} options={opts.etapas} placeholder="Todas"/>
+          <FSelect label="Condição"     value={fCond}  onChange={v=>{setFCond(v);setTblPage(0)}}  options={opts.conds} placeholder="Todas"/>
           <FDate label="De"  value={fFrom} onChange={setFFrom} placeholder="Início"/>
           <FDate label="Até" value={fTo}   onChange={setFTo}   placeholder="Hoje"/>
           {hasFilters&&(
             <div style={{display:'flex',alignItems:'flex-end',paddingBottom:1}}>
-              <button onClick={()=>{setFOwner('');setFVert('');setFProd('');setFMode('');setFOpt('');setFEtapa('')}} style={{height:38,padding:'0 12px',borderRadius:9,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.08)',color:'#f87171',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>× Limpar</button>
+              <button onClick={()=>{setFOwner('');setFVert('');setFProd('');setFMode('');setFOpt('');setFEtapa('');setFCond('')}} style={{height:38,padding:'0 12px',borderRadius:9,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.08)',color:'#f87171',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>× Limpar</button>
             </div>
           )}
         </div>
@@ -357,7 +395,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
               <div style={CARD}>
                 <h3 style={TIT}>Evolução Temporal</h3><p style={SUB}>Links gerados por dia — clique para detalhar</p>
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={byDay} margin={{top:20,right:20,bottom:0,left:0}} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Dia ${p.activePayload[0].payload._date}`,rows:filtered.filter(d=>d.generated_at.startsWith(p.activePayload[0].payload._date))})}>
+                  <AreaChart data={byDay} margin={{top:20,right:20,bottom:0,left:0}} onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Dia ${p.activePayload[0].payload._date}`,rows:filtered.filter(d=>dateInSaoPaulo(d.generated_at)===p.activePayload[0].payload._date)})}>
                     <defs><linearGradient id="lg2" x1="0" y1="0" x2="0" y2="1"><stop offset="10%" stopColor="#818cf8" stopOpacity={0.4}/><stop offset="90%" stopColor="#818cf8" stopOpacity={0}/></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
                     <XAxis dataKey="date" tick={{fontSize:9,fill:'var(--muted-foreground)'}} interval="preserveStartEnd"/>
@@ -374,7 +412,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
                 <div style={CARD}>
                   <h3 style={TIT}>Por Vertical</h3><p style={SUB}>Distribuição</p>
                   <ResponsiveContainer width="100%" height={200}>
-                    <PieChart onClick={(p:any)=>p?.activePayload&&setDrill({title:`Vertical: ${p.activePayload[0].name}`,rows:filtered.filter(d=>(d.vertical??'S/vertical')===p.activePayload[0].name)})}>
+                    <PieChart onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Vertical: ${p.activePayload[0].name}`,rows:filtered.filter(d=>(d.vertical??'S/vertical')===p.activePayload[0].name)})}>
                       <Pie data={byVertical} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({name,percent})=>`${(name as string).slice(0,10)} ${((percent as number)*100).toFixed(0)}%`} labelLine={false}>
                         {byVertical.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
                       </Pie>
@@ -385,7 +423,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
                 <div style={CARD}>
                   <h3 style={TIT}>Por Tipo de Geração</h3><p style={SUB}>Volume por modalidade</p>
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={byMode} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Tipo: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.generation_mode===p.activePayload[0].payload.name)})}>
+                    <BarChart data={byMode} onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Tipo: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.generation_mode===p.activePayload[0].payload.name)})}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
                       <XAxis dataKey="name" tick={{fontSize:9,fill:'var(--muted-foreground)'}} interval={0}/>
                       <YAxis tick={{fontSize:9,fill:'var(--muted-foreground)'}}/>
@@ -405,7 +443,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
             <div style={CARD}>
               <h3 style={TIT}>Links por Owner</h3><p style={SUB}>Clique para detalhar</p>
               <ResponsiveContainer width="100%" height={Math.max(280,byOwner.length*32)}>
-                <BarChart data={byOwner} layout="vertical" margin={{left:10,right:60}} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Owner: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.owner_name===p.activePayload[0].payload.name)})}>
+                <BarChart data={byOwner} layout="vertical" margin={{left:10,right:60}} onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Owner: ${p.activePayload[0].payload.name}`,rows:filtered.filter(d=>d.owner_name===p.activePayload[0].payload.name)})}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                   <XAxis type="number" tick={{fontSize:10,fill:'var(--muted-foreground)'}}/>
                   <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'var(--foreground)'}} width={160}/>
@@ -424,7 +462,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
               <div style={CARD}>
                 <h3 style={TIT}>Links por Produto</h3><p style={SUB}>Clique para detalhar</p>
                 <ResponsiveContainer width="100%" height={Math.max(280,byProduct.length*32)}>
-                  <BarChart data={byProduct} layout="vertical" margin={{left:10,right:60}} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Produto: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>d.product_name===p.activePayload[0].payload._n)})}>
+                  <BarChart data={byProduct} layout="vertical" margin={{left:10,right:60}} onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Produto: ${p.activePayload[0].payload._n}`,rows:filtered.filter(d=>d.product_name===p.activePayload[0].payload._n)})}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                     <XAxis type="number" tick={{fontSize:10,fill:'var(--muted-foreground)'}}/>
                     <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'var(--foreground)'}} width={170}/>
@@ -446,7 +484,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
                 <div style={CARD}>
                   <h3 style={TIT}>⏰ Links por Hora</h3><p style={SUB}>Horários de pico</p>
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={byHour} onClick={(p:any)=>p?.activePayload&&setDrill({title:`Hora ${p.activePayload[0].payload.hora}`,rows:filtered.filter(d=>new Date(d.generated_at).getHours()===+p.activePayload[0].payload.hora.replace('h',''))})}>
+                    <BarChart data={byHour} onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Hora ${p.activePayload[0].payload.hora}`,rows:filtered.filter(d=>hourInSaoPaulo(d.generated_at)===+p.activePayload[0].payload.hora.replace('h',''))})}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)"/>
                       <XAxis dataKey="hora" tick={{fontSize:8,fill:'rgba(99,102,241,.5)'}}/>
                       <YAxis tick={{fontSize:9,fill:'var(--muted-foreground)'}}/>
@@ -458,10 +496,11 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
                   </ResponsiveContainer>
                 </div>
                 <div style={CARD}>
-                  <h3 style={TIT}>🔄 Reemissões por Owner</h3><p style={SUB}>Links extras além do 1º por deal</p>
+                  <h3 style={TIT}>🔄 Reemissões por Owner</h3><p style={SUB}>Links extras além do 1º por deal — clique para detalhar</p>
                   {reemByOwner.length>0 ? (
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={reemByOwner} layout="vertical" margin={{left:10,right:50}}>
+                      <BarChart data={reemByOwner} layout="vertical" margin={{left:10,right:50}}
+                        onClick={(p:any)=>p?.activePayload?.[0]&&setDrill({title:`Reemissões: ${p.activePayload[0].payload.name}`,rows:reemRowsByOwner[p.activePayload[0].payload.name]??[]})}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false}/>
                         <XAxis type="number" tick={{fontSize:9,fill:'var(--muted-foreground)'}}/>
                         <YAxis type="category" dataKey="name" tick={{fontSize:10,fill:'var(--foreground)'}} width={170}/>
@@ -489,7 +528,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                   <thead><tr style={{background:'var(--secondary)'}}>
-                    {['Data','Owner','Deal','Valor','Produto','Vertical','Tipo','Opção','Etapa'].map(h=>(
+                    {['Data','Owner','Deal','Valor','Desconto','Condição','Produto','Vertical','Tipo','Opção','Etapa'].map(h=>(
                       <th key={h} style={{padding:'9px 12px',textAlign:'left',fontWeight:700,color:'var(--muted-foreground)',fontSize:9,textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid rgba(99,102,241,.15)',whiteSpace:'nowrap'}}>{h}</th>
                     ))}
                   </tr></thead>
@@ -505,6 +544,8 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
                           <td style={{padding:'7px 12px',fontWeight:600,color:'var(--foreground)',whiteSpace:'nowrap'}}>{r.owner_name}</td>
                           <td style={{padding:'7px 12px',color:'var(--foreground)',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.deal_name??'—'}</td>
                           <td style={{padding:'7px 12px',color:'#34d399',fontWeight:700}}>{fmtBRL(r.deal_value)}</td>
+                          <td style={{padding:'7px 12px'}}>{r.discount_pct?<span title={r.coupon_code??undefined} style={{fontSize:9,padding:'1px 6px',borderRadius:4,background:'rgba(249,115,22,.12)',color:'#f97316',fontWeight:700,cursor:r.coupon_code?'help':'default'}}>{r.discount_pct}%</span>:'—'}</td>
+                          <td style={{padding:'7px 12px'}}>{conditionLabel(r)?<span style={{fontSize:9,padding:'1px 6px',borderRadius:4,background:'rgba(52,211,153,.1)',color:'#34d399',fontWeight:700}}>{conditionLabel(r)}</span>:'—'}</td>
                           <td style={{padding:'7px 12px',color:'var(--foreground)'}}>{r.product_name??'—'}</td>
                           <td style={{padding:'7px 12px',color:'var(--muted-foreground)'}}>{r.vertical??'—'}</td>
                           <td style={{padding:'7px 12px'}}>{r.generation_mode&&<span style={{fontSize:9,padding:'1px 6px',borderRadius:4,background:'rgba(99,102,241,.1)',color:'#818cf8',fontWeight:700}}>{r.generation_mode}</span>}</td>

@@ -57,6 +57,12 @@ export interface TelaoEvent {
   total_installments?: number | null
   sale_type?:          'nova' | 'recorrente'
   coupon_code?:        string | null
+  // Transferência/co-atribuição de venda
+  deal_id?:             string | null
+  co_closer_id?:         string | null
+  co_closer_hubspot_id?: string | null
+  transferred_at?:       string | null
+  transfer_reason?:      string | null
 }
 
 export interface Goal {

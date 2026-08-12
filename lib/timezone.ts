@@ -18,6 +18,17 @@ export function todayInSaoPaulo(): string {
   }).format(new Date())
 }
 
+// Mesma coisa que todayInSaoPaulo(), mas pra um instante qualquer (não só
+// "agora") — necessário pra agrupar registros por dia corretamente. Sem
+// isso, agrupar por `timestamp.slice(0,10)` usa a data em UTC, que empurra
+// tudo que aconteceu entre 21h-23h59 (horário de SP) pro dia seguinte.
+export function dateInSaoPaulo(isoOrDate: string | Date): string {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d)
+}
+
 // Quantos dias tem o mês `m` (1-indexado) do ano `y`. Cálculo em UTC puro
 // (Date.UTC), então não depende do fuso do servidor.
 function daysInMonth(y: number, m: number): number {
