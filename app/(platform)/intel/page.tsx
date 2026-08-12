@@ -38,9 +38,7 @@ function bizDays(start: Date, end: Date) {
 function matchSales(all: any[], c: any) {
   return (all ?? []).filter((e: any) =>
     (e.closer_id && e.closer_id === c.id) ||
-    (c.hubspot_id && e.closer_hubspot_id && e.closer_hubspot_id === c.hubspot_id) ||
-    (e.co_closer_id && e.co_closer_id === c.id) ||
-    (c.hubspot_id && e.co_closer_hubspot_id && e.co_closer_hubspot_id === c.hubspot_id)
+    (c.hubspot_id && e.closer_hubspot_id && e.closer_hubspot_id === c.hubspot_id)
   )
 }
 
@@ -94,17 +92,14 @@ export default async function IntelPage({
       admin.from('profiles').select('id, name, team, hubspot_id, avatar_url').neq('role','superadmin').order('name'),
       admin.from('telao_events')
         .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, vertical, product, occurred_at, seller_type, sold_by_ambassador, is_self_checkout, sale_type, is_recurring, subscription_id, installment_number, total_installments')
-        .eq('event_type','sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
-        .limit(999999),
+        .eq('event_type','sale').gte('occurred_at', mStart).lte('occurred_at', mEnd),
       admin.from('hubspot_leads')
-        .select('owner_id, deal_stage, vertical').gte('created_at_hs', mStart).lte('created_at_hs', mEnd)
-        .limit(999999),
+        .select('owner_id, deal_stage, vertical').gte('created_at_hs', mStart).lte('created_at_hs', mEnd),
       admin.from('closer_goals').select('*').eq('month', monthKey),
       admin.from('commercial_insights').select('content').eq('insight_date', today).eq('scope','global').maybeSingle(),
       admin.from('telao_events')
         .select('closer_id, closer_hubspot_id, occurred_at')
-        .eq('event_type','ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd)
-        .limit(999999),
+        .eq('event_type','ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd),
     ])
 
     // Histórico COMPLETO de vendas recorrentes (não limitado ao mês) — necessário
@@ -114,7 +109,6 @@ export default async function IntelPage({
     const { data: allRecurringRaw } = await admin.from('telao_events')
       .select('subscription_id, installment_number, total_installments, value, occurred_at, closer_id, closer_hubspot_id, vertical')
       .eq('event_type','sale').eq('is_recurring', true).not('subscription_id','is',null)
-      .limit(999999)
 
     const goalsMap = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
     const sales    = allSales ?? []
@@ -150,12 +144,20 @@ export default async function IntelPage({
       closer:      { rev: 0, count: 0 },
       ambassador:  { rev: 0, count: 0 },
       selfcheckout:{ rev: 0, count: 0 },
+      // Venda conjunta: era de embaixador e um closer recebeu crédito nela
+      // também (via troca de venda). Categoria própria pra não somar o valor
+      // duas vezes (uma em "embaixador" e outra em "closer") — o total da
+      // empresa não pode dobrar por causa disso.
+      ambassadorCloser: { rev: 0, count: 0 },
     }
     sales.forEach((e: any) => {
       const v = Number(e.value) || 0
+      const isAmbassador = e.sold_by_ambassador || e.seller_type === 'ambassador'
       if (e.is_self_checkout || e.seller_type === 'self_checkout')
         { byType.selfcheckout.rev += v; byType.selfcheckout.count++ }
-      else if (e.sold_by_ambassador || e.seller_type === 'ambassador')
+      else if (isAmbassador && e.co_closer_id)
+        { byType.ambassadorCloser.rev += v; byType.ambassadorCloser.count++ }
+      else if (isAmbassador)
         { byType.ambassador.rev += v; byType.ambassador.count++ }
       else { byType.closer.rev += v; byType.closer.count++ }
     })
@@ -283,33 +285,25 @@ export default async function IntelPage({
   const prevMEnd = dayBoundsSaoPaulo(addDaysToDateStr(`${prevMonthKey}-01`, todayDayNum - 1)).end
 
   const [
-    {data:salesById},{data:salesByHub},{data:salesByCoId},{data:salesByCoHub},{data:salesPrevW},{data:salesPrevWCo},{data:salesPrevM},{data:salesPrevMCo},
+    {data:salesById},{data:salesByHub},{data:salesPrevW},{data:salesPrevM},
     {data:myLeads},{data:myGoal},{data:myInsight},
   ] = await Promise.all([
     admin.from('telao_events').select('id,value,vertical,product,occurred_at').eq('event_type','sale').eq('closer_id',uid).gte('occurred_at',mStart).lte('occurred_at',mEnd),
     hubId?admin.from('telao_events').select('id,value,vertical,product,occurred_at').eq('event_type','sale').eq('closer_hubspot_id',hubId).gte('occurred_at',mStart).lte('occurred_at',mEnd):Promise.resolve({data:[]}),
-    // Vendas transferidas/co-atribuídas — o closer também ganha crédito nelas
-    // (sem tirar da atribuição original de quem fez a venda de fato).
-    admin.from('telao_events').select('id,value,vertical,product,occurred_at').eq('event_type','sale').eq('co_closer_id',uid).gte('occurred_at',mStart).lte('occurred_at',mEnd),
-    hubId?admin.from('telao_events').select('id,value,vertical,product,occurred_at').eq('event_type','sale').eq('co_closer_hubspot_id',hubId).gte('occurred_at',mStart).lte('occurred_at',mEnd):Promise.resolve({data:[]}),
     admin.from('telao_events').select('id,value').eq('event_type','sale').eq('closer_id',uid).gte('occurred_at',twoWAgo).lt('occurred_at',weekAgo),
-    admin.from('telao_events').select('id,value').eq('event_type','sale').eq('co_closer_id',uid).gte('occurred_at',twoWAgo).lt('occurred_at',weekAgo),
     admin.from('telao_events').select('id,value').eq('event_type','sale').eq('closer_id',uid).gte('occurred_at',prevMStart).lte('occurred_at',prevMEnd),
-    admin.from('telao_events').select('id,value').eq('event_type','sale').eq('co_closer_id',uid).gte('occurred_at',prevMStart).lte('occurred_at',prevMEnd),
     hubId?admin.from('hubspot_leads').select('deal_stage').eq('owner_id',hubId).gte('created_at_hs',mStart).lte('created_at_hs',mEnd):Promise.resolve({data:[]}),
     admin.from('closer_goals').select('*').eq('user_id',uid).eq('month',monthKey).maybeSingle(),
     admin.from('commercial_insights').select('content').eq('insight_date',today).eq('scope',uid).maybeSingle(),
   ])
 
   const salesMap=new Map()
-  ;[...(salesById??[]),(salesByHub??[]),(salesByCoId??[]),(salesByCoHub??[])].flat().forEach((e:any)=>salesMap.set(e.id,e))
+  ;[...(salesById??[]),(salesByHub??[])].flat().forEach((e:any)=>salesMap.set(e.id,e))
   const salesM=Array.from(salesMap.values())
   const revMonth=salesM.reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
   const revWeek=salesM.filter((e:any)=>e.occurred_at>=weekAgo).reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
-  const prevWMap=new Map(); [...(salesPrevW??[]),(salesPrevWCo??[])].flat().forEach((e:any)=>prevWMap.set(e.id,e))
-  const revPrevW=Array.from(prevWMap.values()).reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
-  const prevMMap=new Map(); [...(salesPrevM??[]),(salesPrevMCo??[])].flat().forEach((e:any)=>prevMMap.set(e.id,e))
-  const revPrevM=Array.from(prevMMap.values()).reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
+  const revPrevW=(salesPrevW??[]).reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
+  const revPrevM=(salesPrevM??[]).reduce((s:number,e:any)=>s+(Number(e.value)||0),0)
   const goalSales=Number((myGoal as any)?.goal_sales??0)
   const pctGoal=goalSales>0?(revMonth/goalSales)*100:0
   const projected=bizPassed>0?(revMonth/bizPassed)*bizTotal:0

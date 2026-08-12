@@ -654,11 +654,13 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   // embaixador/self-checkout corretamente também).
   const displayByType = useMemo(() => {
     if (!hasFilters) return byType
-    const agg = { closer:{rev:0,count:0}, ambassador:{rev:0,count:0}, selfcheckout:{rev:0,count:0} }
+    const agg = { closer:{rev:0,count:0}, ambassador:{rev:0,count:0}, selfcheckout:{rev:0,count:0}, ambassadorCloser:{rev:0,count:0} }
     scopedSales.forEach((e: any) => {
       const v = Number(e.value) || 0
+      const isAmbassador = e.sold_by_ambassador || e.seller_type === 'ambassador'
       if (e.is_self_checkout || e.seller_type === 'self_checkout') { agg.selfcheckout.rev += v; agg.selfcheckout.count++ }
-      else if (e.sold_by_ambassador || e.seller_type === 'ambassador') { agg.ambassador.rev += v; agg.ambassador.count++ }
+      else if (isAmbassador && e.co_closer_id) { agg.ambassadorCloser.rev += v; agg.ambassadorCloser.count++ }
+      else if (isAmbassador) { agg.ambassador.rev += v; agg.ambassador.count++ }
       else { agg.closer.rev += v; agg.closer.count++ }
     })
     return agg
@@ -788,7 +790,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
     return computeForecast(recurringForForecast, scopedNewVsRecurring.recRev)
   }, [hasFilters, adminExtra?.rawRecurring, filterVert, filterTeam, filterCloser, closerLookup, scopedNewVsRecurring.recRev])
 
-  const hasTipoData  = (displayByType?.closer?.rev??0)+(displayByType?.ambassador?.rev??0)+(displayByType?.selfcheckout?.rev??0) > 0
+  const hasTipoData  = (displayByType?.closer?.rev??0)+(displayByType?.ambassador?.rev??0)+(displayByType?.selfcheckout?.rev??0)+(displayByType?.ambassadorCloser?.rev??0) > 0
   const hasLeadsData = filtered.filter((c:any)=>closerLeads(c)>0).length > 0
   const tipoConvCols  = (hasTipoData && hasLeadsData) ? '1fr 1fr' : '1fr'
 
@@ -1035,9 +1037,10 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
                 </p>
                 <DonutChart
                   data={[
-                    { label:'Closer',        value:displayByType?.closer?.rev??0,       color:'#6366f1' },
-                    { label:'Embaixador',     value:displayByType?.ambassador?.rev??0,   color:'#a855f7' },
-                    { label:'Self-checkout',  value:displayByType?.selfcheckout?.rev??0, color:'#94a3b8' },
+                    { label:'Closer',              value:displayByType?.closer?.rev??0,           color:'#6366f1' },
+                    { label:'Embaixador',          value:displayByType?.ambassador?.rev??0,       color:'#a855f7' },
+                    { label:'Embaixador + Closer', value:displayByType?.ambassadorCloser?.rev??0, color:'#ec4899' },
+                    { label:'Self-checkout',       value:displayByType?.selfcheckout?.rev??0,     color:'#94a3b8' },
                   ]}
                   size={228}
                   thickness={38}
