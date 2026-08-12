@@ -11,12 +11,36 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS })
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Acha o closer pelo identificador enviado — que hoje é sempre o
+// hubspot_id (ID do proprietário no HubSpot). Se por algum motivo vier um
+// UUID interno da plataforma, também funciona (checa qual formato bate
+// primeiro), mas o caso normal de uso é sempre hubspot_id.
+//
+// A comparação usa trim() nos dois lados (igual ao resto do sistema faz em
+// matchesCloser) — sem isso, um espaço em branco escondido ou o hubspot_id
+// salvo como tipo numérico faz a busca direta (.eq) falhar silenciosamente,
+// mesmo com o closer cadastrado certinho.
+async function findCloser(admin: any, identifier: string) {
+  if (UUID_RE.test(identifier)) {
+    const { data } = await admin.from('profiles').select('id, name, hubspot_id').eq('id', identifier).maybeSingle()
+    if (data) return data
+  }
+  const target = String(identifier).trim()
+  const { data: candidates } = await admin.from('profiles').select('id, name, hubspot_id').not('hubspot_id', 'is', null)
+  return (candidates ?? []).find((c: any) => String(c.hubspot_id).trim() === target) ?? null
+}
+
 // Transfere/co-atribui uma venda pra outro closer, a partir do transaction_id
 // (código de transação da Hotmart, ex: HP12345678) — ou, se algum dia vier
 // de um evento com origem no HubSpot, também aceita deal_id.
 //
 // SEM autenticação, de propósito — mesmo padrão do /api/public/events, pra
 // automações externas (n8n) chamarem direto.
+//
+// co_closer_id: SEMPRE o ID do proprietário no HubSpot (não o UUID interno
+// da plataforma) — é assim que o n8n identifica o closer em todos os casos.
 //
 // Regra de decisão:
 //  - Se a venda original era self-checkout (sem closer de verdade por trás)
@@ -54,10 +78,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Nenhuma venda encontrada com ${idLabel}. Confirme se esse evento já chegou na plataforma com esse identificador preenchido.` }, { status: 404, headers: CORS })
   }
 
-  const { data: closer, error: closerError } = await admin
-    .from('profiles').select('id, name, hubspot_id').eq('id', coCloserId).single()
-
-  if (closerError || !closer) return NextResponse.json({ error: 'Closer não encontrado' }, { status: 404, headers: CORS })
+  const closer = await findCloser(admin, coCloserId)
+  if (!closer) {
+    return NextResponse.json({ error: `Closer não encontrado com o hubspot_id "${coCloserId}". Confirme se esse proprietário está cadastrado na plataforma com esse hubspot_id.` }, { status: 404, headers: CORS })
+  }
 
   const isCorrection = (sale as any).is_self_checkout === true
   const now = new Date().toISOString()
