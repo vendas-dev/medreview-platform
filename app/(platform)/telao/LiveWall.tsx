@@ -949,7 +949,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               <RefreshCw size={13} style={{animation:(loading||rangeFetching)?'spin 1s linear infinite':'none'}}/>
             </motion.button>
             {isAdmin&&(
-              <Link href="/telao/settings" style={{display:'flex',alignItems:'center',gap:5,height:34,padding:'0 12px',borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#2d1b4e',fontSize:11,fontWeight:700,textDecoration:'none'}}>
+              <Link href="/intel/goals" style={{display:'flex',alignItems:'center',gap:5,height:34,padding:'0 12px',borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#2d1b4e',fontSize:11,fontWeight:700,textDecoration:'none'}}>
                 <Settings size={12}/> Meta
               </Link>
             )}

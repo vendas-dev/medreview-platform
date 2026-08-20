@@ -147,12 +147,23 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
   const [fTpl,    setFTpl]    = useState('')
   const [fVert,   setFVert]   = useState('')
   const [fEtapa,  setFEtapa]  = useState('')
-  const [fFrom,   setFFrom]   = useState('')
+  // Sem limite de data por padrão, a busca puxava a tabela inteira de
+  // disparos desde o início — em uma tabela que só cresce (todo disparo de
+  // template gera uma linha), isso é MUITO lento e piora com o tempo. Por
+  // padrão, mostra só os últimos 30 dias; o usuário pode alargar manualmente.
+  const [fFrom,   setFFrom]   = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10) })
   const [fTo,     setFTo]     = useState(todayIso())
   const [search,  setSearch]  = useState('')
   const channelRef = useRef<any>(null)
+  // Cada fetchData() ganha um número — se uma busca mais antiga (de um filtro
+  // já trocado) responder DEPOIS de uma mais nova, ela é descartada em vez de
+  // sobrescrever o resultado certo. Sem isso, uma busca lenta e sem filtro
+  // (ex: do carregamento inicial) podia "vencer a corrida" e apagar o filtro
+  // que o usuário já tinha aplicado — parecendo que o filtro "voltou sozinho".
+  const requestIdRef = useRef(0)
 
   const fetchData = useCallback(async () => {
+    const myRequestId = ++requestIdRef.current
     setLoading(true); let all:Disparo[]=[], from=0
     while(true){
       let q = supabase.from('disparos').select('*')
@@ -161,6 +172,9 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
       const{data:b}=await q.order('data_disparo',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
+    // Se já rodou uma busca mais nova enquanto essa ainda estava em
+    // andamento, descarta esse resultado — ele está desatualizado.
+    if (myRequestId !== requestIdRef.current) return
     // Usuário comum só vê os próprios disparos — casa por hubspot_id (confiável)
     // e cai pro nome como fallback pros registros antigos que ainda não têm o id.
     if(!isAdmin){

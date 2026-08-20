@@ -6,7 +6,7 @@ import {
   Play, CheckCircle2, Circle, Lock, Clock, ArrowRight,
   BookOpen, Video, HelpCircle, Trophy, Zap, Target,
   ChevronRight, TrendingUp, AlertCircle, Star, Flame,
-  DollarSign, AlertTriangle, Sparkles, Award, Stethoscope
+  DollarSign, AlertTriangle, Sparkles, Award, Stethoscope, ExternalLink
 } from 'lucide-react'
 
 // ── Helpers ────────────────────────────────────────────────
@@ -43,6 +43,11 @@ function StatusIcon({ done, blocked, isNext, active }: any) {
 // ── Formatação de moeda ────────────────────────────────────────
 function fmtBRL(v: number): string {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+}
+
+// ── Link direto pro negócio no HubSpot ──────────────────────────
+function hubspotDealUrl(dealId: string): string {
+  return `https://app.hubspot.com/contacts/48628516/record/0-3/${dealId}`
 }
 
 // ── Contador animado — conta do zero até o valor ────────────────
@@ -224,6 +229,121 @@ function MyBigCard({ userName, avatarUrl, teamName, commercial }: { userName: st
   )
 }
 
+// ── Widget de links expirando/vencidos — pra cobrar leads a tempo ────
+
+// Deal_name às vezes vem como "Nome | email@algo.com" — separa pra dar
+// destaque ao nome e deixar o e-mail como informação secundária.
+function parseDealName(dealName: string | null): { primary: string; secondary: string | null } {
+  if (!dealName) return { primary: 'Sem nome', secondary: null }
+  const parts = dealName.split('|').map(s => s.trim()).filter(Boolean)
+  if (parts.length > 1) return { primary: parts[0], secondary: parts.slice(1).join(' · ') }
+  return { primary: dealName, secondary: null }
+}
+
+function spDateStr(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
+function urgencyInfo(expiresAt: string | null): { label: string; color: string; bg: string; dot: string } {
+  if (!expiresAt) return { label: '—', color: '#94a3b8', bg: 'rgba(148,163,184,.1)', dot: '⚪' }
+  const now = new Date(), target = new Date(expiresAt)
+  const time = target.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (target.getTime() < now.getTime()) {
+    const daysAgo = Math.max(1, Math.round((now.getTime() - target.getTime()) / 86400000))
+    return { label: `Expirado há ${daysAgo}d`, color: '#f87171', bg: 'rgba(248,113,113,.12)', dot: '🔴' }
+  }
+  const todayStr = spDateStr(now), tomorrowStr = spDateStr(new Date(now.getTime() + 86400000)), targetStr = spDateStr(target)
+  if (targetStr === todayStr)    return { label: `Hoje · ${time}`,   color: '#fb923c', bg: 'rgba(251,146,60,.12)', dot: '🟠' }
+  if (targetStr === tomorrowStr) return { label: `Amanhã · ${time}`, color: '#fbbf24', bg: 'rgba(251,191,36,.12)', dot: '🟡' }
+  const daysAhead = Math.ceil((target.getTime() - now.getTime()) / 86400000)
+  return { label: `Em ${daysAhead}d`, color: '#94a3b8', bg: 'rgba(148,163,184,.1)', dot: '⚪' }
+}
+
+function fmtMoneyCompact(v: number): string {
+  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(2).replace('.', ',')} mi`
+  if (v >= 1_000) return `R$ ${(v / 1000).toFixed(0)}k`
+  return fmtBRL(v)
+}
+
+function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
+  const { expiringSoon, expired } = alerts
+  if (expiringSoon.length === 0 && expired.length === 0) return null
+
+  const now = new Date()
+  const todayStr = spDateStr(now), tomorrowStr = spDateStr(new Date(now.getTime() + 86400000))
+  const hoje    = expiringSoon.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === todayStr)
+  const amanha  = expiringSoon.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === tomorrowStr)
+  const totalAguardando = [...expiringSoon, ...expired].reduce((s: number, l: any) => s + (Number(l.deal_value) || 0), 0)
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ hoje: true, amanha: true, vencidos: false })
+  function toggle(key: string) { setOpenSections(s => ({ ...s, [key]: !s[key] })) }
+
+  function Row({ l }: { l: any }) {
+    const { primary, secondary } = parseDealName(l.deal_name)
+    const u = urgencyInfo(l.expires_at)
+    const [hovered, setHovered] = useState(false)
+    return (
+      <div onClick={() => l.deal_id && window.open(hubspotDealUrl(l.deal_id), '_blank')}
+        onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+        style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 14px', cursor: l.deal_id ? 'pointer' : 'default', transition:'background .1s', background: hovered ? 'var(--secondary)' : 'transparent' }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ fontSize:12, fontWeight:700, color:'var(--foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{primary}</p>
+          {(l.product_name || secondary) && <p style={{ fontSize:9.5, color:'var(--muted-foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.product_name ?? secondary}</p>}
+        </div>
+        <span style={{ fontSize:13, fontWeight:900, color:'var(--foreground)', flexShrink:0 }}>{fmtBRL(l.deal_value)}</span>
+        <span style={{ fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:999, background:u.bg, color:u.color, flexShrink:0, whiteSpace:'nowrap' }}>{u.dot} {u.label}</span>
+        {l.deal_id && (
+          <span style={{ fontSize:10, fontWeight:700, color:'#818cf8', opacity: hovered ? 1 : 0.3, transition:'opacity .15s', flexShrink:0, display:'flex', alignItems:'center', gap:2 }}>
+            <ExternalLink size={11}/>
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  function Section({ id, emoji, label, count, rows }: { id: string; emoji: string; label: string; count: number; rows: any[] }) {
+    if (count === 0) return null
+    const open = openSections[id]
+    return (
+      <div>
+        <button onClick={() => toggle(id)}
+          style={{ display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', background:'transparent', border:'none', borderTop:'1px solid var(--border)', cursor:'pointer', padding:'8px 14px', fontFamily:'inherit' }}>
+          <span style={{ fontSize:10, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.05em' }}>{emoji} {label} — {count}</span>
+          <span style={{ fontSize:11, fontWeight:700, color:'#6366f1' }}>{open ? '▲' : '▼'}</span>
+        </button>
+        {open && rows.map((l: any) => <Row key={l.id} l={l} />)}
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)', marginBottom: 20 }}>
+      <div style={{ padding: '15px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <AlertCircle size={14} style={{ color: '#d97706' }} />
+          <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Links pendentes</p>
+        </div>
+        <p style={{ fontSize: 17, fontWeight: 900, color: '#d97706', margin: '0 0 10px' }}>
+          {fmtMoneyCompact(totalAguardando)} <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)' }}>em potencial aguardando ação</span>
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 12px', borderRadius:999, background:'rgba(251,191,36,.1)', border:'1px solid rgba(251,191,36,.3)', color:'#d97706', fontSize:11, fontWeight:800 }}>
+            🟡 {hoje.length + amanha.length} urgente{(hoje.length + amanha.length) !== 1 ? 's' : ''}
+          </span>
+          <span style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 12px', borderRadius:999, background:'rgba(248,113,113,.1)', border:'1px solid rgba(248,113,113,.3)', color:'#f87171', fontSize:11, fontWeight:800 }}>
+            🔴 {expired.length} vencido{expired.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+      </div>
+
+      <Section id="hoje"     emoji="🟠" label="Vencem hoje"   count={hoje.length}    rows={hoje}/>
+      <Section id="amanha"   emoji="🟡" label="Vencem amanhã" count={amanha.length}  rows={amanha}/>
+      <Section id="vencidos" emoji="🔴" label="Vencidos sem reemissão" count={expired.length} rows={expired}/>
+    </div>
+  )
+}
+
+
 interface Step {
   id: string; title: string; day_number?: number | null
   estimated_minutes?: number | null; status: string
@@ -245,9 +365,13 @@ interface Props {
     revenueByDay: { day: string; revenue: number }[]
     insight: string
   }
+  linkAlerts?: {
+    expiringSoon: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null }[]
+    expired: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null }[]
+  }
 }
 
-export function UserDashboard({ userName, avatarUrl, teamName, completed, total, pct, steps, uncheckedMaterials, trailMode, commercial }: Props) {
+export function UserDashboard({ userName, avatarUrl, teamName, completed, total, pct, steps, uncheckedMaterials, trailMode, commercial, linkAlerts }: Props) {
   const [activities, setActivities] = useState<any[]>([])
   const [loading,    setLoading]    = useState(true)
 
@@ -389,6 +513,8 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
       {commercial && (
         <>
           <MyBigCard userName={userName} avatarUrl={avatarUrl} teamName={teamName} commercial={commercial} />
+
+          {linkAlerts && <LinkAlerts alerts={linkAlerts} />}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }} className="my-kpi-grid">
             <MyKpiCard icon={DollarSign} label="Receita do mês" rawValue={commercial.revenue} sub={`${commercial.salesCount} vendas`} grad="linear-gradient(135deg,#22c55e,#16a34a)" color="#22c55e" />

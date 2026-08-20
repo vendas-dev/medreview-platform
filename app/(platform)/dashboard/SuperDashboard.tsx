@@ -2,10 +2,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import { CommercialAnalysis } from './CommercialAnalysis'
 import {
-  Users, TrendingUp,
-  ArrowRight, BarChart2, Target, DollarSign, Percent,
-  Flame, AlertTriangle, Award, X, Sparkles, Stethoscope, HeartPulse, ClipboardList
+  Users, Target, TrendingUp,
+  ArrowRight, X, Sparkles, Stethoscope, HeartPulse, ClipboardList
 } from 'lucide-react'
 
 // ── Mini bar ────────────────────────────────────────────────
@@ -32,108 +32,6 @@ function smoothPath(pts: { x: number; y: number }[]): string {
     d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
   }
   return d
-}
-
-// ── Gráfico de receita — linha curva e fluida ────────────────
-function RevenueChart({ data }: { data: { day: string; revenue: number }[] }) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const W = 700, H = 90, padX = 10, padY = 18
-  const max = Math.max(...data.map(d => d.revenue), 1)
-  const min = Math.min(...data.map(d => d.revenue), 0)
-  const range = Math.max(max - min, 1)
-  const step = (W - padX * 2) / (data.length - 1)
-  const pts = data.map((d, i) => ({ x: padX + i * step, y: padY + (H - padY - 14) * (1 - (d.revenue - min) / range) }))
-  const linePath = smoothPath(pts)
-  const areaPath = `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z`
-  return (
-    <div style={{ width: '100%', overflow: 'visible' }}>
-      <svg width="100%" height={H + 20} viewBox={`0 0 ${W} ${H + 20}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
-        <defs>
-          <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#22c55e" stopOpacity=".3" />
-            <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <motion.path d={areaPath} fill="url(#revGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
-        <motion.path d={linePath} fill="none" stroke="#22c55e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
-          initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
-        {pts.map((p, i) => {
-          const isLast = i === pts.length - 1
-          const isHovered = hovered === i
-          return (
-            <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
-              {isHovered && (
-                <line x1={p.x} y1={padY - 4} x2={p.x} y2={H} stroke="#22c55e" strokeWidth={1} strokeDasharray="3 3" opacity={0.35} />
-              )}
-              {/* área de toque maior, invisível, pra facilitar o hover */}
-              <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
-              <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6 : isLast ? 4.5 : 3} fill={isHovered || isLast ? '#22c55e' : 'var(--card)'} stroke="#22c55e" strokeWidth={1.5}
-                animate={{ r: isHovered ? 6 : isLast ? 4.5 : 3 }} transition={{ duration: 0.15 }}
-                initial={{ scale: 0 }} style={{ scale: 1 }} />
-              <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={isHovered ? 12.5 : 11} fontWeight={isHovered || isLast ? 800 : 600} fill={isHovered || isLast ? '#22c55e' : 'var(--muted-foreground)'} style={{ transition: 'font-size .15s' }}>
-                {data[i].revenue >= 1000 ? `${(data[i].revenue / 1000).toFixed(1)}k` : data[i].revenue.toFixed(0)}
-              </text>
-              <text x={p.x} y={H + 16} textAnchor="middle" fontSize={10} fontWeight={isHovered ? 800 : 400} fill={isHovered ? '#22c55e' : 'var(--muted-foreground)'}>{data[i].day}</text>
-            </g>
-          )
-        })}
-      </svg>
-    </div>
-  )
-}
-
-// ── KPI Card ────────────────────────────────────────────────
-function KpiCard({ icon: Icon, label, rawValue, format = fmtBRL, sub, grad, color, href, big, trend }: any) {
-  return (
-    <Link href={href ?? '#'} style={{ textDecoration: 'none', display: 'block', height: '100%' }}>
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-        style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: big ? '20px 22px' : '16px 18px', position: 'relative', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', transition: 'all 0.18s', cursor: href ? 'pointer' : 'default', height: '100%', display: 'flex', flexDirection: 'column' }}
-        onMouseEnter={e => { if (href) { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = 'var(--shadow-md)'; el.style.borderColor = color + '40' } }}
-        onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'none'; el.style.boxShadow = 'var(--shadow-sm)'; el.style.borderColor = 'var(--border)' }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: grad }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: big ? 16 : 10 }}>
-          <div style={{ width: big ? 42 : 38, height: big ? 42 : 38, borderRadius: 11, background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 12px ${color}35` }}>
-            <Icon size={big ? 18 : 16} style={{ color: '#fff' }} />
-          </div>
-        </div>
-        <p style={{ fontSize: big ? 'clamp(30px,3vw,38px)' : 28, fontWeight: 900, color: 'var(--foreground)', margin: '0 0 2px', lineHeight: 1, letterSpacing: '-0.03em' }}>
-          <CountUp value={rawValue} format={format} />
-        </p>
-        <p style={{ fontSize: big ? 13 : 11, color: 'var(--muted-foreground)', margin: 0 }}>{label}</p>
-        {sub && <p style={{ fontSize: big ? 11 : 10, color, marginTop: 4, fontWeight: 700 }}>{sub}</p>}
-        {big && trend && trend.length > 1 && (
-          <div style={{ marginTop: 'auto', paddingTop: 14 }}>
-            <MiniTrendLine data={trend} color={color} />
-          </div>
-        )}
-      </motion.div>
-    </Link>
-  )
-}
-
-// ── Mini linha de tendência embutida no card grande ────────────
-function MiniTrendLine({ data, color }: { data: { day: string; revenue: number }[]; color: string }) {
-  const W = 300, H = 46
-  const max = Math.max(...data.map(d => d.revenue), 1)
-  const min = Math.min(...data.map(d => d.revenue), 0)
-  const range = Math.max(max - min, 1)
-  const step = W / (data.length - 1)
-  const pts = data.map((d, i) => ({ x: i * step, y: H - ((d.revenue - min) / range) * H }))
-  const linePath = smoothPath(pts)
-  const areaPath = `${linePath} L ${pts[pts.length - 1].x},${H} L 0,${H} Z`
-  return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ overflow: 'visible', display: 'block' }}>
-      <defs>
-        <linearGradient id="miniTrendGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity=".3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <motion.path d={areaPath} fill="url(#miniTrendGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }} />
-      <motion.path d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round"
-        initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1, ease: 'easeOut' }} />
-    </svg>
-  )
 }
 
 // ── Presença online dot ──────────────────────────────────────
@@ -169,92 +67,6 @@ function Avatar({ name, url, size = 28 }: { name: string; url?: string | null; s
 // ── Formatação de moeda ───────────────────────────────────────
 function fmtBRL(v: number): string {
   return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-}
-
-// ── Ranking de produtos — pódium (mesmo formato do /intel) ───
-function ProductRankingCard({ data }: { data: { product: string; vertical: string; count: number; rev: number }[] }) {
-  if (!data || data.length === 0) return null
-  const top3 = data.slice(0, 3)
-  const rest = data.slice(3, 5)
-  const visualOrder = [top3[1], top3[0], top3[2]].filter(Boolean) as typeof top3
-  const rankOf = (p: typeof top3[0]) => top3.indexOf(p)
-  const PODIUM_HEIGHT = [92, 68, 52]
-  const MEDAL = ['🥇', '🥈', '🥉']
-  const GRAD  = ['linear-gradient(180deg,#fbbf24,#d97706)', 'linear-gradient(180deg,#cbd5e1,#94a3b8)', 'linear-gradient(180deg,#fb923c,#c2410c)']
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', transition: 'box-shadow .25s ease' }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)' }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)' }}>
-      <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: 'var(--foreground)' }}>🏆 Produtos mais vendidos</p>
-      <p style={{ margin: '2px 0 6px', fontSize: 11, color: 'var(--muted-foreground)' }}>Top 5 por receita no mês</p>
-
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 10, marginTop: 18 }}>
-        {visualOrder.map((p, idx) => {
-          const rank = rankOf(p)
-          return (
-            <motion.div key={`${p.product}-${p.vertical}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.08, type: 'spring', stiffness: 240, damping: 22 }}
-              whileHover={{ y: -6 }}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 96, cursor: 'default' }}>
-              <span style={{ fontSize: 18 }}>{MEDAL[rank]}</span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--foreground)', textAlign: 'center', marginTop: 4, lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.product}</span>
-              <span style={{ fontSize: 9, color: 'var(--muted-foreground)', marginTop: 1 }}>{p.vertical}</span>
-              <span style={{ fontSize: 12, fontWeight: 900, color: 'var(--foreground)', marginTop: 4 }}>{fmtBRL(p.rev)}</span>
-              <motion.div whileHover={{ boxShadow: '0 6px 20px rgba(0,0,0,.22)' }} transition={{ duration: 0.2 }}
-                style={{ width: '100%', height: PODIUM_HEIGHT[rank], background: GRAD[rank], borderRadius: '8px 8px 0 0', marginTop: 8, boxShadow: '0 3px 10px rgba(0,0,0,.12)' }} />
-            </motion.div>
-          )
-        })}
-      </div>
-
-      {rest.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
-          {rest.map((p, i) => (
-            <motion.div key={`${p.product}-${p.vertical}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 + i * 0.06 }}
-              whileHover={{ x: 3 }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, background: 'var(--secondary)', cursor: 'default' }}>
-              <span style={{ width: 16, textAlign: 'center', fontSize: 11, fontWeight: 800, color: 'var(--muted-foreground)', flexShrink: 0 }}>{i + 4}º</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--foreground)' }}>{p.product}</span>
-                <span style={{ fontSize: 9.5, color: 'var(--muted-foreground)', marginLeft: 6 }}>{p.vertical}</span>
-              </div>
-              <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', flexShrink: 0 }}>{fmtBRL(p.rev)}</span>
-            </motion.div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Mini gráfico de barras por vertical ──────────────────────
-function VerticalMiniBars({ title, icon, data, valueKey, color, format }: { title: string; icon: string; data: any[]; valueKey: string; color: string; format: (v: number) => string }) {
-  const [hoveredCard, setHoveredCard] = useState(false)
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null)
-  const filtered = data.filter(d => d[valueKey] > 0 || true) // mantém as 4 verticais sempre visíveis, mesmo com 0
-  const max = Math.max(...data.map(d => d[valueKey]), 1)
-  return (
-    <div onMouseEnter={() => setHoveredCard(true)} onMouseLeave={() => { setHoveredCard(false); setHoveredBar(null) }}
-      style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px', boxShadow: hoveredCard ? 'var(--shadow-md)' : 'var(--shadow-sm)', transform: hoveredCard ? 'translateY(-3px)' : 'none', transition: 'box-shadow .25s ease, transform .25s ease' }}>
-      <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 14px' }}>{icon} {title}</p>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 100 }}>
-        {filtered.map((d, i) => {
-          const h = Math.max((d[valueKey] / max) * 74, d[valueKey] > 0 ? 6 : 2)
-          const shortLabel = d.vertical.replace('-Review', '').replace(' R1', ' R1')
-          const isHovered = hoveredBar === i
-          return (
-            <div key={d.vertical} onMouseEnter={() => setHoveredBar(i)}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', cursor: 'default' }}>
-              <motion.span animate={{ scale: isHovered ? 1.18 : 1 }} transition={{ duration: 0.18 }}
-                style={{ fontSize: 9, fontWeight: 800, color, whiteSpace: 'nowrap', display: 'inline-block' }}>{format(d[valueKey])}</motion.span>
-              <motion.div initial={{ height: 0 }} animate={{ height: h, scaleX: isHovered ? 1.12 : 1 }} transition={{ height: { duration: 0.65, delay: i * 0.08, ease: 'easeOut' }, scaleX: { duration: 0.18 } }}
-                style={{ width: '100%', minHeight: 3, borderRadius: '5px 5px 0 0', background: isHovered ? color : `linear-gradient(180deg,${color},${color}99)`, marginTop: 4, boxShadow: isHovered ? `0 4px 14px ${color}55` : 'none', transformOrigin: 'bottom' }} />
-              <span style={{ fontSize: 8.5, color: isHovered ? color : 'var(--muted-foreground)', fontWeight: isHovered ? 800 : 400, marginTop: 6, textAlign: 'center', lineHeight: 1.2, transition: 'color .15s' }}>{shortLabel}</span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 // ── Partículas flutuantes discretas no fundo do header ────────
@@ -346,7 +158,7 @@ function CountUp({ value, format }: { value: number; format: (v: number) => stri
     let raf: number
     const step = (now: number) => {
       const t = Math.min((now - start) / duration, 1)
-      const eased = 1 - Math.pow(1 - t, 3) // ease-out cúbico
+      const eased = 1 - Math.pow(1 - t, 3)
       setDisplay(from + (value - from) * eased)
       if (t < 1) raf = requestAnimationFrame(step)
     }
@@ -358,6 +170,152 @@ function CountUp({ value, format }: { value: number; format: (v: number) => stri
 }
 
 // ── Forecast — componente de destaque, com área suave e saúde das assinaturas ──
+// ── Meta x Realizado — contexto que faltava pro número de receita sozinho ──
+function MetaRealizadoCard({ meta, realizado, evolucao, diasNoMes }: {
+  meta: number; realizado: number
+  evolucao: { day: number; realizado: number; ritmoLinear: number }[]
+  diasNoMes: number
+}) {
+  const [hovered, setHovered] = useState<number | null>(null)
+  const pct = meta > 0 ? (realizado / meta) * 100 : 0
+  const acimaOuNoRitmo = evolucao.length > 0 && evolucao[evolucao.length - 1].realizado >= evolucao[evolucao.length - 1].ritmoLinear
+
+  const W = 700, H = 175, padX = 10, padY = 20
+  // Escala pelo range real dos dados visíveis (realizado + ritmo), não pela
+  // meta inteira — se a meta for muito maior que o realizado até agora, usar
+  // a meta como referência espreme as duas linhas lá embaixo, quase retas.
+  const maxVal = Math.max(...evolucao.map(d => Math.max(d.realizado, d.ritmoLinear)), 1)
+  const pts = evolucao.map(d => ({ x: padX + ((d.day - 1) / Math.max(diasNoMes - 1, 1)) * (W - padX * 2), y: padY + (H - padY - 6) * (1 - d.realizado / maxVal) }))
+  const ritmoPts = evolucao.map(d => ({ x: padX + ((d.day - 1) / Math.max(diasNoMes - 1, 1)) * (W - padX * 2), y: padY + (H - padY - 6) * (1 - d.ritmoLinear / maxVal) }))
+  const linePath = smoothPath(pts)
+  const areaPath = pts.length > 1 ? `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z` : ''
+  const ritmoLinePath = ritmoPts.length > 1 ? `M ${ritmoPts[0].x},${ritmoPts[0].y} L ${ritmoPts[ritmoPts.length - 1].x},${ritmoPts[ritmoPts.length - 1].y}` : ''
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <Target size={15} style={{ color: '#6366f1' }} />
+        <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Meta x Realizado</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 6 }}>
+        <div>
+          <p style={{ fontSize: 'clamp(24px,3vw,30px)', fontWeight: 900, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1 }}>
+            <CountUp value={realizado} format={fmtBRL} />
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>
+            realizado de <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(meta)}</strong> de meta
+          </p>
+        </div>
+        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+          <p style={{ fontSize: 22, fontWeight: 900, color: pct >= 100 ? '#22c55e' : acimaOuNoRitmo ? '#3b82f6' : '#f97316', margin: 0 }}>{pct.toFixed(1)}%</p>
+          <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>da meta</p>
+        </div>
+      </div>
+
+      <div style={{ height: 6, borderRadius: 999, background: 'var(--border)', overflow: 'hidden', marginBottom: 12 }}>
+        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(pct, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
+          style={{ height: '100%', background: pct >= 100 ? 'linear-gradient(90deg,#16a34a,#22c55e)' : 'linear-gradient(90deg,#4f46e5,#6366f1)' }} />
+      </div>
+
+      {evolucao.length > 1 && (
+        <div style={{ width: '100%', overflow: 'visible' }}>
+          <svg width="100%" height={H + 8} viewBox={`0 0 ${W} ${H + 8}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+            <defs>
+              <linearGradient id="metaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity=".3" />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {/* Linha de ritmo ideal da meta — reta pontilhada, referência */}
+            <path d={ritmoLinePath} fill="none" stroke="var(--muted-foreground)" strokeWidth={2} strokeDasharray="5 5" opacity={0.7} />
+            <motion.path d={areaPath} fill="url(#metaGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
+            <motion.path d={linePath} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
+            {pts.map((p, i) => {
+              const isLast = i === pts.length - 1
+              const isHovered = hovered === i
+              if (!isLast && !isHovered && i % Math.max(Math.ceil(pts.length / 8), 1) !== 0) {
+                return <circle key={i} cx={p.x} cy={p.y} r={12} fill="transparent" onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }} />
+              }
+              return (
+                <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
+                  <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
+                  <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6 : isLast ? 4.5 : 2.5} fill={isHovered || isLast ? '#6366f1' : 'var(--card)'} stroke="#6366f1" strokeWidth={1.5}
+                    animate={{ r: isHovered ? 6 : isLast ? 4.5 : 2.5 }} transition={{ duration: 0.15 }} />
+                  {(isHovered || isLast) && (
+                    <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={11} fontWeight={800} fill="#6366f1">
+                      {evolucao[i].realizado >= 1000 ? `${(evolucao[i].realizado / 1000).toFixed(1)}k` : evolucao[i].realizado.toFixed(0)}
+                    </text>
+                  )}
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+      )}
+      <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '2px 0 0', textAlign: 'center' }}>linha pontilhada = ritmo ideal pra bater a meta</p>
+    </div>
+  )
+}
+
+// ── Forecast de fechamento do mês — o gráfico mais importante: "nesse
+// ritmo, onde vamos terminar o mês?" ──────────────────────────────────
+function ClosingForecastCard({ realizado, recorrenciaPrevista, ritmoNovaVenda, forecast, meta, pctVsMeta }: {
+  realizado: number; recorrenciaPrevista: number; ritmoNovaVenda: number; forecast: number; meta: number; pctVsMeta: number
+}) {
+  const maxVal = Math.max(forecast, meta, 1)
+  const acimaDaMeta = pctVsMeta >= 0
+  const bars = [
+    { label: 'Realizado', value: realizado, color: '#22c55e' },
+    { label: 'Forecast', value: forecast, color: acimaDaMeta ? '#3b82f6' : '#f97316' },
+    { label: 'Meta', value: meta, color: '#6366f1' },
+  ]
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <TrendingUp size={15} style={{ color: '#3b82f6' }} />
+        <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Forecast de fechamento do mês</p>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 16px' }}>Nesse ritmo, onde a empresa termina o mês</p>
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, marginBottom: 16, height: 90 }}>
+        {bars.map((b, i) => (
+          <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 12, fontWeight: 900, color: b.color, marginBottom: 4 }}><CountUp value={b.value} format={fmtBRL} /></span>
+            <motion.div initial={{ height: 0 }} animate={{ height: Math.max((b.value / maxVal) * 64, 4) }} transition={{ duration: 0.8, delay: i * 0.1, ease: 'easeOut' }}
+              style={{ width: '100%', maxWidth: 64, borderRadius: '8px 8px 0 0', background: `linear-gradient(180deg,${b.color},${b.color}99)`, boxShadow: `0 4px 12px ${b.color}35` }} />
+            <span style={{ fontSize: 10.5, color: 'var(--muted-foreground)', marginTop: 6, fontWeight: 700 }}>{b.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 12, background: acimaDaMeta ? 'rgba(34,197,94,0.08)' : 'rgba(249,115,22,0.08)', border: `1px solid ${acimaDaMeta ? 'rgba(34,197,94,0.25)' : 'rgba(249,115,22,0.25)'}`, marginBottom: 14 }}>
+        <span style={{ fontSize: 16 }}>{acimaDaMeta ? '📈' : '📉'}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: acimaDaMeta ? '#22c55e' : '#f97316' }}>
+          Projeção: {acimaDaMeta ? '+' : ''}{pctVsMeta.toFixed(1)}% {acimaDaMeta ? 'acima' : 'abaixo'} da meta
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>💵 Já realizado</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--foreground)' }}>{fmtBRL(realizado)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>💓 Recorrência ainda prevista esse mês</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--foreground)' }}>{fmtBRL(recorrenciaPrevista)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>🚀 Projeção de vendas novas no ritmo atual</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--foreground)' }}>{fmtBRL(ritmoNovaVenda)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 function ForecastHero({ total, monthly, detail }: {
   total: number
   monthly?: { label: string; ajustado: number }[]
@@ -366,107 +324,94 @@ function ForecastHero({ total, monthly, detail }: {
   const [hovered, setHovered] = useState<number | null>(null)
   const safeMonthly = monthly ?? []
   const safeDetail  = detail ?? { mrrAtual: 0, persistenceRate: 0, sampleSize: 0, ativas: 0, atrasadas: 0, emRisco: 0, completas: 0 }
-  const W = 700, H = 100, padX = 12, padY = 22
+  // Mesma técnica/proporção do RevenueChart — pra ter a mesma "cara" dos
+  // outros gráficos do dashboard, em vez de um tratamento visual próprio.
+  const W = 700, H = 90, padX = 10, padY = 18
   const max = Math.max(...safeMonthly.map(d => d.ajustado), 1)
+  const min = Math.min(...safeMonthly.map(d => d.ajustado), 0)
+  const range = Math.max(max - min, 1)
   const step = safeMonthly.length > 1 ? (W - padX * 2) / (safeMonthly.length - 1) : 0
-  const pts = safeMonthly.map((d, i) => ({ x: padX + i * step, y: padY + (H - padY - 30) * (1 - d.ajustado / max) }))
+  const pts = safeMonthly.map((d, i) => ({ x: padX + i * step, y: padY + (H - padY - 14) * (1 - (d.ajustado - min) / range) }))
   const linePath = smoothPath(pts)
   const areaPath = pts.length > 1 ? `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z` : ''
 
   const healthItems = [
-    { label: 'Ativas', count: safeDetail.ativas, color: '#22c55e', emoji: '💚' },
-    { label: 'Atrasadas', count: safeDetail.atrasadas, color: '#f59e0b', emoji: '⏰' },
-    { label: 'Em risco', count: safeDetail.emRisco, color: '#ef4444', emoji: '⚠️' },
-    { label: 'Completas', count: safeDetail.completas, color: 'var(--muted-foreground)', emoji: '✅' },
+    { label: 'restam a pagar', count: safeDetail.ativas, emoji: '💚' },
+    { label: 'atrasadas', count: safeDetail.atrasadas, emoji: '⏰' },
+    { label: 'em risco', count: safeDetail.emRisco, emoji: '⚠️' },
+    { label: 'já pagas', count: safeDetail.completas, emoji: '✅' },
   ].filter(h => h.count > 0)
 
   return (
-    <div style={{ background: 'linear-gradient(135deg,#042f2e 0%,#0f766e 55%,#0d9488 100%)', borderRadius: 22, padding: 'clamp(20px,3vw,30px)', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: '0 16px 48px rgba(13,148,136,0.28)' }}>
-      <div style={{ position: 'absolute', top: -50, right: -30, width: 220, height: 220, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 20, marginBottom: 8 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.15)', color: '#fff' }}>
-                💓 Sinal vital da recorrência
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <HeartPulse size={15} style={{ color: '#0d9488' }} />
+          <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Sinal vital da recorrência</p>
+        </div>
+        <Link href="/intel" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#0d9488', textDecoration: 'none' }}>
+          Ver detalhe <ArrowRight size={11} />
+        </Link>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <p style={{ fontSize: 'clamp(26px,3vw,32px)', fontWeight: 900, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1 }}>
+          <CountUp value={total} format={fmtBRL} />
+        </p>
+        <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>esperado até dezembro</span>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>
+        Recebido este mês: <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(safeDetail.mrrAtual)}</strong>
+        {' · '}aderência histórica <strong style={{ color: '#0d9488' }}>{safeDetail.persistenceRate.toFixed(0)}%</strong>
+      </p>
+
+      {safeMonthly.length > 1 && (
+        <div style={{ width: '100%', overflow: 'visible', marginTop: 8 }}>
+          <svg width="100%" height={H + 20} viewBox={`0 0 ${W} ${H + 20}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+            <defs>
+              <linearGradient id="fcGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0d9488" stopOpacity=".3" />
+                <stop offset="100%" stopColor="#0d9488" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <motion.path d={areaPath} fill="url(#fcGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
+            <motion.path d={linePath} fill="none" stroke="#0d9488" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
+            {pts.map((p, i) => {
+              const isFirst = i === 0 // mês mais próximo/confiável — o que importa mais aqui
+              const isHovered = hovered === i
+              return (
+                <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
+                  {isHovered && (
+                    <line x1={p.x} y1={padY - 4} x2={p.x} y2={H} stroke="#0d9488" strokeWidth={1} strokeDasharray="3 3" opacity={0.35} />
+                  )}
+                  <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
+                  <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6 : isFirst ? 4.5 : 3} fill={isHovered || isFirst ? '#0d9488' : 'var(--card)'} stroke="#0d9488" strokeWidth={1.5}
+                    animate={{ r: isHovered ? 6 : isFirst ? 4.5 : 3 }} transition={{ duration: 0.15 }}
+                    initial={{ scale: 0 }} style={{ scale: 1 }} />
+                  <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={isHovered ? 12.5 : 11} fontWeight={isHovered || isFirst ? 800 : 600} fill={isHovered || isFirst ? '#0d9488' : 'var(--muted-foreground)'}>
+                    {safeMonthly[i].ajustado >= 1000 ? `${(safeMonthly[i].ajustado / 1000).toFixed(1)}k` : safeMonthly[i].ajustado.toFixed(0)}
+                  </text>
+                  <text x={p.x} y={H + 16} textAnchor="middle" fontSize={10} fontWeight={isHovered ? 800 : 400} fill={isHovered ? '#0d9488' : 'var(--muted-foreground)'}>{safeMonthly[i].label}</text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+      )}
+
+      {healthItems.length > 0 && (
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+          {healthItems.map(h => (
+            <div key={h.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 12 }}>{h.emoji}</span>
+              <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                <strong style={{ color: 'var(--foreground)' }}>{h.count}</strong> {h.label}
               </span>
             </div>
-            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', margin: '0 0 4px' }}>Esperado até dezembro</p>
-            <p style={{ fontSize: 'clamp(30px,5vw,46px)', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.03em', lineHeight: 1 }}>
-              <CountUp value={total} format={fmtBRL} />
-            </p>
-            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', margin: '8px 0 0' }}>
-              Recebido este mês em recorrência: <strong style={{ color: '#fff' }}>{fmtBRL(safeDetail.mrrAtual)}</strong>
-              {' · '}<Link href="/intel" style={{ color: '#5eead4', fontWeight: 700, textDecoration: 'none' }}>ver detalhe completo</Link>
-            </p>
-          </div>
-
-          <div style={{ textAlign: 'center', flexShrink: 0 }}>
-            <div style={{ position: 'relative', width: 84, height: 84 }}>
-              <svg width="84" height="84" style={{ transform: 'rotate(-90deg)' }}>
-                <circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="8" />
-                <motion.circle cx="42" cy="42" r="34" fill="none" stroke="#5eead4" strokeWidth="8" strokeLinecap="round"
-                  initial={{ strokeDasharray: `0 ${2 * Math.PI * 34}` }} animate={{ strokeDasharray: `${(safeDetail.persistenceRate / 100) * 2 * Math.PI * 34} ${2 * Math.PI * 34}` }} transition={{ duration: 1.2, ease: 'easeOut' }} />
-              </svg>
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 17, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{safeDetail.persistenceRate.toFixed(0)}%</span>
-              </div>
-            </div>
-            <p style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.6)', margin: '6px 0 0', maxWidth: 90 }}>aderência histórica</p>
-          </div>
+          ))}
         </div>
-
-        {safeMonthly.length > 1 && (
-          <div style={{ margin: '10px 0 6px' }}>
-            <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
-              <defs>
-                <linearGradient id="fcGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#5eead4" stopOpacity=".35" />
-                  <stop offset="100%" stopColor="#5eead4" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <motion.path d={areaPath} fill="url(#fcGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
-              <motion.path d={linePath} fill="none" stroke="#5eead4" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
-                initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.3, ease: 'easeOut' }} />
-              {pts.map((p, i) => {
-                const isFirst = i === 0 // mês mais próximo/confiável — o ponto que importa mais aqui
-                const isHovered = hovered === i
-                return (
-                  <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
-                    {isHovered && (
-                      <line x1={p.x} y1={6} x2={p.x} y2={H} stroke="#5eead4" strokeWidth={1} strokeDasharray="3 3" opacity={0.4} />
-                    )}
-                    <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
-                    <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6.5 : isFirst ? 4.5 : 3} fill={isHovered || isFirst ? '#5eead4' : 'rgba(4,47,46,0.85)'} stroke="#5eead4" strokeWidth={1.5}
-                      animate={{ r: isHovered ? 6.5 : isFirst ? 4.5 : 3 }} transition={{ duration: 0.15 }}
-                      initial={{ scale: 0 }} style={{ scale: 1 }} />
-                    <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={isHovered ? 12.5 : 11} fontWeight={isHovered || isFirst ? 800 : 600} fill={isHovered || isFirst ? '#5eead4' : 'rgba(255,255,255,0.75)'}>
-                      {safeMonthly[i].ajustado >= 1000 ? `${(safeMonthly[i].ajustado / 1000).toFixed(1)}k` : safeMonthly[i].ajustado.toFixed(0)}
-                    </text>
-                    <text x={p.x} y={H + 14} textAnchor="middle" fontSize={10} fontWeight={isHovered ? 800 : 400} fill={isHovered ? '#5eead4' : 'rgba(255,255,255,0.55)'}>{safeMonthly[i].label}</text>
-                  </g>
-                )
-              })}
-            </svg>
-          </div>
-        )}
-
-        {healthItems.length > 0 && (
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 22, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.12)' }}>
-            {healthItems.map(h => (
-              <div key={h.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13 }}>{h.emoji}</span>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>
-                  <strong style={{ color: '#fff' }}>{h.count}</strong> assinatura{h.count !== 1 ? 's' : ''} <span style={{ color: h.color, fontWeight: 700 }}>{h.label.toLowerCase()}</span>
-                </span>
-              </div>
-            ))}
-            {safeDetail.sampleSize < 5 && (
-              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>· amostra histórica pequena, aderência é uma estimativa conservadora</span>
-            )}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   )
 }
@@ -487,26 +432,38 @@ function InsightMural({ insights }: { insights: { type: 'alerta' | 'oportunidade
         <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Diagnóstico do Dia</p>
         <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>· gerado 1x por dia, olhando o painel inteiro</span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 12 }}>
         {insights.map((ins, i) => {
           const s = INSIGHT_STYLE[ins.type] ?? INSIGHT_STYLE.destaque
           return (
             <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08, duration: 0.4 }}
-              style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 16, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <span style={{ fontSize: 20, lineHeight: 1 }}>{s.emoji}</span>
-                <p style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--foreground)', margin: 0, lineHeight: 1.35 }}>{ins.titulo}</p>
-              </div>
-              {ins.motivo && (
-                <div style={{ paddingLeft: 30 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.04em' }}>Provável motivo</span>
-                  <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '2px 0 0', lineHeight: 1.4 }}>{ins.motivo}</p>
+              whileHover={{ y: -3 }}
+              style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', transition: 'box-shadow .2s ease' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg,${s.color},${s.color}66)` }} />
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: `${s.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>
+                  {s.emoji}
                 </div>
-              )}
-              {ins.sugestao && (
-                <div style={{ paddingLeft: 30 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.04em' }}>Sugestão</span>
-                  <p style={{ fontSize: 12, color: 'var(--foreground)', margin: '2px 0 0', lineHeight: 1.4, fontWeight: 600 }}>{ins.sugestao}</p>
+                <p style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--foreground)', margin: 0, lineHeight: 1.35, paddingTop: 3 }}>{ins.titulo}</p>
+              </div>
+
+              {(ins.motivo || ins.sugestao) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 46, borderLeft: `2px solid ${s.color}30`, marginLeft: 17 }}>
+                  {ins.motivo && (
+                    <div>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.05em' }}>Provável motivo</span>
+                      <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '2px 0 0', lineHeight: 1.4 }}>{ins.motivo}</p>
+                    </div>
+                  )}
+                  {ins.sugestao && (
+                    <div>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.05em' }}>Sugestão</span>
+                      <p style={{ fontSize: 12, color: 'var(--foreground)', margin: '2px 0 0', lineHeight: 1.4, fontWeight: 600 }}>{ins.sugestao}</p>
+                    </div>
+                  )}
                 </div>
               )}
             </motion.div>
@@ -542,8 +499,6 @@ const BADGE_INFO: Record<string, { emoji: string; label: string; color: string }
   maior_ticket:{ emoji: '💰', label: 'Maior ticket',  color: '#eab308' },
 }
 
-// Rotação/deslocamento fixos por posição — dá o efeito de baralho espalhado
-// sem ficar diferente a cada render (nada de random no render).
 const SCATTER = [-6, 4, -3, 7, -5, 2, -7, 5, -2, 6, -4, 3, -6, 4, -3]
 
 function DeckCard({ c, index, onOpen }: { c: any; index: number; onOpen: () => void }) {
@@ -569,7 +524,6 @@ function DeckCard({ c, index, onOpen }: { c: any; index: number; onOpen: () => v
         transition={{ duration: 0.55, ease: 'easeInOut' }}
         style={{ width: '100%', height: '100%', position: 'relative', transformStyle: 'preserve-3d' }}>
 
-        {/* FRENTE */}
         <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', borderRadius: 16, background: 'var(--card)', border: '1px solid var(--border)', boxShadow: hovered ? '0 20px 40px rgba(0,0,0,.25)' : 'var(--shadow-md)', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: `linear-gradient(90deg,${teamColor},${teamColor}88)` }} />
           {topBadge && (
@@ -589,7 +543,6 @@ function DeckCard({ c, index, onOpen }: { c: any; index: number; onOpen: () => v
           </div>
         </div>
 
-        {/* VERSO — a IA falando */}
         <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', borderRadius: 16, background: `linear-gradient(160deg,${teamColor}ee,${teamColor}bb)`, border: '1px solid var(--border)', boxShadow: hovered ? '0 20px 40px rgba(0,0,0,.25)' : 'var(--shadow-md)', overflow: 'hidden', padding: '14px 13px', display: 'flex', flexDirection: 'column', gap: 7 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <Sparkles size={11} style={{ color: '#fff', flexShrink: 0 }} />
@@ -710,6 +663,7 @@ interface Props {
   }
   users: any[]
   progressByDay: { day: string; completions: number; quizzes: number }[]
+  commercialAnalysisInitial: any
   commercial: {
     totalRevMonth: number; totalSalesMonth: number; totalSalesToday: number; totalRevToday: number
     avgTicketAll: number; totalMoneyLeft: number; totalCertsMonth: number
@@ -722,17 +676,24 @@ interface Props {
     lastSaleAt: string | null
     pctMonthElapsed: number
     companyInsights: { type: 'alerta' | 'oportunidade' | 'destaque'; titulo: string; motivo: string | null; sugestao: string | null }[]
+    metaGeralMes: number
+    metaPorVertical: Record<string, number>
+    forecastFechamentoMes: number
+    projecaoRestanteNovaVenda: number
+    recorrenciaPrevistaMes: number
+    pctForecastVsMeta: number
+    dailyCumulative: { day: number; realizado: number; ritmoLinear: number }[]
+    daysInMonthTotal: number
   }
 }
 
-export function SuperDashboard({ userName, stats, users, progressByDay, commercial }: Props) {
+export function SuperDashboard({ userName, stats, users, progressByDay, commercial, commercialAnalysisInitial }: Props) {
   const [activities, setActivities] = useState<any[]>([])
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [loadingActivity, setLoadingActivity] = useState(true)
   const [openCard, setOpenCard] = useState<any | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Busca atividade recente
   useEffect(() => {
     fetch('/api/admin/activity')
       .then(r => r.json())
@@ -740,7 +701,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
       .catch(() => setLoadingActivity(false))
   }, [])
 
-  // Heartbeat + busca presença online a cada 30s
   useEffect(() => {
     async function tick() {
       await fetch('/api/admin/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page: '/dashboard' }) })
@@ -757,14 +717,12 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
   const hour  = now.getHours()
   const greet = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
 
-  // Usuários online com detalhes
   const usersWithPresence = users.map(u => ({ ...u, isOnline: onlineUsers.has(u.id) }))
   const onlineList = usersWithPresence.filter(u => u.isOnline)
 
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1200, margin: '0 auto' }}>
 
-      {/* Hero */}
       <div style={{ background: 'linear-gradient(135deg,#2e1065 0%,#3730a3 30%,#4f46e5 68%,#7c3aed 100%)', borderRadius: 22, padding: 'clamp(20px,3vw,32px)', marginBottom: 24, position: 'relative', overflow: 'hidden', boxShadow: '0 16px 48px rgba(79,70,229,0.35)' }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
         <div style={{ position: 'absolute', bottom: -60, right: 80, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
@@ -801,74 +759,20 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
       <InsightMural insights={commercial.companyInsights} />
 
-      {/* KPIs comerciais — bento assimétrico, não 4 quadrados iguais */}
-      <div className="sd-kpi-bento" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gridTemplateRows: 'auto auto', gap: 12, marginBottom: 20, gridTemplateAreas: '"revenue today ticket" "revenue money money"' }}>
-        <div style={{ gridArea: 'revenue' }}>
-          <KpiCard icon={DollarSign} label="Receita do mês" rawValue={commercial.totalRevMonth} sub={`${commercial.totalSalesMonth} vendas`}
-            grad="linear-gradient(135deg,#22c55e,#16a34a)" color="#22c55e" href="/intel" big trend={commercial.revenueByDay} />
-        </div>
-        <div style={{ gridArea: 'today' }}>
-          <KpiCard icon={TrendingUp} label="Receita hoje" rawValue={commercial.totalRevToday} sub={`${commercial.totalSalesToday} vendas · ao vivo`}
-            grad="linear-gradient(135deg,#3b82f6,#4f46e5)" color="#3b82f6" href="/telao" />
-        </div>
-        <div style={{ gridArea: 'ticket' }}>
-          <KpiCard icon={Target} label="Ticket médio" rawValue={commercial.avgTicketAll} sub="média de todas as vendas do mês"
-            grad="linear-gradient(135deg,#8b5cf6,#a855f7)" color="#8b5cf6" href="/intel" />
-        </div>
-        <div style={{ gridArea: 'money' }}>
-          <KpiCard icon={AlertTriangle} label="Deixado na mesa" rawValue={commercial.totalMoneyLeft} sub={`${commercial.totalCertsMonth} embaixadores certificados`}
-            grad="linear-gradient(135deg,#f97316,#ef4444)" color="#f97316" href="/telao" />
-        </div>
-      </div>
-
-      {/* Por vertical */}
-      {commercial.verticalBreakdown?.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>Por vertical</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-            <VerticalMiniBars title="Receita do mês" icon="💰" data={commercial.verticalBreakdown} valueKey="revenue" color="#22c55e" format={fmtBRL} />
-            <VerticalMiniBars title="Ticket médio" icon="🎯" data={commercial.verticalBreakdown} valueKey="avgTicket" color="#8b5cf6" format={fmtBRL} />
-            <VerticalMiniBars title="Deixado na mesa" icon="⚠️" data={commercial.verticalBreakdown} valueKey="moneyLeft" color="#f97316" format={fmtBRL} />
-            <VerticalMiniBars title="Desconto médio" icon="🏷️" data={commercial.verticalBreakdown} valueKey="avgDiscountPct" color="#ef4444" format={v => `${v.toFixed(1)}%`} />
-          </div>
-        </div>
-      )}
+      <CommercialAnalysis initialData={commercialAnalysisInitial} />
 
       <PulseDivider />
 
-      {/* Forecast de recorrência até dezembro — componente de destaque */}
-      <ForecastHero total={commercial.forecast} monthly={commercial.monthlyForecast} detail={commercial.forecastDetail} />
+      <div className="sd-row-meta" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 16, marginBottom: 16 }}>
+        <MetaRealizadoCard meta={commercial.metaGeralMes} realizado={commercial.totalRevMonth} evolucao={commercial.dailyCumulative} diasNoMes={commercial.daysInMonthTotal} />
+        <ClosingForecastCard realizado={commercial.totalRevMonth} recorrenciaPrevista={commercial.recorrenciaPrevistaMes} ritmoNovaVenda={commercial.projecaoRestanteNovaVenda}
+          forecast={commercial.forecastFechamentoMes} meta={commercial.metaGeralMes} pctVsMeta={commercial.pctForecastVsMeta} />
+      </div>
 
-      {/* Row 2: Atividade semanal + Online agora */}
       <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, marginBottom: 16 }}>
 
-        {/* Gráfico de receita semanal */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <BarChart2 size={15} style={{ color: '#22c55e' }} />
-              <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Receita — últimos 7 dias</p>
-            </div>
-            <Link href="/telao" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#22c55e', textDecoration: 'none' }}>
-              Ver telão <ArrowRight size={11} />
-            </Link>
-          </div>
-          <RevenueChart data={commercial.revenueByDay} />
-          <div style={{ display: 'flex', gap: 16, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
-            {[
-              { label: 'Total 7 dias',   value: fmtBRL(commercial.revenueByDay.reduce((s, d) => s + d.revenue, 0)), color: '#22c55e' },
-              { label: 'Média diária',   value: fmtBRL(commercial.revenueByDay.reduce((s, d) => s + d.revenue, 0) / 7), color: '#3b82f6' },
-              { label: '% da meta',      value: `${commercial.pctCompanyGoal.toFixed(0)}%`, color: '#8b5cf6' },
-            ].map((item, i) => (
-              <div key={i} style={{ flex: 1, minWidth: 80 }}>
-                <p style={{ fontSize: 20, fontWeight: 900, color: item.color, margin: 0, letterSpacing: '-0.02em' }}>{item.value}</p>
-                <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>{item.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ForecastHero total={commercial.forecast} monthly={commercial.monthlyForecast} detail={commercial.forecastDetail} />
 
-        {/* Online agora */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '18px 20px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -902,7 +806,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
             )}
           </div>
 
-          {/* Todos os usuários com indicador */}
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Todos os usuários</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }} className="scrollbar-hide">
@@ -918,16 +821,8 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
         </div>
       </div>
 
-      {/* Ranking de produtos */}
-      {commercial.productRanking?.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <ProductRankingCard data={commercial.productRanking} />
-        </div>
-      )}
-
       <PulseDivider />
 
-      {/* Baralho de closers */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '22px 24px', boxShadow: 'var(--shadow-sm)', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -951,10 +846,8 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
       {openCard && <CardModal c={openCard} onClose={() => setOpenCard(null)} />}
 
-      {/* Row 3: Atividade recente + Progresso individual */}
-      <div className="sd-row3" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 16 }}>
+      <div className="sd-row3" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 16 }}>
 
-        {/* Feed de atividade recente */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb, var(--secondary) 50%, var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -978,7 +871,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 18px', borderBottom: i < activities.length - 1 ? '1px solid var(--border)' : 'none', transition: 'background 0.12s' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--secondary) 40%, transparent)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-                {/* Ícone */}
                 <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${a.color}18`, border: `1px solid ${a.color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
                   {a.icon}
                 </div>
@@ -998,55 +890,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
           </div>
         </div>
 
-        {/* Ranking do mês */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb, var(--secondary) 50%, var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Award size={14} style={{ color: '#eab308' }} />
-              <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Ranking do mês</p>
-            </div>
-            <Link href="/intel" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#6366f1', textDecoration: 'none' }}>
-              Ver tudo <ArrowRight size={11} />
-            </Link>
-          </div>
-
-          <div style={{ maxHeight: 380, overflowY: 'auto' }} className="scrollbar-hide">
-            {commercial.closerCards.length === 0 ? (
-              <div style={{ padding: '32px', textAlign: 'center' }}>
-                <p style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>Nenhuma venda registrada este mês ainda.</p>
-              </div>
-            ) : commercial.closerCards.slice(0, 12).map((c, i) => {
-              const tc = c.team === 'OAO'
-                ? { dot: '#3b82f6', bg: 'rgba(59,130,246,0.1)' }
-                : c.team === 'R1'
-                  ? { dot: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' }
-                  : { dot: '#6366f1', bg: 'rgba(99,102,241,0.1)' }
-              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null
-
-              return (
-                <div key={c.id} onClick={() => setOpenCard(c)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: i < commercial.closerCards.length - 1 ? '1px solid var(--border)' : 'none', transition: 'background 0.12s', cursor: 'pointer' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--secondary) 40%, transparent)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-
-                  <span style={{ width: 20, textAlign: 'center', fontSize: medal ? 15 : 11, fontWeight: 800, color: medal ? undefined : 'var(--muted-foreground)', flexShrink: 0 }}>{medal ?? `#${i + 1}`}</span>
-                  <Avatar name={c.name} url={c.avatarUrl} size={32} />
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
-                      {c.team && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: tc.bg, color: tc.dot, flexShrink: 0 }}>{c.team}</span>}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Bar pct={c.pctGoal} color={c.pctGoal >= 100 ? '#22c55e' : tc.dot} />
-                      <span style={{ fontSize: 11, fontWeight: 700, color: c.pctGoal >= 100 ? '#22c55e' : 'var(--foreground)', flexShrink: 0, minWidth: 60, textAlign: 'right' }}>{fmtBRL(c.revenue)}</span>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
       </div>
 
       <style>{`
@@ -1054,6 +897,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
         @keyframes spin  { to{transform:rotate(360deg)} }
         @media (max-width: 1024px) {
           .sd-row2 { grid-template-columns: 1fr !important; }
+          .sd-row-meta { grid-template-columns: 1fr !important; }
           .sd-row3 { grid-template-columns: 1fr !important; }
         }
         @media (max-width: 768px) {

@@ -163,6 +163,7 @@ export interface ForecastResult {
   emRisco:                   number
   completas:                 number
   monthlyForecast:           MonthlyForecast[]
+  states:                    SubscriptionState[]
 }
 
 export function computeForecast(
@@ -192,6 +193,33 @@ export function computeForecast(
     persistenceRate:           rate,
     sampleSize,
     ativas, atrasadas, emRisco, completas,
-    monthlyForecast,
+    monthlyForecast, states,
   }
+}
+
+// ── Recorrência ainda esperada DENTRO do mês corrente ────────────
+//
+// Diferente do computeMonthlyForecast (que começa só no mês QUE VEM) — aqui
+// é "quanto de recorrência eu ainda espero receber nos dias que faltam do
+// mês atual", pro forecast de fechamento do mês. Só considera assinaturas
+// 'ativas' (não atrasadas/em risco/completas) cuja próxima parcela, pela
+// cadência normal (~30 dias desde a última paga), cai dentro dos dias que
+// ainda restam do mês corrente.
+export function computeRemainingMonthRecurring(
+  states: SubscriptionState[],
+  persistenceRate: number,
+  now: Date = new Date()
+): number {
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+  let total = 0
+
+  for (const s of states) {
+    if (s.status !== 'ativa' || s.remaining <= 0) continue
+    const expected = new Date(s.lastPaymentDate)
+    expected.setDate(expected.getDate() + CADENCE_DAYS)
+    if (expected >= now && expected <= monthEnd) {
+      total += s.value * persistenceRate
+    }
+  }
+  return total
 }

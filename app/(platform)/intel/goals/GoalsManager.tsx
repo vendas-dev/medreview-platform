@@ -4,6 +4,7 @@ import { Target, ChevronLeft, ChevronRight, Save, Check, Loader2 } from 'lucide-
 
 const VERTICALS_R1  = ['Med-Review R1']
 const VERTICALS_OAO = ['Anest-Review', 'Oft-Review', 'Ortop-Review']
+const ALL_VERTICALS = ['Anest-Review', 'Oft-Review', 'Ortop-Review', 'Med-Review R1']
 
 // ── Máscara BRL ────────────────────────────────────────────
 function maskBRL(raw: string): string {
@@ -157,12 +158,114 @@ function CloserGoalCard({ closer, month }: { closer: any; month: string }) {
   )
 }
 
+// ── Painel de Meta Geral / Metas por Vertical — salvos juntos numa
+// requisição só, cada aba com seu próprio botão de salvar. Depois de salvar,
+// busca de novo no banco (não confia só no estado local) — assim o usuário
+// vê a confirmação real de que persistiu, não só um "Salvo!" otimista.
+function CompanyGoalsPanel({ mode, month, initialGoals }: { mode: 'geral' | 'vertical'; month: string; initialGoals: Record<string, number> }) {
+  const [geral, setGeral] = useState<number>(Number(initialGoals['geral']) || 0)
+  const [byVertical, setByVertical] = useState<Record<string, number>>(
+    Object.fromEntries(ALL_VERTICALS.map(v => [v, Number(initialGoals[v]) || 0]))
+  )
+  const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
+  const [error,  setError]  = useState('')
+  const [confirmedAt, setConfirmedAt] = useState<string | null>(null)
+
+  async function handleSave() {
+    setSaving(true); setError(''); setSaved(false)
+    try {
+      const goals = mode === 'geral' ? { geral } : { ...byVertical }
+      const res = await fetch('/api/intel/company-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month, goals }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error ?? 'Erro ao salvar'); return }
+
+      // Confirma de verdade: busca de novo no banco em vez de só assumir
+      // que o POST funcionou. Se o valor lido bater com o que mandamos,
+      // confirma visualmente com a hora — senão, mostra erro de verdade.
+      const check = await fetch(`/api/intel/company-goals?month=${month}`)
+      const checkData = await check.json().catch(() => ({ goals: {} }))
+      const persisted = mode === 'geral'
+        ? Number(checkData.goals?.geral) === geral
+        : ALL_VERTICALS.every(v => Number(checkData.goals?.[v] ?? 0) === (byVertical[v] ?? 0))
+
+      if (!persisted) { setError('Salvou, mas a confirmação não bateu — tenta recarregar a página pra checar.'); return }
+
+      setSaved(true)
+      setConfirmedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+      setTimeout(() => setSaved(false), 3000)
+    } catch {
+      setError('Erro de conexão')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isGeral = mode === 'geral'
+  const grad = isGeral ? 'linear-gradient(135deg,#0f766e 0%,#0d9488 55%,#16a34a 100%)' : 'linear-gradient(135deg,#7c2d12 0%,#c2410c 55%,#f59e0b 100%)'
+  const headline = isGeral ? '🎯 Qual é o norte da empresa esse mês?' : '📊 Onde cada vertical precisa chegar'
+  const subline  = isGeral
+    ? 'Essa é a meta que todo o time olha — alimenta o "Meta x Realizado" e o forecast de fechamento do mês.'
+    : 'Cada vertical com sua própria meta — alimenta qualquer análise que compare uma vertical específica no sistema.'
+
+  return (
+    <div style={{ borderRadius: 18, overflow: 'hidden', maxWidth: 560, boxShadow: '0 12px 32px rgba(0,0,0,.18)' }}>
+      <div style={{ background: grad, padding: '22px 24px', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
+        <p style={{ fontSize: 15, fontWeight: 900, color: '#fff', margin: '0 0 6px', letterSpacing: '-0.01em', position: 'relative', zIndex: 1 }}>{headline}</p>
+        <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', margin: 0, lineHeight: 1.5, position: 'relative', zIndex: 1 }}>{subline}</p>
+      </div>
+
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderTop: 'none', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {error && (
+          <p style={{ margin: 0, fontSize: 12, color: '#ef4444', padding: '9px 12px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 10 }}>⚠ {error}</p>
+        )}
+
+        {isGeral ? (
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted-foreground)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '.06em' }}>Meta do mês (empresa toda)</label>
+            <CurrencyInput value={geral} onChange={setGeral} />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {ALL_VERTICALS.map(v => (
+              <div key={v} style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)' }}>{v}</span>
+                <CurrencyInput value={byVertical[v] ?? 0} onChange={val => setByVertical(prev => ({ ...prev, [v]: val }))} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+            {confirmedAt ? `✅ Confirmado no banco às ${confirmedAt}` : 'Ainda não salvo esse mês'}
+          </span>
+          <button onClick={handleSave} disabled={saving}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, padding: '0 18px', borderRadius: 10, border: 'none', background: saved ? '#22c55e' : grad, color: '#fff', fontSize: 13, fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .7 : 1, transition: 'background .2s', flexShrink: 0, boxShadow: '0 4px 12px rgba(0,0,0,.2)' }}>
+            {saving ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }}/> : saved ? <Check size={13}/> : <Save size={13}/>}
+            {saving ? 'Salvando...' : saved ? 'Confirmado!' : 'Salvar meta'}
+          </button>
+        </div>
+      </div>
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
+}
+
 // ── GoalsManager ────────────────────────────────────────────
-export function GoalsManager({ closers: initialClosers, month: initialMonth }: { closers: any[]; month: string }) {
+export function GoalsManager({ closers: initialClosers, month: initialMonth, companyGoals: initialCompanyGoals }: { closers: any[]; month: string; companyGoals: Record<string, number> }) {
   const [currentMonth,  setCurrentMonth]  = useState(initialMonth)
   const [closers,       setClosers]       = useState(initialClosers)
+  const [companyGoals,  setCompanyGoals]  = useState(initialCompanyGoals)
   const [loadingMonth,  setLoadingMonth]  = useState(false)
   const [filterTeam,    setFilterTeam]    = useState<'todos'|'R1'|'OAO'>('todos')
+  const [tab,           setTab]           = useState<'closers'|'geral'|'vertical'>('closers')
 
   const [y, m] = currentMonth.split('-').map(Number)
   const monthLabel = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
@@ -174,9 +277,14 @@ export function GoalsManager({ closers: initialClosers, month: initialMonth }: {
 
     setLoadingMonth(true)
     try {
-      const res  = await fetch(`/api/intel/goals?month=${newMonth}`)
+      const [res, resCompany] = await Promise.all([
+        fetch(`/api/intel/goals?month=${newMonth}`),
+        fetch(`/api/intel/company-goals?month=${newMonth}`),
+      ])
       const data = await res.json()
+      const dataCompany = await resCompany.json().catch(() => ({ goals: {} }))
       setClosers(data.closers ?? [])
+      setCompanyGoals(dataCompany.goals ?? {})
       setCurrentMonth(newMonth)
     } catch {
       // mantém o mês atual se falhar
@@ -189,6 +297,12 @@ export function GoalsManager({ closers: initialClosers, month: initialMonth }: {
     filterTeam === 'todos' || c.team === filterTeam
   )
 
+  const TABS = [
+    { key: 'closers'  as const, label: '👥 Por Closer' },
+    { key: 'geral'    as const, label: '🏢 Meta Geral' },
+    { key: 'vertical' as const, label: '📊 Metas por Vertical' },
+  ]
+
   return (
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Header */}
@@ -197,8 +311,8 @@ export function GoalsManager({ closers: initialClosers, month: initialMonth }: {
           <Target size={18} color="#fff"/>
         </div>
         <div style={{ flex: 1 }}>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: 'var(--foreground)', letterSpacing: '-.02em' }}>Metas dos Closers</h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted-foreground)' }}>Metas mensais por closer e por vertical · cada mês é independente</p>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: 'var(--foreground)', letterSpacing: '-.02em' }}>Metas</h1>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted-foreground)' }}>Metas mensais — por closer, geral da empresa, ou por vertical · cada mês é independente</p>
         </div>
 
         {/* Seletor de mês */}
@@ -217,51 +331,68 @@ export function GoalsManager({ closers: initialClosers, month: initialMonth }: {
         </div>
       </div>
 
-      {/* Filtro de time */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--muted-foreground)', fontWeight: 500 }}>Filtrar:</span>
-        {([
-          { key: 'todos', label: '👥 Todos' },
-          { key: 'R1',   label: '🟣 Time R1' },
-          { key: 'OAO',  label: '🔵 Time OAO' },
-        ] as const).map(t => (
-          <button key={t.key} onClick={() => setFilterTeam(t.key)}
-            style={{
-              height: 32, padding: '0 14px', borderRadius: 9, cursor: 'pointer',
-              border: `1.5px solid ${filterTeam === t.key ? '#6366f1' : 'var(--border)'}`,
-              background: filterTeam === t.key ? 'rgba(99,102,241,.1)' : 'var(--background)',
-              color: filterTeam === t.key ? '#6366f1' : 'var(--muted-foreground)',
-              fontSize: 12, fontWeight: filterTeam === t.key ? 700 : 500,
-              transition: 'all .15s',
-            }}>
+      {/* Abas */}
+      <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--secondary)', borderRadius: 12, border: '1px solid var(--border)', width: 'fit-content' }}>
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{ height: 34, padding: '0 16px', borderRadius: 9, border: 'none', background: tab === t.key ? 'linear-gradient(135deg,rgba(99,102,241,.4),rgba(139,92,246,.3))' : 'transparent', color: tab === t.key ? '#e9d5ff' : 'var(--muted-foreground)', fontSize: 12, fontWeight: tab === t.key ? 800 : 500, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .2s' }}>
             {t.label}
           </button>
         ))}
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
-          {filtered.length} closer{filtered.length !== 1 ? 's' : ''}
-        </span>
       </div>
 
-      {/* Grid — key inclui currentMonth para forçar remount dos cards ao trocar mês */}
-      {loadingMonth ? (
-        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--muted-foreground)' }}>
-          <Loader2 size={28} style={{ animation: 'spin 1s linear infinite', margin: '0 auto' }}/>
-          <p style={{ marginTop: 12, fontSize: 13 }}>Carregando metas...</p>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(440px,1fr))', gap: 16 }}>
-          {filtered.map(c => (
-            // key com mês garante que o card remonta ao trocar de mês, zerando os estados
-            <CloserGoalCard key={`${c.id}-${currentMonth}`} closer={c} month={currentMonth}/>
-          ))}
-        </div>
-      )}
+      {tab === 'geral' && <CompanyGoalsPanel mode="geral" month={currentMonth} initialGoals={companyGoals} key={`geral-${currentMonth}`} />}
+      {tab === 'vertical' && <CompanyGoalsPanel mode="vertical" month={currentMonth} initialGoals={companyGoals} key={`vertical-${currentMonth}`} />}
 
-      {!loadingMonth && filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--muted-foreground)' }}>
-          <Target size={36} style={{ margin: '0 auto 12px', opacity: .3 }}/>
-          <p style={{ fontSize: 14 }}>Nenhum consultor encontrado.</p>
-        </div>
+      {tab === 'closers' && (
+        <>
+          {/* Filtro de time */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted-foreground)', fontWeight: 500 }}>Filtrar:</span>
+            {([
+              { key: 'todos', label: '👥 Todos' },
+              { key: 'R1',   label: '🟣 Time R1' },
+              { key: 'OAO',  label: '🔵 Time OAO' },
+            ] as const).map(t => (
+              <button key={t.key} onClick={() => setFilterTeam(t.key)}
+                style={{
+                  height: 32, padding: '0 14px', borderRadius: 9, cursor: 'pointer',
+                  border: `1.5px solid ${filterTeam === t.key ? '#6366f1' : 'var(--border)'}`,
+                  background: filterTeam === t.key ? 'rgba(99,102,241,.1)' : 'var(--background)',
+                  color: filterTeam === t.key ? '#6366f1' : 'var(--muted-foreground)',
+                  fontSize: 12, fontWeight: filterTeam === t.key ? 700 : 500,
+                  transition: 'all .15s',
+                }}>
+                {t.label}
+              </button>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
+              {filtered.length} closer{filtered.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Grid — key inclui currentMonth para forçar remount dos cards ao trocar mês */}
+          {loadingMonth ? (
+            <div style={{ textAlign: 'center', padding: '48px', color: 'var(--muted-foreground)' }}>
+              <Loader2 size={28} style={{ animation: 'spin 1s linear infinite', margin: '0 auto' }}/>
+              <p style={{ marginTop: 12, fontSize: 13 }}>Carregando metas...</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(440px,1fr))', gap: 16 }}>
+              {filtered.map(c => (
+                // key com mês garante que o card remonta ao trocar de mês, zerando os estados
+                <CloserGoalCard key={`${c.id}-${currentMonth}`} closer={c} month={currentMonth}/>
+              ))}
+            </div>
+          )}
+
+          {!loadingMonth && filtered.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--muted-foreground)' }}>
+              <Target size={36} style={{ margin: '0 auto 12px', opacity: .3 }}/>
+              <p style={{ fontSize: 14 }}>Nenhum consultor encontrado.</p>
+            </div>
+          )}
+        </>
       )}
 
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>

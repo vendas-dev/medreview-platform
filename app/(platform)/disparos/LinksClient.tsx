@@ -8,7 +8,7 @@ import {
 } from 'recharts'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { Link2, Users, BarChart2, Package, Calendar, List, ChevronDown,
-         DollarSign, RefreshCw, Clock, X, Search, TrendingUp } from 'lucide-react'
+         DollarSign, RefreshCw, Clock, X, Search, TrendingUp, AlertTriangle, ExternalLink } from 'lucide-react'
 
 // ── Tipos ─────────────────────────────────────────────────────
 interface GeracaoLink {
@@ -18,6 +18,7 @@ interface GeracaoLink {
   selected_option:string|null; payment_link:string|null; expires_at:string|null
   pipeline_name:string|null; stage_name:string|null; created_at:string; discount_pct?:number|null; coupon_code?:string|null
   payment_mode?:string|null; installments_no_interest?:number|null
+  converted_at?:string|null; converted_transaction_id?:string|null; superseded_by_link_id?:string|null
 }
 
 // Rótulo legível da Condição — 'sem_juros' mostra o número real de parcelas
@@ -29,7 +30,21 @@ function conditionLabel(r: { payment_mode?: string|null; installments_no_interes
   if (r.payment_mode === 'sem_juros') return `${r.installments_no_interest ?? 3}x sem juros`
   return r.payment_mode
 }
-type TabId = 'geral'|'owners'|'produtos'|'analise'|'tabela'
+
+// Status de conversão do link — usado na aba "Não Convertidos".
+function linkStatus(r: GeracaoLink): { label:string; color:string; bg:string } {
+  if (r.converted_at) return { label:'Pago', color:'#34d399', bg:'rgba(52,211,153,.12)' }
+  if (r.superseded_by_link_id) return { label:'Reemissão paga', color:'#94a3b8', bg:'rgba(148,163,184,.12)' }
+  if (r.expires_at && r.expires_at < new Date().toISOString()) return { label:'Vencido', color:'#f87171', bg:'rgba(248,113,113,.12)' }
+  return { label:'Pendente', color:'#fbbf24', bg:'rgba(251,191,36,.12)' }
+}
+
+// Link direto pro negócio no HubSpot.
+function hubspotDealUrl(dealId: string): string {
+  return `https://app.hubspot.com/contacts/48628516/record/0-3/${dealId}`
+}
+
+type TabId = 'geral'|'owners'|'produtos'|'analise'|'tabela'|'naoconvertidos'
 
 const TABS = [
   { id:'geral'   as TabId, label:'Visão Geral', icon:BarChart2  },
@@ -37,6 +52,7 @@ const TABS = [
   { id:'produtos'as TabId, label:'Por Produto', icon:Package    },
   { id:'analise' as TabId, label:'Análise',     icon:TrendingUp },
   { id:'tabela'  as TabId, label:'Tabela',      icon:List       },
+  { id:'naoconvertidos' as TabId, label:'Não Convertidos', icon:AlertTriangle },
 ]
 const COLORS=['#a78bfa','#60a5fa','#34d399','#fbbf24','#f87171','#818cf8','#fb923c','#e879f9','#2dd4bf','#f472b6']
 const TOOLTIP_STYLE={ background:'#1a1a2e', border:'1px solid rgba(139,92,246,.3)', borderRadius:10, fontSize:12, color:'#e2e8f0' }
@@ -126,7 +142,7 @@ function RecordModal({ title, rows, onClose }: { title:string;rows:GeracaoLink[]
         <div style={{ overflowY:'auto', flex:1, overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
             <thead><tr style={{ background:'rgba(99,102,241,.08)', position:'sticky', top:0 }}>
-              {['Data','Owner','Deal','Valor','Desconto','Condição','Produto','Tipo','Opção','Etapa'].map(h=>(
+              {['Data','Owner','Deal','Valor','Desconto','Condição','Produto','Etapa'].map(h=>(
                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:700, color:'rgba(99,102,241,.7)', fontSize:9, textTransform:'uppercase', letterSpacing:'.07em', borderBottom:'1px solid var(--border)', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr></thead>
@@ -140,8 +156,6 @@ function RecordModal({ title, rows, onClose }: { title:string;rows:GeracaoLink[]
                   <td style={{ padding:'7px 12px' }}>{r.discount_pct?<span title={r.coupon_code??undefined} style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(249,115,22,.12)', color:'#f97316', fontWeight:700, cursor: r.coupon_code?'help':'default' }}>{r.discount_pct}%</span>:'—'}</td>
                   <td style={{ padding:'7px 12px' }}>{conditionLabel(r)?<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(52,211,153,.1)', color:'#34d399', fontWeight:700 }}>{conditionLabel(r)}</span>:'—'}</td>
                   <td style={{ padding:'7px 12px', color:'var(--foreground)' }}>{r.product_name??'—'}</td>
-                  <td style={{ padding:'7px 12px' }}>{r.generation_mode&&<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(99,102,241,.1)', color:'#818cf8', fontWeight:700 }}>{r.generation_mode}</span>}</td>
-                  <td style={{ padding:'7px 12px', color:'var(--muted-foreground)' }}>{r.selected_option??'—'}</td>
                   <td style={{ padding:'7px 12px', color:'var(--muted-foreground)' }}>{r.stage_name??'—'}</td>
                 </tr>
               ))}
@@ -164,7 +178,9 @@ function DealModal({ dealId, dealName, rows, onClose }: { dealId:string;dealName
           <button onClick={onClose} style={{ width:32, height:32, borderRadius:9, border:'1px solid var(--border)', background:'transparent', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted-foreground)' }}><X size={14}/></button>
         </div>
         <div style={{ overflowY:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:10 }}>
-          {sorted.map((r,i)=>(
+          {sorted.map((r,i)=>{
+            const st = linkStatus(r)
+            return (
             <div key={r.id} style={{ display:'flex', gap:12 }}>
               <div style={{ display:'flex', flexDirection:'column', alignItems:'center', flexShrink:0 }}>
                 <div style={{ width:26, height:26, borderRadius:'50%', background:i===0?'#818cf8':'rgba(99,102,241,.1)', border:`2px solid ${i===0?'#818cf8':'rgba(99,102,241,.3)'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:900, color:i===0?'#fff':'#818cf8' }}>{i+1}</div>
@@ -173,6 +189,7 @@ function DealModal({ dealId, dealName, rows, onClose }: { dealId:string;dealName
               <div style={{ flex:1, background:'rgba(99,102,241,.04)', borderRadius:10, padding:'10px 12px', border:'1px solid rgba(99,102,241,.1)' }}>
                 <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:4 }}>
                   {i>0&&<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(239,68,68,.1)', color:'#f87171', fontWeight:800 }}>🔄 REEMISSÃO</span>}
+                  <span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:st.bg, color:st.color, fontWeight:800 }}>{st.label}</span>
                   {r.generation_mode&&<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(99,102,241,.1)', color:'#818cf8', fontWeight:700 }}>{r.generation_mode}</span>}
                   {r.selected_option&&<span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(52,211,153,.1)', color:'#34d399', fontWeight:700 }}>{r.selected_option}</span>}
                 </div>
@@ -180,8 +197,161 @@ function DealModal({ dealId, dealName, rows, onClose }: { dealId:string;dealName
                 <p style={{ fontSize:11, color:'var(--muted-foreground)', margin:0 }}>{r.owner_name} · {r.product_name??'—'}</p>
               </div>
             </div>
+          )})}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Aba "Não Convertidos" ──────────────────────────────────────
+
+// Deal_name às vezes vem como "Nome | email@algo.com" — separa pra dar
+// destaque ao nome e deixar o e-mail como informação secundária.
+function parseDealName(dealName: string | null): { primary: string; secondary: string | null } {
+  if (!dealName) return { primary: 'Sem nome', secondary: null }
+  const parts = dealName.split('|').map(s => s.trim()).filter(Boolean)
+  if (parts.length > 1) return { primary: parts[0], secondary: parts.slice(1).join(' · ') }
+  return { primary: dealName, secondary: null }
+}
+
+// Compara pelo fuso de SP, não pelo fuso do navegador.
+function spDateStr(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
+// Status de urgência — a data/hora vira praticamente um selo de prioridade,
+// não só um texto pequeno.
+function urgencyInfo(expiresAt: string | null): { label: string; color: string; bg: string; dot: string; order: number } {
+  if (!expiresAt) return { label: '—', color: '#94a3b8', bg: 'rgba(148,163,184,.1)', dot: '⚪', order: 4 }
+  const now = new Date()
+  const target = new Date(expiresAt)
+  const time = target.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  if (target.getTime() < now.getTime()) {
+    const daysAgo = Math.max(1, Math.round((now.getTime() - target.getTime()) / 86400000))
+    return { label: `Expirado há ${daysAgo}d`, color: '#f87171', bg: 'rgba(248,113,113,.12)', dot: '🔴', order: 0 }
+  }
+  const todayStr = spDateStr(now), tomorrowStr = spDateStr(new Date(now.getTime() + 86400000)), targetStr = spDateStr(target)
+  if (targetStr === todayStr)    return { label: `Hoje · ${time}`,    color: '#fb923c', bg: 'rgba(251,146,60,.12)',  dot: '🟠', order: 1 }
+  if (targetStr === tomorrowStr) return { label: `Amanhã · ${time}`,  color: '#fbbf24', bg: 'rgba(251,191,36,.12)',  dot: '🟡', order: 2 }
+  const daysAhead = Math.ceil((target.getTime() - now.getTime()) / 86400000)
+  return { label: `Expira em ${daysAhead}d`, color: '#94a3b8', bg: 'rgba(148,163,184,.1)', dot: '⚪', order: 3 }
+}
+
+function fmtMoneyCompact(v: number): string {
+  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(2).replace('.', ',')} mi`
+  if (v >= 1_000) return `R$ ${(v / 1000).toFixed(0)}k`
+  return fmtBRL(v)
+}
+
+function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: boolean }) {
+  const naoConvertidos = useMemo(() => {
+    const candidates = data.filter(d => !d.converted_at && !d.superseded_by_link_id && d.expires_at)
+    // Se o mesmo negócio (deal_id) tem mais de um link pendente — geralmente
+    // porque reemitiram antes do anterior vencer, ou geraram errado e
+    // corrigiram — mostra só o mais recente.
+    const byDeal = new Map<string, GeracaoLink>()
+    candidates.forEach(d => {
+      const key = d.deal_id ?? d.id
+      const existing = byDeal.get(key)
+      if (!existing || d.generated_at > existing.generated_at) byDeal.set(key, d)
+    })
+    return [...byDeal.values()].sort((a, b) => (a.expires_at ?? '').localeCompare(b.expires_at ?? ''))
+  }, [data])
+
+  const now = new Date()
+  const todayStr = spDateStr(now), tomorrowStr = spDateStr(new Date(now.getTime() + 86400000))
+
+  const vencidos = naoConvertidos.filter(d => d.expires_at && new Date(d.expires_at) < now)
+  const hoje     = naoConvertidos.filter(d => d.expires_at && new Date(d.expires_at) >= now && spDateStr(new Date(d.expires_at)) === todayStr)
+  const amanha   = naoConvertidos.filter(d => d.expires_at && new Date(d.expires_at) >= now && spDateStr(new Date(d.expires_at)) === tomorrowStr)
+  const proximos = naoConvertidos.filter(d => d.expires_at && new Date(d.expires_at) >= now && spDateStr(new Date(d.expires_at)) !== todayStr && spDateStr(new Date(d.expires_at)) !== tomorrowStr)
+
+  const totalAguardando = naoConvertidos.reduce((s, d) => s + (Number(d.deal_value) || 0), 0)
+  const urgentesCount = hoje.length + amanha.length
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ vencidos: false, hoje: true, amanha: true, proximos: false })
+  function toggle(key: string) { setOpenSections(s => ({ ...s, [key]: !s[key] })) }
+
+  function Row({ r }: { r: GeracaoLink }) {
+    const { primary, secondary } = parseDealName(r.deal_name)
+    const u = urgencyInfo(r.expires_at)
+    const [hovered, setHovered] = useState(false)
+    return (
+      <div onClick={() => r.deal_id && window.open(hubspotDealUrl(r.deal_id), '_blank')}
+        onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+        style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 90px' : '1fr 130px 90px 130px 90px', alignItems:'center', gap:10, padding:'7px 16px', cursor: r.deal_id ? 'pointer' : 'default', transition:'background .1s', borderBottom:'1px solid var(--border)', background: hovered ? 'var(--secondary)' : 'transparent' }}>
+        {isAdmin && <span style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.owner_name}</span>}
+        <div style={{ minWidth:0 }}>
+          <p style={{ fontSize:12.5, fontWeight:700, color:'var(--foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{primary}</p>
+          {secondary && <p style={{ fontSize:9.5, color:'var(--muted-foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{secondary}</p>}
+        </div>
+        <span style={{ fontSize:11, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name ?? '—'}</span>
+        <span style={{ fontSize:13, fontWeight:900, color:'var(--foreground)', textAlign:'right' }}>{fmtBRL(r.deal_value)}</span>
+        <span style={{ fontSize:10.5, fontWeight:800, padding:'3px 8px', borderRadius:999, background:u.bg, color:u.color, textAlign:'center', whiteSpace:'nowrap' }}>{u.dot} {u.label}</span>
+        <span style={{ textAlign:'right' }}>
+          {r.deal_id && (
+            <span style={{ fontSize:10.5, fontWeight:700, color:'#818cf8', opacity: hovered ? 1 : 0.35, transition:'opacity .15s', display:'inline-flex', alignItems:'center', gap:3, whiteSpace:'nowrap' }}>
+              Abrir <ExternalLink size={11}/>
+            </span>
+          )}
+        </span>
+      </div>
+    )
+  }
+
+  function Section({ id, emoji, label, count, rows }: { id: string; emoji: string; label: string; count: number; rows: GeracaoLink[] }) {
+    if (count === 0) return null
+    const open = openSections[id]
+    return (
+      <div>
+        <button onClick={() => toggle(id)}
+          style={{ display:'flex', alignItems:'center', justifyContent:'space-between', width:'100%', background:'var(--secondary)', border:'none', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)', cursor:'pointer', padding:'8px 16px', fontFamily:'inherit' }}>
+          <span style={{ fontSize:10.5, fontWeight:800, color:'var(--foreground)', textTransform:'uppercase', letterSpacing:'.05em' }}>{emoji} {label} — {count}</span>
+          <span style={{ fontSize:11, fontWeight:700, color:'#6366f1' }}>{open ? '▲' : '▼'}</span>
+        </button>
+        {open && rows.map(r => <Row key={r.id} r={r} />)}
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      {/* Painel de cobrança */}
+      <div style={{ background:'var(--card)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:16, overflow:'hidden', boxShadow:'0 1px 8px rgba(0,0,0,.06)' }}>
+        <div style={{ padding:'18px 20px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+            <AlertTriangle size={16} style={{ color:'#d97706' }}/>
+            <h3 style={{ fontSize:15, fontWeight:800, color:'var(--foreground)', margin:0 }}>Links pendentes</h3>
+          </div>
+          <p style={{ fontSize:20, fontWeight:900, color:'#d97706', margin:'0 0 12px' }}>
+            {fmtMoneyCompact(totalAguardando)} <span style={{ fontSize:13, fontWeight:700, color:'var(--muted-foreground)' }}>em potencial aguardando ação</span>
+          </p>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button onClick={() => { setOpenSections(s => ({ ...s, hoje: true, amanha: true })); document.getElementById('sec-hoje')?.scrollIntoView({ behavior:'smooth' }) }}
+              style={{ display:'flex', alignItems:'center', gap:6, height:32, padding:'0 14px', borderRadius:999, border:'1px solid rgba(251,191,36,.35)', background:'rgba(251,191,36,.1)', color:'#d97706', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit' }}>
+              🟡 {urgentesCount} urgente{urgentesCount!==1?'s':''}
+            </button>
+            <button onClick={() => { setOpenSections(s => ({ ...s, vencidos: true })); document.getElementById('sec-vencidos')?.scrollIntoView({ behavior:'smooth' }) }}
+              style={{ display:'flex', alignItems:'center', gap:6, height:32, padding:'0 14px', borderRadius:999, border:'1px solid rgba(248,113,113,.35)', background:'rgba(248,113,113,.1)', color:'#f87171', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit' }}>
+              🔴 {vencidos.length} vencido{vencidos.length!==1?'s':''}
+            </button>
+          </div>
+        </div>
+
+        {/* Cabeçalho de colunas */}
+        <div style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 90px' : '1fr 130px 90px 130px 90px', gap:10, padding:'6px 16px', background:'var(--secondary)', borderTop:'1px solid var(--border)' }}>
+          {(isAdmin ? ['Proprietário','Lead','Produto','Valor','Vencimento','Ação'] : ['Lead','Produto','Valor','Vencimento','Ação']).map((h, i, arr) => (
+            <span key={h} style={{ fontSize:9, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.06em', textAlign: i >= arr.length - 3 && i !== arr.length - 3 ? 'right' : 'left' }}>{h}</span>
           ))}
         </div>
+
+        <div id="sec-hoje"><Section id="hoje"     emoji="🟠" label="Vencem hoje"    count={hoje.length}     rows={hoje}/></div>
+        <Section id="amanha"   emoji="🟡" label="Vencem amanhã"  count={amanha.length}   rows={amanha}/>
+        <Section id="proximos" emoji="⚪" label="Próximos"        count={proximos.length} rows={proximos}/>
+        <div id="sec-vencidos"><Section id="vencidos" emoji="🔴" label="Vencidos"        count={vencidos.length} rows={vencidos}/></div>
+
+        {naoConvertidos.length === 0 && <p style={{ textAlign:'center', padding:48, color:'var(--muted-foreground)' }}>Nenhum link pendente — tudo convertido ou substituído por reemissão. 🎉</p>}
       </div>
     </div>
   )
@@ -201,8 +371,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const [fOwner,  setFOwner]  = useState('')
   const [fVert,   setFVert]   = useState('')
   const [fProd,   setFProd]   = useState('')
-  const [fMode,   setFMode]   = useState('')
-  const [fOpt,    setFOpt]    = useState('')
   const [fEtapa,  setFEtapa]  = useState('')
   const [fCond,   setFCond]   = useState('')
   const [fFrom,   setFFrom]   = useState('')
@@ -210,7 +378,14 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const [search,  setSearch]  = useState('')
   const channelRef=useRef<any>(null)
 
+  // Mesma proteção do módulo de Disparos: se uma busca mais antiga responder
+  // depois de uma mais nova (ex: usuário mudou o filtro de data antes da
+  // busca anterior terminar), o resultado antigo é descartado em vez de
+  // sobrescrever o que já está certo na tela.
+  const requestIdRef = useRef(0)
+
   const fetchData=useCallback(async()=>{
+    const myRequestId = ++requestIdRef.current
     setLoading(true);let all:GeracaoLink[]=[],from=0
     while(true){
       let q = supabase.from('geracoes_links').select('*')
@@ -219,6 +394,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       const{data:b}=await q.order('generated_at',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
+    if (myRequestId !== requestIdRef.current) return
     // Usuário comum só vê os próprios links — mesmo critério do módulo de disparos
     // e do telão: hubspot_id primeiro, nome como fallback pros registros antigos.
     if(!isAdmin){
@@ -247,6 +423,12 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
         if(!matches) return
       }
       setData(prev=>prev.some(d=>d.id===row.id)?prev:[row,...prev])
+    }).on('postgres_changes',{event:'UPDATE',schema:'public',table:'geracoes_links'},(payload:any)=>{
+      // Também escuta UPDATE — é assim que um link passa a "Pago" ou
+      // "Reemissão paga" (a venda enriquece o registro depois de criado,
+      // não é um INSERT novo).
+      const row=payload.new as GeracaoLink
+      setData(prev=>prev.map(d=>d.id===row.id?row:d))
     }).subscribe()
     channelRef.current=ch; return()=>{supabase.removeChannel(ch)}
   },[fFrom,fTo,isAdmin,ownerName,ownerHubspotId])
@@ -255,13 +437,11 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     if(fOwner&&d.owner_name!==fOwner)return false
     if(fVert &&(d.vertical??'')!==fVert)return false
     if(fProd &&(d.product_name??'')!==fProd)return false
-    if(fMode &&(d.generation_mode??'')!==fMode)return false
-    if(fOpt  &&(d.selected_option??'')!==fOpt)return false
     if(fEtapa&&(d.stage_name??'')!==fEtapa)return false
     if(fCond &&(conditionLabel(d)??'')!==fCond)return false
     if(search){const s=search.toLowerCase();return d.owner_name.toLowerCase().includes(s)||(d.deal_name??'').toLowerCase().includes(s)||(d.product_name??'').toLowerCase().includes(s)}
     return true
-  }),[data,fOwner,fVert,fProd,fMode,fOpt,fEtapa,fCond,search])
+  }),[data,fOwner,fVert,fProd,fEtapa,fCond,search])
 
   // Opções cascateadas — cada filtro só mostra opções que ainda existem
   // considerando os OUTROS filtros já selecionados (ex: se só existe link
@@ -271,8 +451,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       if(skip!=='owner'&&fOwner&&d.owner_name!==fOwner)return false
       if(skip!=='vert' &&fVert &&(d.vertical??'')!==fVert)return false
       if(skip!=='prod' &&fProd &&(d.product_name??'')!==fProd)return false
-      if(skip!=='mode' &&fMode &&(d.generation_mode??'')!==fMode)return false
-      if(skip!=='opt'  &&fOpt  &&(d.selected_option??'')!==fOpt)return false
       if(skip!=='etapa'&&fEtapa&&(d.stage_name??'')!==fEtapa)return false
       if(skip!=='cond' &&fCond &&(conditionLabel(d)??'')!==fCond)return false
       return true
@@ -281,12 +459,10 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       owners:[...new Set(ex('owner').map(d=>d.owner_name))].sort(),
       verts: [...new Set(ex('vert').map(d=>d.vertical).filter(Boolean))].sort() as string[],
       prods: [...new Set(ex('prod').map(d=>d.product_name).filter(Boolean))].sort() as string[],
-      modes: [...new Set(ex('mode').map(d=>d.generation_mode).filter(Boolean))].sort() as string[],
-      opts_: [...new Set(ex('opt').map(d=>d.selected_option).filter(Boolean))].sort() as string[],
       etapas:[...new Set(ex('etapa').map(d=>d.stage_name).filter(Boolean))].sort() as string[],
       conds: [...new Set(ex('cond').map(d=>conditionLabel(d)).filter(Boolean))].sort() as string[],
     }
-  },[data,fOwner,fVert,fProd,fMode,fOpt,fEtapa,fCond])
+  },[data,fOwner,fVert,fProd,fEtapa,fCond])
 
   // KPIs
   const kpis=useMemo(()=>{
@@ -325,7 +501,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
 
   const tableRows=useMemo(()=>filtered.slice(tblPage*PAGE,(tblPage+1)*PAGE),[filtered,tblPage])
   const totalPages=Math.ceil(filtered.length/PAGE)
-  const hasFilters=fOwner||fVert||fProd||fMode||fOpt||fEtapa||fCond
+  const hasFilters=fOwner||fVert||fProd||fEtapa||fCond
   const CARD:React.CSSProperties={background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,padding:'20px 22px',boxShadow:'0 1px 8px rgba(0,0,0,.06)'}
   const TIT:React.CSSProperties={fontSize:14,fontWeight:800,color:'var(--foreground)',margin:'0 0 4px'}
   const SUB:React.CSSProperties={fontSize:11,color:'var(--muted-foreground)',margin:'0 0 16px'}
@@ -351,38 +527,37 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
           <FSelect label="Proprietário" value={fOwner} onChange={v=>{setFOwner(v);setTblPage(0)}} options={opts.owners}/>
           <FSelect label="Vertical"     value={fVert}  onChange={v=>{setFVert(v);setTblPage(0)}}  options={opts.verts} placeholder="Todas"/>
           <FSelect label="Produto"      value={fProd}  onChange={v=>{setFProd(v);setTblPage(0)}}  options={opts.prods} placeholder="Todos"/>
-          <FSelect label="Tipo Geração" value={fMode}  onChange={v=>{setFMode(v);setTblPage(0)}}  options={opts.modes} placeholder="Todos"/>
-          <FSelect label="Opção"        value={fOpt}   onChange={v=>{setFOpt(v);setTblPage(0)}}   options={opts.opts_} placeholder="Todas"/>
           <FSelect label="Etapa"        value={fEtapa} onChange={v=>{setFEtapa(v);setTblPage(0)}} options={opts.etapas} placeholder="Todas"/>
           <FSelect label="Condição"     value={fCond}  onChange={v=>{setFCond(v);setTblPage(0)}}  options={opts.conds} placeholder="Todas"/>
           <FDate label="De"  value={fFrom} onChange={setFFrom} placeholder="Início"/>
           <FDate label="Até" value={fTo}   onChange={setFTo}   placeholder="Hoje"/>
           {hasFilters&&(
             <div style={{display:'flex',alignItems:'flex-end',paddingBottom:1}}>
-              <button onClick={()=>{setFOwner('');setFVert('');setFProd('');setFMode('');setFOpt('');setFEtapa('');setFCond('')}} style={{height:38,padding:'0 12px',borderRadius:9,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.08)',color:'#f87171',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>× Limpar</button>
+              <button onClick={()=>{setFOwner('');setFVert('');setFProd('');setFEtapa('');setFCond('')}} style={{height:38,padding:'0 12px',borderRadius:9,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.08)',color:'#f87171',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>× Limpar</button>
             </div>
           )}
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{display:'flex',gap:4,marginBottom:20,padding:4,background:'var(--secondary)',borderRadius:12,border:'1px solid var(--border)',width:'fit-content'}}>
+      <div style={{display:'flex',gap:4,marginBottom:20,padding:4,background:'var(--secondary)',borderRadius:12,border:'1px solid var(--border)',width:'fit-content',flexWrap:'wrap'}}>
         {TABS.map(t=>{const Icon=t.icon;const active=tab===t.id;return(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:'flex',alignItems:'center',gap:6,height:34,padding:'0 16px',borderRadius:9,border:'none',background:active?'linear-gradient(135deg,rgba(99,102,241,.4),rgba(139,92,246,.3))':'transparent',color:active?'#e9d5ff':'var(--muted-foreground)',fontSize:12,fontWeight:active?800:500,cursor:'pointer',fontFamily:'inherit',transition:'all .2s',boxShadow:active?'0 2px 8px rgba(99,102,241,.25)':'none'}}>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{display:'flex',alignItems:'center',gap:6,height:34,padding:'0 16px',borderRadius:9,border:'none',background:active?'linear-gradient(135deg,rgba(99,102,241,.4),rgba(139,92,246,.3))':'transparent',color:active?'#e9d5ff':'var(--muted-foreground)',fontSize:12,fontWeight:active?800:500,cursor:'pointer',fontFamily:'inherit',transition:'all .2s',boxShadow:active?'0 2px 8px rgba(99,102,241,.25)':'none',whiteSpace:'nowrap'}}>
             <Icon size={13}/>{t.label}
           </button>
         )})}
       </div>
 
-      {/* KPIs */}
-      <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
-        <KpiCard icon={Link2}       label="Total Links"      value={kpis.total.toLocaleString('pt-BR')} color="#818cf8"/>
-        <KpiCard icon={DollarSign}  label="Valor Total"      value={fmtBRL(kpis.totalVal)}              color="#34d399" sub="deals únicos"/>
-        <KpiCard icon={RefreshCw}   label="Taxa Reemissão"   value={`${kpis.taxaRe}%`}                  color="#fbbf24" sub={`${kpis.deals} deals únicos`}/>
-        <KpiCard icon={Clock}       label="Tempo Médio"      value={kpis.avgTempo}                      color="#a78bfa" sub="criação → 1ª geração"/>
-        <KpiCard icon={Users}       label="Links Hoje"       value={kpis.hoje}                          color="#60a5fa"/>
-        <KpiCard icon={TrendingUp}  label="Ticket Médio"     value={fmtBRL(kpis.ticketMedio)}           color="#fb923c"/>
-      </div>
+      {tab!=='naoconvertidos' && (
+        <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
+          <KpiCard icon={Link2}       label="Total Links"      value={kpis.total.toLocaleString('pt-BR')} color="#818cf8"/>
+          <KpiCard icon={DollarSign}  label="Valor Total"      value={fmtBRL(kpis.totalVal)}              color="#34d399" sub="deals únicos"/>
+          <KpiCard icon={RefreshCw}   label="Taxa Reemissão"   value={`${kpis.taxaRe}%`}                  color="#fbbf24" sub={`${kpis.deals} deals únicos`}/>
+          <KpiCard icon={Clock}       label="Tempo Médio"      value={kpis.avgTempo}                      color="#a78bfa" sub="criação → 1ª geração"/>
+          <KpiCard icon={Users}       label="Links Hoje"       value={kpis.hoje}                          color="#60a5fa"/>
+          <KpiCard icon={TrendingUp}  label="Ticket Médio"     value={fmtBRL(kpis.ticketMedio)}           color="#fb923c"/>
+        </div>
+      )}
 
       {loading ? (
         <div style={{display:'flex',justifyContent:'center',padding:80}}>
@@ -390,6 +565,8 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
         </div>
       ):(
         <>
+          {tab==='naoconvertidos' && <NaoConvertidosTab data={filtered} isAdmin={isAdmin} />}
+
           {tab==='geral'&&(
             <div style={{display:'flex',flexDirection:'column',gap:16}}>
               <div style={CARD}>
@@ -528,13 +705,14 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                   <thead><tr style={{background:'var(--secondary)'}}>
-                    {['Data','Owner','Deal','Valor','Desconto','Condição','Produto','Vertical','Tipo','Opção','Etapa'].map(h=>(
+                    {['Data','Owner','Deal','Valor','Desconto','Condição','Produto','Vertical','Status','Etapa'].map(h=>(
                       <th key={h} style={{padding:'9px 12px',textAlign:'left',fontWeight:700,color:'var(--muted-foreground)',fontSize:9,textTransform:'uppercase',letterSpacing:'.07em',borderBottom:'1px solid rgba(99,102,241,.15)',whiteSpace:'nowrap'}}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
                     {tableRows.map((r,i)=>{
                       const dk=r.deal_id??r.id
+                      const st=linkStatus(r)
                       return(
                         <tr key={r.id} style={{borderBottom:'1px solid rgba(99,102,241,.08)',background:i%2===0?'transparent':'rgba(99,102,241,.03)',cursor:'pointer',transition:'background .1s'}}
                           onMouseEnter={e=>(e.currentTarget as HTMLElement).style.background='rgba(99,102,241,.06)'}
@@ -548,8 +726,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
                           <td style={{padding:'7px 12px'}}>{conditionLabel(r)?<span style={{fontSize:9,padding:'1px 6px',borderRadius:4,background:'rgba(52,211,153,.1)',color:'#34d399',fontWeight:700}}>{conditionLabel(r)}</span>:'—'}</td>
                           <td style={{padding:'7px 12px',color:'var(--foreground)'}}>{r.product_name??'—'}</td>
                           <td style={{padding:'7px 12px',color:'var(--muted-foreground)'}}>{r.vertical??'—'}</td>
-                          <td style={{padding:'7px 12px'}}>{r.generation_mode&&<span style={{fontSize:9,padding:'1px 6px',borderRadius:4,background:'rgba(99,102,241,.1)',color:'#818cf8',fontWeight:700}}>{r.generation_mode}</span>}</td>
-                          <td style={{padding:'7px 12px',color:'var(--muted-foreground)'}}>{r.selected_option??'—'}</td>
+                          <td style={{padding:'7px 12px'}}><span style={{fontSize:9,padding:'1px 7px',borderRadius:999,background:st.bg,color:st.color,fontWeight:800}}>{st.label}</span></td>
                           <td style={{padding:'7px 12px',color:'var(--muted-foreground)'}}>{r.stage_name??'—'}</td>
                         </tr>
                       )

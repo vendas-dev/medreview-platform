@@ -31,8 +31,10 @@ export interface CompanyInsightInput {
   verticalNow:        VerticalSnapshot[]
   verticalPrev:       VerticalSnapshot[]
   forecast:           { ativas: number; atrasadas: number; emRisco: number; persistenceRate: number }
-  topClosers:         { name: string; revenue: number; pctGoal: number }[]
+  topClosers:         { name: string; revenue: number; pctGoal: number; pctOfTotalRev: number }[]
   riskClosers:        { name: string; daysSinceLastSale: number; pctGoal: number }[]
+  discountOutliers:   { name: string; avgPct: number; companyAvgPct: number }[]
+  productDeltas:      { product: string; vertical: string; revNow: number; revPrev: number; deltaPct: number | null }[]
 }
 
 export async function ensureCompanyInsights(input: CompanyInsightInput): Promise<CompanyInsight[]> {
@@ -75,6 +77,12 @@ async function generateInsights(input: CompanyInsightInput): Promise<CompanyInsi
     '— só inclua algo se houver um padrão notável (queda/subida expressiva, desconto fora do padrão,',
     'risco de meta, assinatura em risco). Não invente insight genérico se os números forem normais.',
     '',
+    'Exemplos do ESTILO de insight que valem a pena (direto, com número, sem enrolação):',
+    '"Receita +12% vs. mês anterior" / "Conversão caiu 4,2 p.p. nos últimos 7 dias" / "Desconto médio de',
+    'Fernanda está 38% acima da média" / "Bruna representa 17% da receita total" / "Produto X caiu 23%',
+    'em vendas". Use os dados abaixo pra montar insights nesse mesmo estilo — direto, com número real,',
+    'sem explicação óbvia.',
+    '',
     'Cada item do array: { "type": "alerta"|"oportunidade"|"destaque", "titulo": string (máx 12 palavras,',
     'direto, com o número real), "motivo": string ou null (máx 14 palavras, causa provável), "sugestao":',
     'string ou null (máx 14 palavras, ação concreta) }.',
@@ -88,8 +96,10 @@ async function generateInsights(input: CompanyInsightInput): Promise<CompanyInsi
     '',
     `Assinaturas recorrentes: ${input.forecast.ativas} ativas, ${input.forecast.atrasadas} atrasadas, ${input.forecast.emRisco} em risco (aderência histórica: ${input.forecast.persistenceRate.toFixed(0)}%)`,
     '',
-    input.topClosers.length > 0 ? `Top closers do mês: ${input.topClosers.map(c => `${c.name} (R$ ${c.revenue.toFixed(0)}, ${c.pctGoal.toFixed(0)}% da meta)`).join('; ')}` : '',
+    input.topClosers.length > 0 ? `Top closers do mês: ${input.topClosers.map(c => `${c.name} (R$ ${c.revenue.toFixed(0)}, ${c.pctGoal.toFixed(0)}% da meta, ${c.pctOfTotalRev.toFixed(0)}% da receita total da empresa)`).join('; ')}` : '',
     input.riskClosers.length > 0 ? `Closers sem vender há dias: ${input.riskClosers.map(c => `${c.name} (${c.daysSinceLastSale} dias, ${c.pctGoal.toFixed(0)}% da meta)`).join('; ')}` : '',
+    input.discountOutliers.length > 0 ? `Closers com desconto muito acima da média do time (considerando todas as verticais): ${input.discountOutliers.map(c => `${c.name} (${c.avgPct.toFixed(1)}% vs média de ${c.companyAvgPct.toFixed(1)}%)`).join('; ')}` : '',
+    input.productDeltas.length > 0 ? `Produtos em queda forte vs mês anterior: ${input.productDeltas.map(p => `${p.product} (${p.vertical}, ${(p.deltaPct as number).toFixed(0)}%, de R$ ${p.revPrev.toFixed(0)} pra R$ ${p.revNow.toFixed(0)})`).join('; ')}` : '',
     '',
     'Responda APENAS com o array JSON.',
   ].filter(Boolean).join('\n')

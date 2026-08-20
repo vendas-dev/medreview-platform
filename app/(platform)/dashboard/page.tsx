@@ -7,9 +7,9 @@ import { SuperDashboard } from './SuperDashboard'
 import { UserDashboard } from './UserDashboard'
 import { ensureDailyInsights } from '@/lib/dashboard/closerInsights'
 import { ensureCompanyInsights } from '@/lib/dashboard/companyInsights'
-import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr } from '@/lib/timezone'
+import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, weekdayInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
 import { eventMoneyLeftOnTable, extractCouponDiscountPct } from '@/lib/telao/format'
-import { computeForecast, RecurringSale } from '@/lib/telao/forecast'
+import { computeForecast, computeRemainingMonthRecurring, RecurringSale } from '@/lib/telao/forecast'
 
 // Mesmo critério de match usado no telão/intel: closer_id OU hubspot_id (com
 // trim), nunca só nome — nome sozinho já causou bug de contagem antes.
@@ -115,13 +115,14 @@ export default async function DashboardPage() {
       { data: monthSales },
       { data: monthCerts },
       { data: closerGoals },
+      { data: companyGoalsRaw },
       { data: monthLeads },
       { data: allRecurringRaw },
       { data: prevMonthSales },
     ] = await Promise.all([
       admin2.from('profiles').select('id, name, team, avatar_url, hubspot_id').neq('role', 'superadmin'),
       admin2.from('telao_events')
-        .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, event_type, product, vertical')
+        .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, sold_by_ambassador, is_recurring, installment_number, event_type, product, vertical')
         .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
         .limit(999999),
       admin2.from('telao_events')
@@ -129,6 +130,7 @@ export default async function DashboardPage() {
         .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd)
         .limit(999999),
       admin2.from('closer_goals').select('user_id, goal_sales').eq('month', monthKeyStr),
+      admin2.from('company_goals').select('scope, goal_value').eq('month', monthKeyStr),
       admin2.from('hubspot_leads').select('owner_id').gte('created_at_hs', mStart).lte('created_at_hs', mEnd).limit(999999),
       // Histórico COMPLETO de recorrência (não limitado ao mês) — necessário
       // pro forecast mês a mês até dezembro, igual ao que já existe no /intel.
@@ -137,7 +139,7 @@ export default async function DashboardPage() {
         .eq('event_type', 'sale').eq('is_recurring', true).not('subscription_id', 'is', null)
         .limit(999999),
       admin2.from('telao_events')
-        .select('value, vertical, coupon_code, is_self_checkout, sale_type')
+        .select('value, vertical, coupon_code, is_self_checkout, sale_type, product')
         .eq('event_type', 'sale').gte('occurred_at', prevMStart).lte('occurred_at', prevMEnd)
         .limit(999999),
     ])
@@ -174,6 +176,20 @@ export default async function DashboardPage() {
     const companyAvgDiscount = (vlabel: string) => {
       const d = companyDiscountByVertical[vlabel]
       return d && d.count > 0 ? d.sum / d.count : 0
+    }
+
+    // Links gerados no mês — pra saber em qual condição (à vista/parcelado/
+    // sem juros) cada closer mais costuma gerar, e alimentar a IA com isso.
+    const { data: monthLinksRaw } = await admin2.from('geracoes_links')
+      .select('owner_hubspot_id, payment_mode, installments_no_interest')
+      .gte('generated_at', mStart).lte('generated_at', mEnd).limit(999999)
+    const monthLinks = (monthLinksRaw ?? []) as any[]
+    const paymentModeLabel = (r: { payment_mode: string | null; installments_no_interest: number | null }): string | null => {
+      if (!r.payment_mode) return null
+      if (r.payment_mode === 'a_vista') return 'À vista'
+      if (r.payment_mode === 'parcelado') return 'Parcelado'
+      if (r.payment_mode === 'sem_juros') return `${r.installments_no_interest ?? 3}x sem juros`
+      return r.payment_mode
     }
 
     const closerCards = closers.map((c: any) => {
@@ -218,6 +234,19 @@ export default async function DashboardPage() {
         return { vertical: vlabel, avgPct, companyAvgPct: companyAvgDiscount(vlabel), count: withDiscount.length }
       })
 
+      // Condição de pagamento que esse closer mais gera nos links (à vista/
+      // parcelado/sem juros) — pra IA analisar padrão de negociação, não só desconto.
+      const myLinks = monthLinks.filter((l: any) => c.hubspot_id && l.owner_hubspot_id && String(l.owner_hubspot_id).trim() === String(c.hubspot_id).trim())
+      const paymentModeCounts: Record<string, number> = {}
+      myLinks.forEach((l: any) => {
+        const label = paymentModeLabel(l)
+        if (!label) return
+        paymentModeCounts[label] = (paymentModeCounts[label] ?? 0) + 1
+      })
+      const paymentModeBreakdown = Object.entries(paymentModeCounts)
+        .map(([mode, count]) => ({ mode, count, pct: myLinks.length > 0 ? (count / myLinks.length) * 100 : 0 }))
+        .sort((a, b) => b.count - a.count)
+
       const hasTopTicket = maxSingleSale > 0 && mySales.some((e: any) => (Number(e.value) || 0) === maxSingleSale)
 
       const badges: string[] = []
@@ -227,9 +256,9 @@ export default async function DashboardPage() {
       if (salesLast3Days >= 3) badges.push('em_alta')
 
       return {
-        id: c.id, name: c.name, team: c.team, avatarUrl: c.avatar_url,
+        id: c.id, name: c.name, team: c.team, avatarUrl: c.avatar_url, hubspot_id: c.hubspot_id,
         revenue, salesCount, avgTicket, goalSales, pctGoal,
-        daysSinceLastSale, myCerts, convRate, moneyLeft, badges, discountByVertical,
+        daysSinceLastSale, myCerts, convRate, moneyLeft, badges, discountByVertical, paymentModeBreakdown,
       }
     }).sort((a, b) => b.revenue - a.revenue).map((c, i) => ({ ...c, rank: i + 1 }))
 
@@ -290,7 +319,11 @@ export default async function DashboardPage() {
         subscription_id: e.subscription_id, installment_number: e.installment_number,
         total_installments: e.total_installments, value: Number(e.value) || 0, occurred_at: e.occurred_at,
       }))
-    const mrrAtual = salesMonth.filter((e: any) => e.is_recurring).reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
+    // Mesma regra usada em todo o resto do sistema (ticket médio, contagem de
+    // vendas, "receita nova vs recorrente"): 'recorrente' é parcela 2+, não
+    // "is_recurring=true" — senão a 1ª parcela de uma assinatura nova entrava
+    // aqui também, e esse número ficava divergente do card "nova vs recorrente".
+    const mrrAtual = salesMonth.filter((e: any) => (e.sale_type ?? 'nova') === 'recorrente').reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
     const forecastResult = computeForecast(recurringForForecast, mrrAtual)
     const forecastUntilYearEnd = forecastResult.parcelasRestantesAjustado
     const monthlyForecast = forecastResult.monthlyForecast
@@ -305,6 +338,42 @@ export default async function DashboardPage() {
     }
 
     const totalGoalMonth = Object.values(goalsMap).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
+
+    // ── Meta Geral / por vertical — preenchidas direto pelo admin em
+    // /intel/goals, independentes da soma das metas individuais dos closers.
+    // Se ainda não foi preenchida esse mês, cai pra soma das metas dos
+    // closers (totalGoalMonth) como aproximação razoável, em vez de ficar
+    // zerada — assim o gráfico "Meta x Realizado" sempre mostra algo útil.
+    const companyGoalsMap = Object.fromEntries((companyGoalsRaw ?? []).map((g: any) => [g.scope, Number(g.goal_value) || 0]))
+    const metaGeralMes = companyGoalsMap['geral'] > 0 ? companyGoalsMap['geral'] : totalGoalMonth
+    const metaPorVertical: Record<string, number> = Object.fromEntries(ALL_VERTICALS.map(v => [v, companyGoalsMap[v] ?? 0]))
+
+    // ── Forecast de fechamento do mês — o mais importante dos dois pedidos.
+    // Realizado (já ganho, fixo) + duas projeções pro que ainda falta:
+    //  1. Recorrência que ainda deve cair DENTRO do mês (não é a projeção até
+    //     dezembro, é só o que falta receber nos dias que restam desse mês).
+    //  2. Ritmo atual de vendas NOVAS, extrapolado pros dias que faltam —
+    //     "se continuar vendendo no ritmo médio diário de hoje até aqui,
+    //     quanto mais vou fechar até o fim do mês".
+    const diasRestantesMes = Math.max(daysInMonthTotal - dayOfMonth, 0)
+    const ritmoDiarioNovaVenda = dayOfMonth > 0 ? novaRevAll / dayOfMonth : 0
+    const projecaoRestanteNovaVenda = ritmoDiarioNovaVenda * diasRestantesMes
+    const recorrenciaPrevistaMes = computeRemainingMonthRecurring(forecastResult.states, forecastResult.persistenceRate, new Date())
+    const forecastFechamentoMes = totalRevMonth + projecaoRestanteNovaVenda + recorrenciaPrevistaMes
+    const pctForecastVsMeta = metaGeralMes > 0 ? ((forecastFechamentoMes - metaGeralMes) / metaGeralMes) * 100 : 0
+
+    // ── Série diária acumulada do mês (dia 1 até hoje) — pra linha de
+    // evolução do "Meta x Realizado", comparando com o ritmo linear da meta.
+    const dailyCumulative: { day: number; realizado: number; ritmoLinear: number }[] = []
+    let acumulado = 0
+    for (let d = 1; d <= dayOfMonth; d++) {
+      const dateStr = `${monthKeyStr}-${String(d).padStart(2, '0')}`
+      const { start: dStart, end: dEnd } = dayBoundsSaoPaulo(dateStr)
+      const revDia = salesMonth.filter((e: any) => e.occurred_at >= dStart && e.occurred_at <= dEnd)
+        .reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
+      acumulado += revDia
+      dailyCumulative.push({ day: d, realizado: acumulado, ritmoLinear: metaGeralMes > 0 ? (metaGeralMes / daysInMonthTotal) * d : 0 })
+    }
     const pctCompanyGoal = totalGoalMonth > 0 ? Math.min((totalRevMonth / totalGoalMonth) * 100, 100) : 0
 
     // Frase de IA por closer — cacheada 1x por dia, não recalculada a cada acesso.
@@ -312,7 +381,7 @@ export default async function DashboardPage() {
       id: c.id, name: c.name, team: c.team, revenue: c.revenue, salesCount: c.salesCount,
       goalSales: c.goalSales, pctGoal: c.pctGoal, avgTicket: c.avgTicket,
       daysSinceLastSale: c.daysSinceLastSale, rank: c.rank, myCerts: c.myCerts, moneyLeft: c.moneyLeft,
-      discountByVertical: c.discountByVertical,
+      discountByVertical: c.discountByVertical, paymentModeBreakdown: c.paymentModeBreakdown,
     })))
     const closerCardsWithInsight = closerCards.map(c => ({ ...c, insight: insightsMap[c.id] ?? '' }))
 
@@ -369,17 +438,127 @@ export default async function DashboardPage() {
     // Top closers e closers em risco (sem vender há dias) — dão contexto pra
     // IA citar nomes específicos nos insights de empresa, se fizer sentido.
     const topClosersForInsight = [...closerCardsWithInsight].sort((a, b) => b.revenue - a.revenue).slice(0, 3)
-      .map(c => ({ name: c.name, revenue: c.revenue, pctGoal: c.pctGoal }))
+      .map(c => ({ name: c.name, revenue: c.revenue, pctGoal: c.pctGoal, pctOfTotalRev: totalRevMonth > 0 ? (c.revenue / totalRevMonth) * 100 : 0 }))
     const riskClosersForInsight = closerCardsWithInsight.filter(c => c.daysSinceLastSale !== null && c.daysSinceLastSale >= 4)
       .sort((a, b) => (b.daysSinceLastSale ?? 0) - (a.daysSinceLastSale ?? 0)).slice(0, 3)
       .map(c => ({ name: c.name, daysSinceLastSale: c.daysSinceLastSale as number, pctGoal: c.pctGoal }))
+
+    // Desconto geral (todas as verticais juntas) por closer, pra achar quem
+    // foge muito da média do time — sinal diferente de "por vertical".
+    const closerOverallDiscount = closers.map((c: any) => {
+      const mySales = salesMonth.filter((e: any) => matchesCloser(e, c) && !e.is_self_checkout)
+      const withDiscount = mySales.map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+      const avgPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
+      return { name: c.name, avgPct, count: withDiscount.length }
+    }).filter(c => c.count > 0)
+    const companyAvgDiscountOverall = closerOverallDiscount.length > 0
+      ? closerOverallDiscount.reduce((s, c) => s + c.avgPct, 0) / closerOverallDiscount.length : 0
+    const discountOutliers = closerOverallDiscount
+      .filter(c => companyAvgDiscountOverall > 0 && c.avgPct > companyAvgDiscountOverall * 1.3)
+      .sort((a, b) => b.avgPct - a.avgPct).slice(0, 2)
+      .map(c => ({ name: c.name, avgPct: c.avgPct, companyAvgPct: companyAvgDiscountOverall }))
+
+    // Produtos que mais caíram vs mês anterior (mesmo produto+vertical nos
+    // dois meses) — só entra se de fato existia no mês anterior, pra não
+    // confundir "produto novo" com "produto em queda".
+    const prevProductMap: Record<string, number> = {}
+    prevSales.forEach((e: any) => {
+      if (!e.product) return
+      const vlabel = vLabel(e.vertical ?? 'outros')
+      if (vlabel === 'outros') return
+      const key = `${e.product}|||${vlabel}`
+      prevProductMap[key] = (prevProductMap[key] ?? 0) + (Number(e.value) || 0)
+    })
+    const productDeltas = productRanking
+      .map(p => {
+        const key = `${p.product}|||${p.vertical}`
+        const prevRev = prevProductMap[key] ?? 0
+        const deltaPct = prevRev > 0 ? ((p.rev - prevRev) / prevRev) * 100 : null
+        return { product: p.product, vertical: p.vertical, revNow: p.rev, revPrev: prevRev, deltaPct }
+      })
+      .filter(p => p.deltaPct !== null && p.deltaPct < -15)
+      .sort((a, b) => (a.deltaPct as number) - (b.deltaPct as number)).slice(0, 2)
 
     const companyInsights = await ensureCompanyInsights({
       totalRevMonth, totalRevPrevMonth, pctCompanyGoal, totalMoneyLeft,
       verticalNow: verticalBreakdown, verticalPrev: verticalPrevMonth,
       forecast: { ativas: forecastDetail.ativas, atrasadas: forecastDetail.atrasadas, emRisco: forecastDetail.emRisco, persistenceRate: forecastDetail.persistenceRate },
       topClosers: topClosersForInsight, riskClosers: riskClosersForInsight,
+      discountOutliers, productDeltas,
     })
+
+    // ── Dados do "Painel Comercial" (filtro Hoje/Ontem/Semana/Mês) —
+    // calculados aqui só pro período padrão "mês", pra já vir pronto sem
+    // precisar de um fetch extra no primeiro carregamento da página. Quando
+    // o usuário troca de período no cliente, o componente busca da API.
+    const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+    const byType = {
+      closer: { rev: 0, count: 0 }, ambassador: { rev: 0, count: 0 },
+      selfcheckout: { rev: 0, count: 0 }, ambassadorCloser: { rev: 0, count: 0 },
+    }
+    salesMonth.forEach((e: any) => {
+      const v = Number(e.value) || 0
+      const isAmbassador = (e as any).sold_by_ambassador || e.seller_type === 'ambassador'
+      if (e.is_self_checkout || e.seller_type === 'self_checkout') { byType.selfcheckout.rev += v; byType.selfcheckout.count++ }
+      else if (isAmbassador && e.co_closer_id) { byType.ambassadorCloser.rev += v; byType.ambassadorCloser.count++ }
+      else if (isAmbassador) { byType.ambassador.rev += v; byType.ambassador.count++ }
+      else { byType.closer.rev += v; byType.closer.count++ }
+    })
+
+    const novaVsRecorrente = { nova: { rev: 0, count: 0 }, recorrente: { rev: 0, count: 0 } }
+    salesMonth.forEach((e: any) => {
+      const v = Number(e.value) || 0
+      const key: 'nova' | 'recorrente' = (e.sale_type ?? 'nova') === 'recorrente' ? 'recorrente' : 'nova'
+      novaVsRecorrente[key].rev += v
+      novaVsRecorrente[key].count++
+    })
+
+    const certsByCloserMap: Record<string, { name: string; count: number; avatarUrl: string | null }> = {}
+    certsMonth.forEach((e: any) => {
+      const closer = closers.find((c: any) => matchesCloser(e, c))
+      const key  = closer?.id ?? e.closer_hubspot_id ?? 'desconhecido'
+      const name = closer?.name ?? 'Desconhecido'
+      if (!certsByCloserMap[key]) certsByCloserMap[key] = { name, count: 0, avatarUrl: closer?.avatar_url ?? null }
+      certsByCloserMap[key].count++
+    })
+    const certsRankingForAnalysis = Object.values(certsByCloserMap).sort((a, b) => b.count - a.count)
+
+    const byWeekday = WEEKDAY_LABELS.map(l => ({ label: l, rev: 0, count: 0 }))
+    const byHour    = Array.from({ length: 24 }, (_, h) => ({ hour: h, rev: 0, count: 0 }))
+    salesMonth.forEach((e: any) => {
+      const v  = Number(e.value) || 0
+      const wd = weekdayInSaoPaulo(e.occurred_at)
+      const h  = hourInSaoPaulo(e.occurred_at)
+      byWeekday[wd].rev += v; byWeekday[wd].count++
+      byHour[h].rev += v; byHour[h].count++
+    })
+    const topDay  = [...byWeekday].sort((a, b) => b.rev - a.rev)[0]
+    const topHour = [...byHour].sort((a, b) => b.rev - a.rev)[0]
+
+    // ── Performance por closer — reaproveita os números já calculados em
+    // closerCards (revenue/avgTicket/convRate/moneyLeft). Aqui usamos o
+    // CLOSER ORIGINAL (com hubspot_id), não o card já reduzido — o bug de
+    // "desconto médio sempre vazio" era exatamente esse: matchesCloser
+    // precisa do hubspot_id, e o card devolvido antes não levava esse campo.
+    const closerPerformanceForAnalysis = closerCardsWithInsight.filter(c => c.salesCount > 0 || c.revenue > 0).map(c => {
+      const mySales = salesMonth.filter((e: any) => matchesCloser(e, c))
+      const withDiscount = mySales.filter((e: any) => !e.is_self_checkout)
+        .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+      const avgDiscountPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
+      return { id: c.id, name: c.name, avatarUrl: c.avatarUrl, revenue: c.revenue, salesCount: c.salesCount, avgTicket: c.avgTicket, convRate: c.convRate, moneyLeft: c.moneyLeft, avgDiscountPct }
+    }).sort((a, b) => b.revenue - a.revenue)
+
+    const commercialAnalysisInitial = {
+      kpis: {
+        totalRevenue: totalRevMonth, totalSales: novaSalesAll.length, avgTicket: avgTicketAll, moneyLeft: totalMoneyLeft,
+        revenueToday: totalRevToday, salesToday: todaySales.filter((e: any) => (e.sale_type ?? 'nova') === 'nova').length, certsCount: totalCertsMonth,
+      },
+      verticalBreakdown, productRanking,
+      closerPerformance: closerPerformanceForAnalysis,
+      byType, novaVsRecorrente, certsRanking: certsRankingForAnalysis,
+      byWeekday, byHour, topDay, topHour, label: 'Este mês',
+    }
 
     return (
       <SuperDashboard
@@ -387,10 +566,13 @@ export default async function DashboardPage() {
         stats={{ totalUsers, totalSteps, totalMaterials, activeOnboarding, completedCount, avgCompletion, onlineCount, passedRate, totalConversations: conversations?.length ?? 0 }}
         users={userProgress}
         progressByDay={progressByDay}
+        commercialAnalysisInitial={commercialAnalysisInitial}
         commercial={{
           totalRevMonth, totalSalesMonth, totalSalesToday, totalRevToday, avgTicketAll, totalMoneyLeft, totalCertsMonth,
           forecast: forecastUntilYearEnd, monthlyForecast, forecastDetail, revenueByDay, closerCards: closerCardsWithInsight,
           totalGoalMonth, pctCompanyGoal, productRanking, verticalBreakdown, lastSaleAt, pctMonthElapsed, companyInsights,
+          metaGeralMes, metaPorVertical, forecastFechamentoMes, projecaoRestanteNovaVenda, recorrenciaPrevistaMes,
+          pctForecastVsMeta, dailyCumulative, daysInMonthTotal,
         }}
       />
     )
@@ -467,6 +649,7 @@ export default async function DashboardPage() {
     { data: monthSalesAll },
     { data: myCertsRaw },
     { data: myGoalRaw },
+    { data: myPendingLinksRaw },
   ] = await Promise.all([
     admin3.from('profiles').select('id, hubspot_id').neq('role', 'superadmin'),
     admin3.from('telao_events')
@@ -475,6 +658,13 @@ export default async function DashboardPage() {
     admin3.from('telao_events').select('closer_id, closer_hubspot_id')
       .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
     admin3.from('closer_goals').select('goal_sales').eq('user_id', user.id).eq('month', monthKey3).maybeSingle(),
+    // Links dele que ainda não converteram nem foram superados por outro
+    // link do mesmo negócio — candidatos a "expirando" ou "vencido".
+    admin3.from('geracoes_links')
+      .select('id, deal_id, deal_name, deal_value, expires_at, generated_at, coupon_code, owner_name, owner_hubspot_id, product_name')
+      .is('converted_at', null).is('superseded_by_link_id', null)
+      .not('expires_at', 'is', null)
+      .limit(999999),
   ])
 
   const allSales3 = monthSalesAll ?? []
@@ -530,6 +720,37 @@ export default async function DashboardPage() {
     return { day: d.slice(5).split('-').reverse().join('/'), revenue: dayRev }
   })
 
+  // ── Links dele que expiram hoje/amanhã, e vencidos sem reemissão ──
+  // Mesmo critério de escopo do LinksClient: hubspot_id primeiro, nome como
+  // fallback pros registros antigos sem hubspot_id preenchido.
+  const nameNorm = (userName ?? '').trim().toLowerCase()
+  const myPendingLinksRawScoped = (myPendingLinksRaw ?? []).filter((l: any) =>
+    (meHubspotId && l.owner_hubspot_id && String(l.owner_hubspot_id).trim() === String(meHubspotId).trim()) ||
+    (!l.owner_hubspot_id && nameNorm && String(l.owner_name ?? '').trim().toLowerCase() === nameNorm)
+  )
+  // Se o mesmo negócio (deal_id) tem mais de um link pendente — reemissão
+  // antes do anterior vencer, ou link gerado errado e corrigido — mostra só
+  // o mais recente, senão o mesmo negócio aparece duplicado na lista.
+  const myPendingLinksByDeal = new Map<string, any>()
+  myPendingLinksRawScoped.forEach((l: any) => {
+    const key = l.deal_id ?? l.id
+    const existing = myPendingLinksByDeal.get(key)
+    if (!existing || l.generated_at > existing.generated_at) myPendingLinksByDeal.set(key, l)
+  })
+  const myPendingLinks = [...myPendingLinksByDeal.values()]
+
+  const { start: tStart3b, end: tEnd3b } = dayBoundsSaoPaulo(today3)
+  const tomorrow3 = addDaysToDateStr(today3, 1)
+  const { end: tomorrowEnd3 } = dayBoundsSaoPaulo(tomorrow3)
+  const nowIso = new Date().toISOString()
+
+  const linksExpiringSoon = myPendingLinks
+    .filter((l: any) => l.expires_at >= tStart3b && l.expires_at <= tomorrowEnd3)
+    .sort((a: any, b: any) => a.expires_at.localeCompare(b.expires_at))
+  const linksExpired = myPendingLinks
+    .filter((l: any) => l.expires_at < nowIso)
+    .sort((a: any, b: any) => b.expires_at.localeCompare(a.expires_at))
+
   // Insight de IA pessoal — mesmo gerador/cache usado no baralho do superadmin,
   // só que passando um array com um closer só (ele mesmo).
   const myInsightsMap = await ensureDailyInsights([{
@@ -557,6 +778,7 @@ export default async function DashboardPage() {
         discountByVertical: myDiscountByVertical, verticalBreakdown: myVerticalBreakdown, revenueByDay: myRevenueByDay,
         insight: myInsight,
       }}
+      linkAlerts={{ expiringSoon: linksExpiringSoon, expired: linksExpired }}
     />
   )
 }

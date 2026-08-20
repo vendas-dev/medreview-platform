@@ -127,6 +127,10 @@ export async function POST(req: NextRequest) {
       occurred_at:         occurredAt,
     }
 
+    // Link que gerou essa venda (se achar por cupom) — usado abaixo pra
+    // enriquecer a venda e, depois do insert, marcar o link como convertido.
+    let matchedLink: { id: string; payment_mode: string | null; installments_no_interest: number | null; deal_id: string | null } | null = null
+
     if (data.event_type === 'sale') {
       const saleType = deriveSaleType(data)
       insertData = {
@@ -142,6 +146,27 @@ export async function POST(req: NextRequest) {
         coupon_code:         data.coupon_code || null,
         deal_id:             data.deal_id || null,
         transaction_id:      data.transaction_id || null,
+      }
+
+      // Enriquece a venda com a condição de pagamento do link que a gerou —
+      // localizado pelo mesmo coupon_code. Cupom de embaixador (ou qualquer
+      // cupom que nunca passou pela geração de link) simplesmente não acha
+      // nada aqui, e os campos ficam null — comportamento esperado, não erro.
+      // Se houver mais de um link com o mesmo cupom (reemissão), usa o mais
+      // recente, que é o palpite mais provável de qual gerou essa venda.
+      if (data.coupon_code) {
+        const { data: linkRow } = await admin
+          .from('geracoes_links')
+          .select('id, payment_mode, installments_no_interest, deal_id')
+          .eq('coupon_code', data.coupon_code)
+          .order('generated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (linkRow) {
+          matchedLink = linkRow as any
+          insertData.payment_mode = matchedLink!.payment_mode
+          insertData.installments_no_interest = matchedLink!.installments_no_interest
+        }
       }
 
       // Se essa venda pertence a uma assinatura que já tem uma transferência
@@ -182,6 +207,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500, headers: CORS })
     }
 
+    // Marca o link como convertido — só depois da venda ter sido gravada com
+    // sucesso, pra não marcar conversão de uma venda que na prática falhou.
+    if (matchedLink) {
+      const { error: linkUpdateError } = await admin.from('geracoes_links').update({
+        converted_at: occurredAt,
+        converted_transaction_id: (data as any).transaction_id || null,
+      }).eq('id', matchedLink.id)
+      if (linkUpdateError) console.error('[telao/events] Erro ao marcar link como convertido:', linkUpdateError.message)
+
+      // Os outros links do MESMO negócio que ainda não converteram ficam
+      // "superados" por esse — o negócio já foi resolvido, não faz sentido
+      // continuar cobrando reemissões antigas do mesmo lead.
+      if (matchedLink.deal_id) {
+        const { error: supersedeError } = await admin.from('geracoes_links')
+          .update({ superseded_by_link_id: matchedLink.id })
+          .eq('deal_id', matchedLink.deal_id)
+          .neq('id', matchedLink.id)
+          .is('converted_at', null)
+          .is('superseded_by_link_id', null)
+        if (supersedeError) console.error('[telao/events] Erro ao marcar reemissões superadas:', supersedeError.message)
+      }
+    }
+
     return NextResponse.json({
       ok:                 true,
       id:                 inserted.id,
@@ -190,6 +238,7 @@ export async function POST(req: NextRequest) {
       is_self_checkout:   isSelfCO,
       seller_type:        finalSellerType,
       sale_type:          data.event_type === 'sale' ? deriveSaleType(data) : null,
+      link_matched:       matchedLink ? true : false,
     }, { status: 201, headers: CORS })
 
   } catch (err: any) {

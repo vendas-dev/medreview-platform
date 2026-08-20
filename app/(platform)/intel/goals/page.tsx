@@ -16,13 +16,15 @@ export default async function IntelGoalsPage() {
   const monthKey = today.slice(0, 7)
 
   const admin = createAdminClient()
-  const [{ data: closers }, { data: goals }] = await Promise.all([
+  const [{ data: closers }, { data: goals }, { data: companyGoalsRaw }] = await Promise.all([
     admin.from('profiles').select('id, name, team').neq('role', 'superadmin').order('name'),
     admin.from('closer_goals').select('*').eq('month', monthKey),
+    admin.from('company_goals').select('scope, goal_value').eq('month', monthKey),
   ])
 
   const goalsMap = Object.fromEntries((goals ?? []).map((g: any) => [g.user_id, g]))
   const closersWithGoals = (closers ?? []).map((c: any) => ({ ...c, goal: goalsMap[c.id] ?? null }))
+  const companyGoals = Object.fromEntries((companyGoalsRaw ?? []).map((g: any) => [g.scope, Number(g.goal_value) || 0]))
 
-  return <GoalsManager closers={closersWithGoals} month={monthKey}/>
+  return <GoalsManager closers={closersWithGoals} month={monthKey} companyGoals={companyGoals} />
 }

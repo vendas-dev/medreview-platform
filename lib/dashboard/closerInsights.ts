@@ -27,6 +27,11 @@ export interface CloserCardInput {
   // com a média da empresa naquela vertical do lado, pra IA poder comparar
   // ("acima/abaixo do normal do time"), não só citar o número isolado.
   discountByVertical: { vertical: string; avgPct: number; companyAvgPct: number; count: number }[]
+  // Em que condição (à vista/parcelado/Nx sem juros) esse closer mais gera
+  // os links de pagamento — vem da tabela de links, independente de ter
+  // convertido ou não. Ajuda a IA a falar de padrão de negociação, não só
+  // de desconto concedido.
+  paymentModeBreakdown: { mode: string; count: number; pct: number }[]
 }
 
 // Recebe as cartas já calculadas (page.tsx) e devolve um mapa id → frase de
@@ -80,6 +85,10 @@ async function generateInsight(c: CloserCardInput): Promise<string> {
       ).join('; ')
     : null
 
+  const paymentModeLine = c.paymentModeBreakdown.length > 0
+    ? c.paymentModeBreakdown.map(p => `${p.mode}: ${p.pct.toFixed(0)}% dos links (${p.count})`).join('; ')
+    : null
+
   const prompt = [
     'Analise o desempenho deste closer no mês e devolva um JSON puro (sem markdown, sem texto',
     'fora do JSON), com estes 3 campos, todos curtos (máximo 16 palavras cada), em português,',
@@ -89,7 +98,9 @@ async function generateInsight(c: CloserCardInput): Promise<string> {
     '"destaque": UM ponto forte específico com número real (ou null se não houver nada notável)',
     '"atencao": UM ponto de atenção/risco/oportunidade específico com número real (ou null se não houver).',
     '  Se o padrão de desconto por vertical for notável (bem acima ou bem abaixo da média do time em',
-    '  alguma vertical), pode ser esse o ponto de atenção — mas só se for realmente destacável.',
+    '  alguma vertical), pode ser esse o ponto de atenção — mas só se for realmente destacável. O padrão',
+    '  de condição de pagamento (ex: closer que só gera parcelado, nunca à vista) também pode virar',
+    '  destaque ou atenção, se for um padrão forte.',
     '',
     'IMPORTANTE: "dias desde a última venda" é literalmente isso — quantos dias faz desde a venda mais',
     'recente dela (0 significa que vendeu hoje). NÃO é "dias sem vender no mês" nem implica nada sobre',
@@ -108,6 +119,7 @@ async function generateInsight(c: CloserCardInput): Promise<string> {
     ...(isR1Team ? [`Embaixadores certificados: ${c.myCerts}`] : []),
     `Dinheiro deixado na mesa (desconto): R$ ${c.moneyLeft.toFixed(0)}`,
     ...(discountLines ? [`Desconto por vertical: ${discountLines}`] : []),
+    ...(paymentModeLine ? [`Condição de pagamento mais usada nos links gerados: ${paymentModeLine}`] : []),
     '',
     'Responda APENAS com o objeto JSON, sem aspas triplas, sem markdown.',
   ].join('\n')
