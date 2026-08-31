@@ -137,12 +137,11 @@ interface Props {
   entregaveis?:  string
   produtoLabel:  string
   precoCheio:    number
-  precoBase:     number      // já é o valor NEGOCIADO (effectivePV), vindo de CalculadoraView
+  precoBase:     number
   upsellLabel?:  string
   upsellPrice?:  number
   vertical:      string
   eventDiscount?: number
-  // Forma de pagamento
   paymentMode:    PaymentMode; setPaymentMode: (v: PaymentMode) => void
   usoInterno:     boolean
   manualN:        number; setManualN:    (v: number) => void
@@ -150,7 +149,6 @@ interface Props {
   eventoSub:      'avista'|'parcelado'; setEventoSub: (v:'avista'|'parcelado')=>void
   currentRate:    number
   isSemJurosMode: boolean
-  // Negociação (barra 0-20%)
   pvOriginal:      number
   effectivePV:     number
   discountPct:     number; setDiscountPct: (v: number) => void
@@ -159,7 +157,6 @@ interface Props {
   isOverLimit:     boolean
   defaultCashPct:  number
   maxDiscountPct:  number
-  // Prévia ao vivo — reporta qual parcela está sob o mouse
   onHoverParcela: (p: { n: number; valor: number } | null) => void
 }
 
@@ -168,7 +165,8 @@ export function PaymentCard({
   upsellLabel, upsellPrice = 0, vertical, eventDiscount,
   paymentMode, setPaymentMode, usoInterno, manualN, setManualN,
   manualRate, setManualRate, eventoSub, setEventoSub, currentRate, isSemJurosMode,
-  pvOriginal, effectivePV, discountPct, setDiscountPct, targetValue, setTargetValue, impliedPct, isOverLimit, defaultCashPct, maxDiscountPct,
+  pvOriginal, effectivePV, discountPct, setDiscountPct, targetValue, setTargetValue,
+  impliedPct, isOverLimit, defaultCashPct, maxDiscountPct,
   onHoverParcela,
 }: Props) {
   const { copied, copy } = useCopy()
@@ -239,6 +237,7 @@ export function PaymentCard({
     </div>
   )
 
+  // DiscountNegotiator — só aparece quando há produto selecionado
   const negotiatorSection = pvOriginal > 0 && (
     <DiscountNegotiator
       pv={pvOriginal} maxPct={maxDiscountPct} discountPct={discountPct} setDiscountPct={setDiscountPct}
@@ -249,9 +248,12 @@ export function PaymentCard({
     />
   )
 
+  // ── Estado vazio (sem produto selecionado) ───────────────────────
   if (!result) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {paymentModeSection}
+      {/* Mostrar o negotiator mesmo sem resultado (produto selecionado mas sem forma) */}
+      {negotiatorSection}
       <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '48px 28px', textAlign: 'center' }}>
         <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 6px' }}>Simulação aparecerá aqui</p>
         <p style={{ fontSize: 13, color: 'var(--muted-foreground)', lineHeight: 1.5 }}>Configure vertical e produto ao lado<br />pra ver a oferta completa</p>
@@ -259,8 +261,8 @@ export function PaymentCard({
     </div>
   )
 
-  const totalCheio  = precoCheio   // já vem combinado (produto + upsell) do CalculadoraView
-  const totalBase   = precoBase    // idem — já é o valor negociado final, combinado
+  const totalCheio  = precoCheio
+  const totalBase   = precoBase
   const economia    = totalCheio - totalBase
   const pctOff      = totalCheio > 0 ? Math.round((1 - totalBase / totalCheio) * 100) : 0
   const isSemJuros  = result.rate === 0
@@ -282,10 +284,10 @@ export function PaymentCard({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
+      {/* 1. Forma de pagamento */}
       {paymentModeSection}
-      {negotiatorSection}
 
-      {/* ── Oferta especial ─────────────────────────────── */}
+      {/* 2. OFERTA ESPECIAL — acima do slider (usuário vê o preço antes de mexer) */}
       <div style={{ background: 'linear-gradient(160deg,#0f0524,#1e0b45,#2e1065)', borderRadius: 10, padding: '18px 20px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <p style={{ fontSize: 10, fontWeight: 800, color: '#fbbf24', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -317,9 +319,11 @@ export function PaymentCard({
         </div>
       </div>
 
-      {/* ── Simulação de pagamento ─────────────────────── */}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+      {/* 3. Slider de negociação — abaixo do destaque de preço */}
+      {negotiatorSection}
 
+      {/* 4. Simulação de pagamento */}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb,var(--secondary) 60%,var(--card))' }}>
           <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 2px' }}>{modeLabel}</p>
           <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0 }}>

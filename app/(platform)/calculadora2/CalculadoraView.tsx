@@ -40,13 +40,11 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
   const [eventoSub,     setEventoSub]     = useState<'avista'|'parcelado'>('parcelado')
   const [showSettings,  setShowSettings]  = useState(false)
 
-  // ── Negociação — barra 0-20% + campo de valor desejado ──────────
+  // ── Negociação — barra 0-MAX% + campo de valor desejado ─────────
   const [discountPct,  setDiscountPct]  = useState(0)
   const [targetValue,  setTargetValue]  = useState('')
   const [hoveredParcela, setHoveredParcela] = useState<{ n: number; valor: number } | null>(null)
 
-  // Trocar pra "à vista" pula automaticamente pro desconto configurado —
-  // mas o closer ainda pode arrastar a barra livremente depois disso.
   function setPaymentMode(mode: PaymentMode) {
     setPaymentModeRaw(mode)
     if (mode === 'avista') {
@@ -88,7 +86,6 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     return irma?.entregaveis ?? ''
   }, [selectedRow, rows])
 
-  // PV original (antes da negociação) — produto + upsell
   const PV = useMemo(() => {
     if (!selectedRow) return 0
     return selectedRow.precoEspecial + (upsellOn && upsellRow ? upsellRow.precoEspecial : 0)
@@ -99,8 +96,6 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     return selectedRow.precoCheio + (upsellOn && upsellRow ? upsellRow.precoCheio : 0)
   }, [selectedRow, upsellOn, upsellRow])
 
-  // Cálculo reverso: se o closer digitou um valor desejado, qual % de
-  // desconto isso implica sobre o PV?
   const impliedPct = useMemo(() => {
     if (!targetValue || PV <= 0) return null
     const tv = parseBRL(targetValue)
@@ -108,14 +103,9 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     return Math.max(0, (1 - tv / PV) * 100)
   }, [targetValue, PV])
 
-  // Limite da barra — configurável por vertical, não mais fixo em 20%.
   const maxDiscountPct = settings.discountLimits?.[vertical] ?? 20
   const isOverLimit = impliedPct !== null && impliedPct > maxDiscountPct
 
-  // Enquanto o valor digitado ficar DENTRO do limite, a barra acompanha e
-  // fica destravada. Passou do limite: a barra trava na última posição
-  // válida (visualmente "apagada"), mas o valor final ainda reflete
-  // exatamente o que o closer digitou — só o destaque visual muda.
   const effectiveDiscountPct = isOverLimit ? discountPct : (impliedPct ?? discountPct)
 
   const effectivePV = useMemo(() => {
@@ -145,8 +135,6 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     setHoveredParcela(null)
   }
 
-
-  // ── Mensagem ao vivo pro painel de prévia ────────────────────────
   const cursoLabelFull = selectedRow ? `${selectedRow.produto}${selectedRow.tipoAluno ? ` (${selectedRow.tipoAluno})` : ''}${upsellRow ? ` + ${upsellRow.produto}` : ''}` : ''
   const liveMessage = useMemo(() => {
     if (!simResult || !selectedRow) return 'Selecione um produto pra ver a prévia da mensagem aqui.'
@@ -159,34 +147,30 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1440, margin: '0 auto' }}>
 
-      {/* Header — mais direto, menos decorativo. Classes ".calc2-hdr*"
-          definem o visual CLARO por padrão; o bloco ".dark .calc2-hdr*"
-          logo abaixo restaura, char a char, o gradiente escuro original —
-          modo escuro fica 100% como estava. */}
-      <div className="calc2-hdr" style={{ borderRadius: 12, padding: 'clamp(16px,2.4vw,22px)', marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+      {/* ── Header compacto — sem badge, uma linha fina ──────────────
+          Antes: ~80px de altura com badge + h1 + subtítulo em bloco
+          Agora: ~44px, título + subtítulo inline, botões menores       */}
+      <div className="calc2-hdr" style={{ borderRadius: 8, padding: 'clamp(9px,1.4vw,12px) clamp(14px,2vw,20px)', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <span className="calc2-hdr-badge" style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 5, background: 'rgba(245,158,11,0.15)', display: 'inline-block', marginBottom: 8 }}>
-            Simulador de Oferta
-          </span>
-          <h1 className="calc2-hdr-title" style={{ fontSize: 'clamp(18px,2.6vw,22px)', fontWeight: 900, margin: '0 0 3px', letterSpacing: '-0.02em' }}>
+          <h1 className="calc2-hdr-title" style={{ fontSize: 'clamp(14px,1.8vw,16px)', fontWeight: 800, margin: '0 0 1px', letterSpacing: '-0.02em' }}>
             Negociação Comercial
           </h1>
-          <p className="calc2-hdr-sub" style={{ fontSize: 12.5, margin: 0 }}>
-            {rows.length > 0 ? `${rows.length} produtos carregados` : 'Carregando produtos...'}
+          <p className="calc2-hdr-sub" style={{ fontSize: 11, margin: 0 }}>
+            Simulador de oferta{rows.length > 0 ? ` · ${rows.length} produtos disponíveis` : ' · Carregando...'}
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           {hasUrl && (
             <button onClick={refresh} disabled={loading} title="Atualizar" className="calc2-hdr-btn"
-              style={{ width: 38, height: 38, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              style={{ width: 32, height: 32, borderRadius: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
             </button>
           )}
           {isAdmin && (
             <button onClick={() => setShowSettings(true)} className="calc2-hdr-btn"
-              style={{ display: 'flex', alignItems: 'center', gap: 7, height: 38, padding: '0 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
-              <Settings size={14} /> Configurações
+              style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', borderRadius: 7, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit' }}>
+              <Settings size={12} /> Configurações
             </button>
           )}
         </div>
@@ -290,20 +274,15 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
 
-        /* Header — claro por padrão (fundo var(--card), texto escuro,
-           badge em tom mais escuro pra contraste sobre fundo claro).
-           .dark restaura o gradiente escuro original, ponto a ponto. */
         .calc2-hdr { background: var(--card); border: 1px solid var(--border); }
         .calc2-hdr-title { color: var(--foreground); }
         .calc2-hdr-sub { color: var(--muted-foreground); }
-        .calc2-hdr-badge { color: #d97706; }
         .calc2-hdr-btn { border: 1px solid var(--border); background: var(--secondary); color: var(--muted-foreground); }
         .calc2-hdr-btn:hover { background: var(--border); color: var(--foreground); }
 
         .dark .calc2-hdr { background: linear-gradient(135deg,#0f0524,#1e0b45,#2e1065); border: none; }
         .dark .calc2-hdr-title { color: #fff; }
         .dark .calc2-hdr-sub { color: rgba(255,255,255,0.55); }
-        .dark .calc2-hdr-badge { color: #fbbf24; }
         .dark .calc2-hdr-btn { border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.08); color: #fff; }
         .dark .calc2-hdr-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
 
