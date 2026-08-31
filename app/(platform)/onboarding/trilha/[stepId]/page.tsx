@@ -25,37 +25,52 @@ export default async function StepDetailPage(
     .from('onboarding_steps').select('*').eq('id', stepId).single()
   if (!step) notFound()
 
+  // ── Modo da trilha + próxima etapa ─────────────────────────
+  // Antes, isso só era buscado dentro do "if (!isAdmin)" pra checagem de
+  // bloqueio, e nunca chegava até o StepDetail — por isso o componente
+  // sempre assumia trailMode='livre' (valor padrão), o que escondia o botão
+  // de "Próxima etapa" pra qualquer etapa sem quiz (só com materiais).
+  const { data: settings } = await supabase
+    .from('onboarding_settings')
+    .select('track_mode')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .single()
+  const trailMode = (settings as any)?.track_mode ?? 'livre'
+
+  const { data: allStepsRaw } = await supabase
+    .from('onboarding_steps')
+    .select('id, title, day_number, order_index, team')
+    .eq('is_active', true)
+
+  const userTeam  = p?.team ?? null
+  const teamSteps = isAdmin
+    ? (allStepsRaw ?? [])
+    : (allStepsRaw ?? []).filter((s: any) => s.team === 'ambos' || s.team === userTeam)
+
+  // Mesma ordenação usada na listagem da trilha: por dia (sem dia por
+  // último), depois por posição dentro do dia.
+  const sortedSteps = [...teamSteps].sort((a: any, b: any) => {
+    const da = a.day_number === null ? Infinity : a.day_number
+    const db = b.day_number === null ? Infinity : b.day_number
+    if (da !== db) return da - db
+    return (a.order_index ?? 0) - (b.order_index ?? 0)
+  })
+  const currentIdx = sortedSteps.findIndex((s: any) => s.id === stepId)
+  const nextStep    = currentIdx >= 0 ? (sortedSteps[currentIdx + 1] ?? null) : null
+
   // ── Verificação de modo sequencial ────────────────────────
   // Usa a MESMA função da listagem (lib/onboarding/trilhaSequence) — ordena
   // por Dia da trilha primeiro, depois por order_index dentro do dia. Antes,
   // esse arquivo tinha uma checagem própria que ordenava só por order_index
   // (ignorando o Dia), o que travava o usuário numa etapa de um dia mais
   // adiante só porque ela tinha sido criada antes no sistema.
-  if (!isAdmin) {
-    const { data: settings } = await supabase
-      .from('onboarding_settings')
-      .select('track_mode')
-      .eq('id', '00000000-0000-0000-0000-000000000001')
-      .single()
+  if (!isAdmin && trailMode === 'sequencial') {
+    const { data: progressRows } = await supabase
+      .from('onboarding_progress').select('step_id, status').eq('user_id', user.id)
+    const progressMap = Object.fromEntries((progressRows ?? []).map((r: any) => [r.step_id, r.status]))
 
-    if ((settings as any)?.track_mode === 'sequencial') {
-      const { data: allStepsRaw } = await supabase
-        .from('onboarding_steps')
-        .select('id, day_number, order_index, team')
-        .eq('is_active', true)
-
-      const userTeam = p?.team ?? null
-      const teamSteps = (allStepsRaw ?? []).filter(
-        (s: any) => s.team === 'ambos' || s.team === userTeam
-      )
-
-      const { data: progressRows } = await supabase
-        .from('onboarding_progress').select('step_id, status').eq('user_id', user.id)
-      const progressMap = Object.fromEntries((progressRows ?? []).map((r: any) => [r.step_id, r.status]))
-
-      const unlocked = computeUnlockedStepIds(teamSteps, progressMap)
-      if (!unlocked.has(stepId)) redirect('/onboarding/trilha')
-    }
+    const unlocked = computeUnlockedStepIds(teamSteps, progressMap)
+    if (!unlocked.has(stepId)) redirect('/onboarding/trilha')
   }
 
   const [
@@ -92,7 +107,10 @@ export default async function StepDetailPage(
         isAdmin={isAdmin}
         stepId={stepId}
         userProgress={userProgress}
-        viewedMaterialIds={viewedMaterialIds}
+        checkedMaterials={viewedMaterialIds}
+        trailMode={trailMode}
+        nextStep={nextStep}
+        allSteps={allStepsRaw ?? []}
       />
     </div>
   )

@@ -27,12 +27,17 @@ export interface SimResult {
   mode:        PaymentMode
   rate:        number
   aVista?:     number
-  cashDisc?:   number       // % desconto aplicado
   parcelas?:   { n: number; valor: number }[]
   eventoBase?: number
   eventoSub?:  'avista' | 'parcelado'
 }
 
+// IMPORTANTE: PV que chega aqui já é o valor NEGOCIADO (depois do desconto
+// manual da barra/campo de valor desejado, aplicado lá em CalculadoraView).
+// Por isso 'avista' não aplica nenhum desconto de novo — só devolve o PV
+// como o valor a pagar. O desconto de à vista deixou de ser um número fixo
+// travado nas configurações; agora é a própria barra de negociação, que só
+// usa a configuração como ponto de partida sugerido ao escolher "à vista".
 export function simulate(
   PV:          number,
   mode:        PaymentMode,
@@ -42,12 +47,11 @@ export function simulate(
   manualRate?: number,
   eventoSub?:  'avista' | 'parcelado',
 ): SimResult {
-  const rate     = rateForVertical(vertical, settings)
-  const cashDisc = settings.cashDiscountPercent
+  const rate = rateForVertical(vertical, settings)
 
   switch (mode) {
     case 'avista':
-      return { mode, rate, cashDisc, aVista: PV * (1 - cashDisc / 100) }
+      return { mode, rate, aVista: PV }
 
     case 'parcelado':
       return {
@@ -58,7 +62,6 @@ export function simulate(
       }
 
     case '3x':
-      // Mostra 1x, 2x e 3x — sem juros
       return {
         mode, rate: 0,
         parcelas: [1, 2, 3].map(n => ({ n, valor: PV / n })),
@@ -67,7 +70,6 @@ export function simulate(
     case 'manual': {
       const n = manualN  ?? 12
       const r = manualRate ?? rate
-      // Mostra TODAS as opções de 1x até nx
       return {
         mode, rate: r,
         parcelas: Array.from({ length: n }, (_, i) => ({
@@ -77,11 +79,13 @@ export function simulate(
     }
 
     case 'evento': {
+      // Desconto de evento continua sendo a regra própria dele (configurado
+      // por vertical) — soma em cima do PV que já vem negociado pela barra.
       const disc       = settings.eventDiscounts[vertical] ?? 0
       const eventoBase = PV * (1 - disc / 100)
       const sub        = eventoSub ?? 'parcelado'
       if (sub === 'avista') {
-        return { mode, rate, cashDisc, eventoBase, eventoSub: sub, aVista: eventoBase * (1 - cashDisc / 100) }
+        return { mode, rate, eventoBase, eventoSub: sub, aVista: eventoBase }
       }
       return {
         mode, rate, eventoBase, eventoSub: sub,
@@ -93,11 +97,11 @@ export function simulate(
   }
 }
 
-// ── Texto resumo para copiar ──────────────────────────────────
+// ── Texto resumo para copiar (formato antigo, mantido por compatibilidade) ──
 export function buildCopyText(result: SimResult, label: string): string {
   const lines = [`*${label}*`, '']
   if (result.aVista !== undefined) {
-    lines.push(`💵 À vista: ${fmt(result.aVista)}${result.cashDisc ? ` (${result.cashDisc}% off)` : ''}`)
+    lines.push(`💵 À vista: ${fmt(result.aVista)}`)
   } else if (result.parcelas?.length) {
     const sem = result.rate === 0
     lines.push(sem ? 'Parcelamento sem juros:' : `Parcelamento (${result.rate}% a.m.):`)
@@ -106,7 +110,33 @@ export function buildCopyText(result: SimResult, label: string): string {
   return lines.join('\n')
 }
 
-// ── Texto completo da negociação (apelativo pro lead) ─────────
+// ── Mensagem padrão pro WhatsApp — usada tanto pelos botões de copiar
+// quanto pela prévia ao vivo, garantindo que o que se vê é exatamente o
+// que se copia (nunca diverge). ──────────────────────────────────────
+export function buildWhatsAppMessage(params: {
+  cursoLabel:   string
+  tempoAcesso?: string
+  entregaveis?: string
+  totalCheio:   number
+  totalBase:    number
+  result:       SimResult
+  parcela?:     { n: number; valor: number } | null
+}): string {
+  const { cursoLabel, tempoAcesso, entregaveis, totalCheio, totalBase, result, parcela } = params
+  const lines: (string | null)[] = [
+    `*Curso:* ${cursoLabel}`,
+    tempoAcesso ? `*Tempo de Acesso:* ${tempoAcesso}` : null,
+    entregaveis ? `*Entregáveis:* ${entregaveis}` : null,
+  ]
+  if (parcela && parcela.n >= 2) {
+    const valorCheioParcela = pmt(totalCheio, result.rate, parcela.n)
+    lines.push(`*Parcelado:* De ${fmt(valorCheioParcela)} por ${parcela.n}x de ${fmt(parcela.valor)}`)
+  }
+  lines.push(`*À vista:* De ${fmt(totalCheio)} por ${fmt(totalBase)}`)
+  return lines.filter(Boolean).join('\n')
+}
+
+// ── Texto completo da negociação (usado pelo lib/canvas.ts) ───────────
 export function buildFullNegotiationText(params: {
   produtoLabel: string
   precoCheio:   number
@@ -140,12 +170,9 @@ export function buildFullNegotiationText(params: {
   lines.push('💳 *FORMAS DE PAGAMENTO:*')
 
   if (result.aVista !== undefined) {
-    const disc  = result.cashDisc ?? 5
-    const econ2 = totalBase - result.aVista
     lines.push('')
-    lines.push(`💵 *À Vista — ${disc}% de desconto adicional*`)
+    lines.push(`💵 *À Vista*`)
     lines.push(`   👉 *${fmt(result.aVista)}*`)
-    if (econ2 > 0) lines.push(`   💚 Economize mais ${fmt(econ2)} pagando hoje!`)
   }
 
   if (result.parcelas?.length) {

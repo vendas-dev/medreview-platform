@@ -18,6 +18,7 @@ export function useSettings() {
           columnMap:      { ...DEFAULT_SETTINGS.columnMap,      ...(p.columnMap      ?? {}) },
           verticalRates:  { ...DEFAULT_SETTINGS.verticalRates,  ...(p.verticalRates  ?? {}) },
           eventDiscounts: { ...DEFAULT_SETTINGS.eventDiscounts, ...(p.eventDiscounts ?? {}) },
+          discountLimits: { ...DEFAULT_SETTINGS.discountLimits, ...(p.discountLimits ?? {}) },
         }))
       }
     } catch {}

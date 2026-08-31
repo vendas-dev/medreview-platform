@@ -9,7 +9,7 @@ import { ensureDailyInsights } from '@/lib/dashboard/closerInsights'
 import { ensureCompanyInsights } from '@/lib/dashboard/companyInsights'
 import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, weekdayInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
 import { eventMoneyLeftOnTable, extractCouponDiscountPct } from '@/lib/telao/format'
-import { computeForecast, computeRemainingMonthRecurring, RecurringSale } from '@/lib/telao/forecast'
+import { computeForecast, computeRemainingMonthRecurring, computeCurrentMonthRecurringStats, RecurringSale } from '@/lib/telao/forecast'
 
 // Mesmo critério de match usado no telão/intel: closer_id OU hubspot_id (com
 // trim), nunca só nome — nome sozinho já causou bug de contagem antes.
@@ -327,6 +327,11 @@ export default async function DashboardPage() {
     const forecastResult = computeForecast(recurringForForecast, mrrAtual)
     const forecastUntilYearEnd = forecastResult.parcelasRestantesAjustado
     const monthlyForecast = forecastResult.monthlyForecast
+    // Estatísticas de recorrência recortadas pro MÊS ATUAL (não a vida
+    // inteira da base) — as usadas nos números "restam a pagar / atrasadas /
+    // já pagas" que o card do dashboard mostra.
+    const currentMonthRecurring = computeCurrentMonthRecurringStats(recurringForForecast, forecastResult.states, new Date())
+
     const forecastDetail = {
       mrrAtual: forecastResult.mrrAtual,
       persistenceRate: forecastResult.persistenceRate,
@@ -335,6 +340,10 @@ export default async function DashboardPage() {
       atrasadas: forecastResult.atrasadas,
       emRisco: forecastResult.emRisco,
       completas: forecastResult.completas,
+      // Recorte do mês atual — o que o header realmente deve mostrar
+      restamAPagarMes: currentMonthRecurring.restamAPagar,
+      atrasadasMes: currentMonthRecurring.atrasadas,
+      jaPagasMes: currentMonthRecurring.jaPagas,
     }
 
     const totalGoalMonth = Object.values(goalsMap).reduce((s: number, v: any) => s + (Number(v) || 0), 0)
@@ -546,7 +555,7 @@ export default async function DashboardPage() {
       const withDiscount = mySales.filter((e: any) => !e.is_self_checkout)
         .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
       const avgDiscountPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
-      return { id: c.id, name: c.name, avatarUrl: c.avatarUrl, revenue: c.revenue, salesCount: c.salesCount, avgTicket: c.avgTicket, convRate: c.convRate, moneyLeft: c.moneyLeft, avgDiscountPct }
+      return { id: c.id, name: c.name, avatarUrl: c.avatarUrl, revenue: c.revenue, salesCount: c.salesCount, avgTicket: c.avgTicket, convRate: c.convRate, moneyLeft: c.moneyLeft, avgDiscountPct, goalSales: c.goalSales }
     }).sort((a, b) => b.revenue - a.revenue)
 
     const commercialAnalysisInitial = {
@@ -650,6 +659,7 @@ export default async function DashboardPage() {
     { data: myCertsRaw },
     { data: myGoalRaw },
     { data: myPendingLinksRaw },
+    { data: myMonthLinksRaw },
   ] = await Promise.all([
     admin3.from('profiles').select('id, hubspot_id').neq('role', 'superadmin'),
     admin3.from('telao_events')
@@ -665,6 +675,13 @@ export default async function DashboardPage() {
       .is('converted_at', null).is('superseded_by_link_id', null)
       .not('expires_at', 'is', null)
       .limit(999999),
+    // TODOS os links gerados por ele esse mês (independente de status) — pra
+    // calcular em qual condição de pagamento ele mais costuma gerar, mesmo
+    // cálculo que já existe no painel do superadmin (era isso que faltava
+    // aqui e quebrava a geração do insight pessoal).
+    admin3.from('geracoes_links')
+      .select('owner_hubspot_id, payment_mode, installments_no_interest')
+      .gte('generated_at', mStart3).lte('generated_at', mEnd3).limit(999999),
   ])
 
   const allSales3 = monthSalesAll ?? []
@@ -711,6 +728,28 @@ export default async function DashboardPage() {
     return { vertical: vlabel, revenue: rev, count: inVert.length }
   })
 
+  // Condição de pagamento que ele mais gera nos links (à vista/parcelado/sem
+  // juros) — mesmo cálculo do painel do superadmin, faltava aqui antes.
+  const myMonthLinks = (myMonthLinksRaw ?? []).filter((l: any) =>
+    meHubspotId && l.owner_hubspot_id && String(l.owner_hubspot_id).trim() === String(meHubspotId).trim()
+  )
+  const paymentModeLabel3 = (r: { payment_mode: string | null; installments_no_interest: number | null }): string | null => {
+    if (!r.payment_mode) return null
+    if (r.payment_mode === 'a_vista') return 'À vista'
+    if (r.payment_mode === 'parcelado') return 'Parcelado'
+    if (r.payment_mode === 'sem_juros') return `${r.installments_no_interest ?? 3}x sem juros`
+    return r.payment_mode
+  }
+  const myPaymentModeCounts: Record<string, number> = {}
+  myMonthLinks.forEach((l: any) => {
+    const label = paymentModeLabel3(l)
+    if (!label) return
+    myPaymentModeCounts[label] = (myPaymentModeCounts[label] ?? 0) + 1
+  })
+  const myPaymentModeBreakdown = Object.entries(myPaymentModeCounts)
+    .map(([mode, count]) => ({ mode, count, pct: myMonthLinks.length > 0 ? (count / myMonthLinks.length) * 100 : 0 }))
+    .sort((a, b) => b.count - a.count)
+
   // Receita dele nos últimos 7 dias
   const myRevenueByDay = Array.from({ length: 7 }, (_, i) => {
     const d = addDaysToDateStr(today3, i - 6)
@@ -739,13 +778,15 @@ export default async function DashboardPage() {
   })
   const myPendingLinks = [...myPendingLinksByDeal.values()]
 
-  const { start: tStart3b, end: tEnd3b } = dayBoundsSaoPaulo(today3)
   const tomorrow3 = addDaysToDateStr(today3, 1)
   const { end: tomorrowEnd3 } = dayBoundsSaoPaulo(tomorrow3)
   const nowIso = new Date().toISOString()
 
   const linksExpiringSoon = myPendingLinks
-    .filter((l: any) => l.expires_at >= tStart3b && l.expires_at <= tomorrowEnd3)
+    // Começa em AGORA (não no início do dia) — um link que já venceu hoje de
+    // manhã não pode aparecer aqui como "vencendo", só em "vencidos". Isso
+    // também garante que os dois grupos nunca se sobrepõem.
+    .filter((l: any) => l.expires_at >= nowIso && l.expires_at <= tomorrowEnd3)
     .sort((a: any, b: any) => a.expires_at.localeCompare(b.expires_at))
   const linksExpired = myPendingLinks
     .filter((l: any) => l.expires_at < nowIso)
@@ -757,6 +798,7 @@ export default async function DashboardPage() {
     id: user.id, name: userName, team: userTeam ?? null, revenue: myRevenue, salesCount: mySalesCount,
     goalSales: myGoalSales, pctGoal: myPctGoal, avgTicket: myAvgTicket, daysSinceLastSale: myDaysSinceLastSale,
     rank: myRank, myCerts: myCertsCount, moneyLeft: myMoneyLeft, discountByVertical: myDiscountByVertical,
+    paymentModeBreakdown: myPaymentModeBreakdown,
   }])
   const myInsight = myInsightsMap[user.id] ?? ''
 

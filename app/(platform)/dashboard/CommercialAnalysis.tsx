@@ -282,7 +282,7 @@ function ProductRankingMini({ data }: { data: { product: string; vertical: strin
 }
 
 // ── Performance dos closers — comparação completa, não só receita ──
-function CloserPerformanceTable({ data }: { data: { id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number }[] }) {
+function CloserPerformanceTable({ data }: { data: { id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number; goalSales?: number }[] }) {
   if (data.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '40px 0' }}>Nenhuma venda no período.</p>
   const maxRevenue = Math.max(...data.map(d => d.revenue), 1)
   const avgDiscountAll = data.reduce((s, d) => s + d.avgDiscountPct, 0) / data.length
@@ -301,6 +301,15 @@ function CloserPerformanceTable({ data }: { data: { id: string; name: string; av
           {data.map((c, i) => {
             const highDiscountHighRev = c.avgDiscountPct > avgDiscountAll * 1.3 && c.revenue > maxRevenue * 0.4
             const greatConversion = c.convRate > avgConvAll * 1.3 && c.convRate > 0
+            // Barra de receita: mostra o quanto já foi vendido em relação À
+            // PRÓPRIA META do closer (não ao closer que mais vendeu no mês).
+            // Sem isso, quem tem meta pequena mas já bateu ela aparecia com
+            // uma barra minúscula, só porque vendeu menos em valor absoluto
+            // que o topo do ranking — dava a entender que estava indo mal,
+            // quando na verdade tinha superado a própria meta.
+            const hasGoal = !!c.goalSales && c.goalSales > 0
+            const barPct = hasGoal ? Math.min((c.revenue / (c.goalSales as number)) * 100, 100) : (c.revenue / maxRevenue) * 100
+            const metGoal = hasGoal && c.revenue >= (c.goalSales as number)
             return (
               <motion.tr key={c.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
                 style={{ borderTop: '1px solid var(--border)' }}>
@@ -308,15 +317,16 @@ function CloserPerformanceTable({ data }: { data: { id: string; name: string; av
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Avatar name={c.name} url={c.avatarUrl} size={26} />
                     <span style={{ fontWeight: 700, color: 'var(--foreground)' }}>{c.name}</span>
+                    {metGoal && <span title="Já bateu a própria meta do mês" style={{ fontSize: 11 }}>🎯</span>}
                     {highDiscountHighRev && <span title="Vende muito, mas com desconto bem acima da média" style={{ fontSize: 11 }}>⚠️</span>}
                     {greatConversion && <span title="Conversão mais de 30% acima da média do time" style={{ fontSize: 11 }}>⭐</span>}
                   </div>
                 </td>
                 <td style={{ padding: '10px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                    <div style={{ width: 50, height: 5, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
-                      <motion.div initial={{ width: 0 }} animate={{ width: `${(c.revenue / maxRevenue) * 100}%` }} transition={{ duration: 0.6, delay: i * 0.04 }}
-                        style={{ height: '100%', background: 'linear-gradient(90deg,#16a34a,#22c55e)' }} />
+                    <div style={{ width: 50, height: 5, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }} title={hasGoal ? `${barPct.toFixed(0)}% da meta individual (${fmtBRL(c.goalSales as number)})` : 'Sem meta individual definida — barra relativa ao topo do ranking'}>
+                      <motion.div initial={{ width: 0 }} animate={{ width: `${barPct}%` }} transition={{ duration: 0.6, delay: i * 0.04 }}
+                        style={{ height: '100%', background: metGoal ? 'linear-gradient(90deg,#16a34a,#4ade80)' : 'linear-gradient(90deg,#16a34a,#22c55e)' }} />
                     </div>
                     <span style={{ fontWeight: 800, color: 'var(--foreground)', minWidth: 68 }}>{fmtBRL(c.revenue)}</span>
                   </div>
@@ -378,7 +388,7 @@ interface InitialData {
   kpis: { totalRevenue: number; totalSales: number; avgTicket: number; moneyLeft: number; revenueToday: number; salesToday: number; certsCount: number }
   verticalBreakdown: { vertical: string; revenue: number; count: number; avgTicket: number; moneyLeft: number; avgDiscountPct: number }[]
   productRanking: { product: string; vertical: string; count: number; rev: number }[]
-  closerPerformance: { id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number }[]
+  closerPerformance: { id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number; goalSales?: number }[]
   byType: { closer: { rev: number; count: number }; ambassador: { rev: number; count: number }; selfcheckout: { rev: number; count: number }; ambassadorCloser: { rev: number; count: number } }
   novaVsRecorrente: { nova: { rev: number; count: number }; recorrente: { rev: number; count: number } }
   certsRanking: { name: string; count: number; avatarUrl: string | null }[]

@@ -10,6 +10,35 @@ const TEAM: Record<string,{label:string;color:string;bg:string;dot:string}> = {
   ambos: { label:'Todos',     color:'#059669', bg:'rgba(5,150,105,.12)',   dot:'#34d399' },
 }
 
+// ── Estrada sinuosa com marcos de check — ilustração decorativa do hero.
+// Puramente visual (SVG), não depende de nenhum dado real da trilha.
+function RoadIllustration() {
+  return (
+    <div style={{ position:'absolute', top:0, right:0, bottom:0, width:'52%', minWidth:280, overflow:'hidden', pointerEvents:'none' }}>
+      <svg viewBox="0 0 380 260" preserveAspectRatio="xMidYMid slice" style={{ width:'100%', height:'100%', opacity:.85 }}>
+        <defs>
+          <linearGradient id="roadGrad" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stopColor="#a78bfa" stopOpacity=".5"/>
+            <stop offset="55%" stopColor="#818cf8" stopOpacity=".38"/>
+            <stop offset="100%" stopColor="#60a5fa" stopOpacity=".22"/>
+          </linearGradient>
+        </defs>
+        <path d="M 10 235 C 90 235, 110 150, 190 155 C 260 160, 260 90, 340 70 C 380 60, 400 45, 430 35"
+          fill="none" stroke="url(#roadGrad)" strokeWidth="13" strokeLinecap="round"/>
+        <path d="M 10 235 C 90 235, 110 150, 190 155 C 260 160, 260 90, 340 70 C 380 60, 400 45, 430 35"
+          fill="none" stroke="rgba(255,255,255,.4)" strokeWidth="1.5" strokeDasharray="2 10" strokeLinecap="round"/>
+        {/* Marcos de check ao longo do caminho — só na área do mascote */}
+        {[{x:95,y:190},{x:225,y:130},{x:330,y:78}].map((p,i)=>(
+          <g key={i} transform={`translate(${p.x},${p.y})`}>
+            <circle r="11" fill="rgba(124,58,237,.45)" stroke="rgba(255,255,255,.5)" strokeWidth="1.5"/>
+            <path d="M -4 0 L -1 3 L 4 -3" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
 export function TrilhaViewClient({ steps, isAdmin, unlockedStepIds }: { steps:any[]; isAdmin:boolean; unlockedStepIds?: string[] | null }) {
   const unlockedSet = unlockedStepIds ? new Set(unlockedStepIds) : null // null = sem restrição (admin)
   const [teamFilter, setTeamFilter] = useState('ambos')
@@ -74,7 +103,12 @@ export function TrilhaViewClient({ steps, isAdmin, unlockedStepIds }: { steps:an
       {/* HERO */}
       <div style={{ position:'relative', overflow:'hidden' }}>
         <div style={{ position:'absolute', inset:0, background:'var(--grad-hero,linear-gradient(135deg,#2e1065 0%,#3730a3 30%,#4f46e5 70%,#7c3aed 100%))' }}/>
-        <div style={{ position:'absolute', inset:0, backgroundImage:'radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px)', backgroundSize:'28px 28px' }}/>
+        <div style={{ position:'absolute', inset:0, backgroundImage:'radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px)', backgroundSize:'28px 28px' }}/>
+        {/* Estrada sinuosa com marcos de check — a peça decorativa que faltava */}
+        <RoadIllustration/>
+        {/* Véu de proteção do texto — garante contraste sempre, mesmo com
+            qualquer elemento decorativo por trás (estrada, blobs, etc). */}
+        <div style={{ position:'absolute', inset:0, background:'linear-gradient(90deg, rgba(15,6,40,.55) 0%, rgba(15,6,40,.32) 42%, transparent 62%)', pointerEvents:'none' }}/>
         <div style={{ position:'absolute', top:-70, left:-70, width:220, height:220, borderRadius:'50%', background:'radial-gradient(circle,rgba(124,58,237,.4) 0%,transparent 70%)', pointerEvents:'none' }}/>
         <div style={{ position:'absolute', bottom:-60, right:-40, width:180, height:180, borderRadius:'50%', background:'radial-gradient(circle,rgba(37,99,235,.35) 0%,transparent 70%)', pointerEvents:'none' }}/>
         <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'linear-gradient(90deg,transparent,rgba(124,58,237,.7) 35%,rgba(37,99,235,.7) 65%,transparent)' }}/>
@@ -85,35 +119,37 @@ export function TrilhaViewClient({ steps, isAdmin, unlockedStepIds }: { steps:an
           className="mascot-hero"
         />
 
-        <div style={{ position:'relative', zIndex:1, maxWidth:760, margin:'0 auto', padding:'22px 24px 40px', textAlign:'center' }}>
+        <div style={{ position:'relative', zIndex:1, maxWidth:780, margin:'0 auto', padding:'30px 24px 44px', textAlign:'center' }}>
 
-          <div style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 13px', borderRadius:999, background:'rgba(255,255,255,.07)', border:'1px solid rgba(255,255,255,.14)', marginBottom:10, animation:'fadeIn .4s ease forwards' }}>
-            <Zap size={10} color="#a78bfa"/>
-            <span style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,.75)', letterSpacing:'.08em', textTransform:'uppercase' }}>Programa Comercial de Onboarding</span>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'5px 14px', borderRadius:999, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.16)', marginBottom:14, animation:'fadeIn .4s ease forwards' }}>
+            <Zap size={11} color="#a78bfa"/>
+            <span style={{ fontSize:10.5, fontWeight:700, color:'rgba(255,255,255,.8)', letterSpacing:'.08em', textTransform:'uppercase' }}>Programa Comercial de Onboarding</span>
           </div>
 
-          <h1 style={{ margin:'0 0 6px', fontSize:'clamp(18px,2.4vw,22px)', fontWeight:900, letterSpacing:'-.02em', lineHeight:1.2, color:'#fff', animation:'fadeUp .5s .05s ease both' }}>
+          <h1 style={{ margin:'0 0 10px', fontSize:'clamp(24px,3.4vw,32px)', fontWeight:900, letterSpacing:'-.025em', lineHeight:1.15, color:'#fff', animation:'fadeUp .5s .05s ease both' }}>
             Sua trilha para o{' '}
             <span style={{ background:'linear-gradient(90deg,#a78bfa 0%,#60a5fa 50%,#34d399 100%)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
               primeiro fechamento
             </span>
           </h1>
 
-          <p style={{ fontSize:12.5, color:'rgba(255,255,255,.5)', marginTop:0, marginBottom:14, lineHeight:1.6, maxWidth:400, marginLeft:'auto', marginRight:'auto', animation:'fadeUp .5s .1s ease both' }}>
+          <p style={{ fontSize:13.5, color:'rgba(255,255,255,.55)', marginTop:0, marginBottom:22, lineHeight:1.65, maxWidth:440, marginLeft:'auto', marginRight:'auto', animation:'fadeUp .5s .1s ease both' }}>
             Complete cada etapa, domine a metodologia MedReview e feche com confiança desde o primeiro dia.
           </p>
 
           {totalSteps > 0 && (
-            <div style={{ display:'flex', justifyContent:'center', gap:0, animation:'fadeUp .5s .15s ease both' }}>
+            <div style={{ display:'flex', justifyContent:'center', gap:32, flexWrap:'wrap', animation:'fadeUp .5s .15s ease both' }}>
               {[
                 { Icon:Target,  n:totalDays,    label:'Dias',    show:totalDays>0 },
                 { Icon:Zap,     n:totalSteps,   label:'Etapas',  show:true },
                 { Icon:Trophy,  n:totalMinutes, label:'Minutos', show:totalMinutes>0 },
-              ].filter(x => x.show).map((x,i,arr) => (
-                <div key={x.label} style={{ display:'flex', alignItems:'center', gap:6, padding:'0 14px', borderRight:i<arr.length-1?'1px solid rgba(255,255,255,.08)':'none' }}>
-                  <x.Icon size={11} color="rgba(255,255,255,.35)"/>
-                  <span style={{ fontSize:16, fontWeight:900, color:'#fff', letterSpacing:'-.02em' }}>{x.n}</span>
-                  <span style={{ fontSize:9.5, color:'rgba(255,255,255,.4)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.08em' }}>{x.label}</span>
+              ].filter(x => x.show).map((x) => (
+                <div key={x.label} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ width:26, height:26, borderRadius:9, background:'rgba(255,255,255,.1)', border:'1px solid rgba(255,255,255,.14)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <x.Icon size={12} color="rgba(255,255,255,.75)"/>
+                  </div>
+                  <span style={{ fontSize:19, fontWeight:900, color:'#fff', letterSpacing:'-.02em' }}>{x.n}</span>
+                  <span style={{ fontSize:10, color:'rgba(255,255,255,.45)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.08em' }}>{x.label}</span>
                 </div>
               ))}
             </div>
@@ -190,7 +226,7 @@ export function TrilhaViewClient({ steps, isAdmin, unlockedStepIds }: { steps:an
                     <div style={{ width:56, flexShrink:0, display:'flex', justifyContent:'center' }}>
                       <div style={{ width:2.5, background: isLastDay ? 'transparent' : 'linear-gradient(to bottom,rgba(99,102,241,.22),rgba(99,102,241,.05))' }}/>
                     </div>
-                    <div style={{ flex:1, paddingLeft:16, paddingTop:10, paddingBottom:isLastDay?0:44, display:'flex', flexDirection:'column', gap:10 }}>
+                    <div style={{ flex:1, paddingLeft:16, paddingTop:12, paddingBottom:isLastDay?0:48, display:'flex', flexDirection:'column', gap:16 }}>
                       {daySteps.map((step, si) => {
                         const ts  = TEAM[step.team] ?? TEAM.ambos
                         const mat = step.onboarding_materials?.[0]?.count ?? 0
@@ -203,34 +239,34 @@ export function TrilhaViewClient({ steps, isAdmin, unlockedStepIds }: { steps:an
 
                         return (
                           <div key={step.id} className="step-card"
-                            style={{ animationDelay:`${di*80+si*55+100}ms`, background:'var(--card)', border:'1px solid var(--border)', borderRadius:14, overflow:'hidden', opacity: isLocked?0.6:1 }}>
+                            style={{ animationDelay:`${di*80+si*55+100}ms`, background:'var(--card)', border:'1px solid var(--border)', borderRadius:24, overflow:'hidden', opacity: isLocked?0.6:1 }}>
                             <div style={{ height:3, background:`linear-gradient(90deg,${ts.color},${ts.color}33)` }}/>
-                            <div style={{ padding:'16px 18px' }}>
+                            <div style={{ padding:'20px 22px' }}>
                               <div style={{ display:'flex', alignItems:'flex-start', gap:14 }}>
-                                <div style={{ width:30, height:30, borderRadius:9, background:ts.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:13, fontWeight:800, color:ts.color, marginTop:1 }}>
+                                <div style={{ width:32, height:32, borderRadius:'50%', background:ts.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:13, fontWeight:800, color:ts.color, marginTop:1 }}>
                                   {si+1}
                                 </div>
                                 <div style={{ flex:1, minWidth:0 }}>
-                                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:5 }}>
+                                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:6 }}>
                                     <span style={{ fontSize:15, fontWeight:800, color:'var(--foreground)', lineHeight:1.3, letterSpacing:'-.01em' }}>{step.title}</span>
-                                    <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10, fontWeight:700, padding:'1px 8px', borderRadius:999, background:ts.bg, color:ts.color, letterSpacing:'.04em' }}>
+                                    <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:10, fontWeight:700, padding:'2px 9px', borderRadius:999, background:ts.bg, color:ts.color, letterSpacing:'.04em' }}>
                                       <span style={{ width:5, height:5, borderRadius:'50%', background:ts.color }}/>
                                       {ts.label}
                                     </span>
                                   </div>
                                   {step.description && (
-                                    <p style={{ fontSize:12, color:'var(--muted-foreground)', opacity:.85, margin:'0 0 10px', lineHeight:1.55, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>
+                                    <p style={{ fontSize:12, color:'var(--muted-foreground)', opacity:.9, margin:'0 0 12px', lineHeight:1.6, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>
                                       {step.description}
                                     </p>
                                   )}
-                                  <div style={{ display:'flex', gap:5, flexWrap:'wrap', opacity:.8 }}>
-                                    {mat>0 && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'2px 7px', borderRadius:999 }}><FileText size={9.5}/>{mat} {mat!==1?'materiais':'material'}</span>}
-                                    {faq>0 && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'2px 7px', borderRadius:999 }}><HelpCircle size={9.5}/>{faq} flashcard{faq!==1?'s':''}</span>}
-                                    {qz>0  && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'2px 7px', borderRadius:999 }}><CheckSquare size={9.5}/>{qz} {qz!==1?'questões':'questão'}</span>}
-                                    {step.estimated_minutes>0 && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'2px 7px', borderRadius:999 }}><Clock size={9.5}/>{step.estimated_minutes} min</span>}
+                                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', opacity:.85 }}>
+                                    {mat>0 && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'3px 9px', borderRadius:999 }}><FileText size={9.5}/>{mat} {mat!==1?'materiais':'material'}</span>}
+                                    {faq>0 && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'3px 9px', borderRadius:999 }}><HelpCircle size={9.5}/>{faq} flashcard{faq!==1?'s':''}</span>}
+                                    {qz>0  && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'3px 9px', borderRadius:999 }}><CheckSquare size={9.5}/>{qz} {qz!==1?'questões':'questão'}</span>}
+                                    {step.estimated_minutes>0 && <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, color:'var(--muted-foreground)', background:'var(--secondary)', padding:'3px 9px', borderRadius:999 }}><Clock size={9.5}/>{step.estimated_minutes} min</span>}
                                     {misconfigured && (
                                       <span title="Critério de conclusão exige conteúdo que essa etapa não tem — ninguém vai conseguir concluí-la assim"
-                                        style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, fontWeight:700, color:'#f59e0b', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.3)', padding:'2px 7px', borderRadius:999, opacity:1 }}>
+                                        style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9.5, fontWeight:700, color:'#f59e0b', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.3)', padding:'3px 9px', borderRadius:999, opacity:1 }}>
                                         ⚠ nunca vai concluir
                                       </span>
                                     )}
@@ -242,12 +278,12 @@ export function TrilhaViewClient({ steps, isAdmin, unlockedStepIds }: { steps:an
                                   )}
                                   {isLocked ? (
                                     <div title="Conclua a etapa anterior para liberar"
-                                      style={{ width:34, height:34, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', background:'var(--secondary)', color:'var(--muted-foreground)', cursor:'not-allowed' }}>
+                                      style={{ width:36, height:36, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--secondary)', color:'var(--muted-foreground)', cursor:'not-allowed' }}>
                                       <Lock size={14}/>
                                     </div>
                                   ) : (
                                     <Link href={`/onboarding/trilha/${step.id}`} className="enter-btn"
-                                      style={{ width:34, height:34, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', background:`${ts.color}22`, border:`1px solid ${ts.color}38`, color:ts.color, textDecoration:'none' }}
+                                      style={{ width:36, height:36, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:`${ts.color}22`, border:`1px solid ${ts.color}38`, color:ts.color, textDecoration:'none' }}
                                       onMouseEnter={e=>{const el=e.currentTarget as HTMLElement;el.style.background=ts.color;(el.querySelector('svg') as SVGElement).style.color='#fff'}}
                                       onMouseLeave={e=>{const el=e.currentTarget as HTMLElement;el.style.background=`${ts.color}22`;(el.querySelector('svg') as SVGElement).style.color=ts.color}}>
                                       <ArrowRight size={15} style={{ color:ts.color }}/>

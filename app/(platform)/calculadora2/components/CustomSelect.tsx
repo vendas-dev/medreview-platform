@@ -39,7 +39,6 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
     setOpen(true)
   }, [disabled, options.length])
 
-  // Fechar ao clicar fora
   useEffect(() => {
     if (!open) return
     const fn = (e: MouseEvent) => {
@@ -51,11 +50,9 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
     return () => document.removeEventListener('mousedown', fn)
   }, [open])
 
-  // Fechar ao scroll — MAS ignorar scroll DENTRO do dropdown
   useEffect(() => {
     if (!open) return
     const fn = (e: Event) => {
-      // Se o scroll aconteceu dentro do dropdown, não fecha
       if (dropRef.current?.contains(e.target as Node)) return
       setOpen(false)
     }
@@ -67,7 +64,6 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
     }
   }, [open])
 
-  // Escape
   useEffect(() => {
     if (!open) return
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
@@ -80,8 +76,8 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
   return (
     <div>
       <label htmlFor={id} style={{
-        fontSize: 10, fontWeight: 800, color: 'var(--muted-foreground)',
-        display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em',
+        fontSize: 9.5, fontWeight: 800, color: 'var(--muted-foreground)',
+        display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.07em',
       }}>
         {label}
       </label>
@@ -89,7 +85,7 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
       <button ref={triggerRef} id={id} type="button" disabled={disabled}
         onClick={() => open ? setOpen(false) : openDropdown()}
         style={{
-          width: '100%', height: 48, padding: '0 44px 0 16px', borderRadius: 13,
+          width: '100%', height: 44, padding: '0 40px 0 14px', borderRadius: 10,
           border: `1.5px solid ${open ? '#6366f1' : isActive ? 'rgba(99,102,241,0.4)' : 'var(--border)'}`,
           background: open
             ? 'color-mix(in srgb,rgba(99,102,241,0.08) 100%,var(--background))'
@@ -97,7 +93,7 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
               ? 'color-mix(in srgb,rgba(99,102,241,0.05) 100%,var(--background))'
               : 'var(--background)',
           color: isActive ? 'var(--foreground)' : 'var(--muted-foreground)',
-          fontSize: 14, fontWeight: isActive ? 600 : 400, fontFamily: 'inherit',
+          fontSize: 13.5, fontWeight: isActive ? 600 : 400, fontFamily: 'inherit',
           textAlign: 'left', cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.4 : 1, transition: 'all 0.15s',
           boxShadow: open ? '0 0 0 3px rgba(99,102,241,0.12)' : 'none',
@@ -107,12 +103,12 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
           {selected?.label ?? (placeholder ?? 'Selecionar...')}
         </span>
         <span style={{
-          position: 'absolute', right: 14, top: '50%',
+          position: 'absolute', right: 13, top: '50%',
           transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
           color: open || isActive ? '#6366f1' : 'var(--muted-foreground)',
           transition: 'transform 0.2s, color 0.15s', display: 'flex', alignItems: 'center',
         }}>
-          <ChevronDown size={16} strokeWidth={2.5} />
+          <ChevronDown size={15} strokeWidth={2.5} />
         </span>
       </button>
 
@@ -121,7 +117,7 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
           ...dropdownStyle,
           background: 'var(--card)',
           border: '1.5px solid rgba(99,102,241,0.25)',
-          borderRadius: 14,
+          borderRadius: 10,
           boxShadow: '0 16px 48px rgba(0,0,0,0.22), 0 4px 12px rgba(99,102,241,0.15)',
           overflow: 'hidden',
           maxHeight: 280,
@@ -138,20 +134,20 @@ export function CustomSelect({ label, value, onChange, options, disabled, placeh
               <button key={opt.value} type="button"
                 onClick={() => { onChange(opt.value); setOpen(false) }}
                 style={{
-                  width: '100%', padding: '11px 16px',
+                  width: '100%', padding: '10px 14px',
                   display: 'flex', alignItems: 'center', gap: 10,
                   background: sel ? 'linear-gradient(135deg,rgba(99,102,241,0.12),rgba(124,58,237,0.08))' : 'transparent',
                   border: 'none',
                   borderBottom: idx < options.length - 1 ? '1px solid color-mix(in srgb,var(--border) 50%,transparent)' : 'none',
                   cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                  fontSize: 14, fontWeight: sel ? 700 : 400,
+                  fontSize: 13.5, fontWeight: sel ? 700 : 400,
                   color: sel ? '#6366f1' : 'var(--foreground)',
                   transition: 'background 0.1s',
                 }}
                 onMouseEnter={e => { if (!sel) (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb,rgba(99,102,241,0.07) 100%,transparent)' }}
                 onMouseLeave={e => { if (!sel) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
                 <span style={{ flex: 1, lineHeight: 1.4 }}>{opt.label}</span>
-                {sel && <Check size={15} strokeWidth={2.5} style={{ color: '#6366f1', flexShrink: 0 }} />}
+                {sel && <Check size={14} strokeWidth={2.5} style={{ color: '#6366f1', flexShrink: 0 }} />}
               </button>
             )
           })}

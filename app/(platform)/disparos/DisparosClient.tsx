@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { dateInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
+import { dateInSaoPaulo, hourInSaoPaulo, dayBoundsSaoPaulo } from '@/lib/timezone'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -167,8 +167,8 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
     setLoading(true); let all:Disparo[]=[], from=0
     while(true){
       let q = supabase.from('disparos').select('*')
-      if (fFrom) q = q.gte('data_disparo', fFrom+'T00:00:00')
-      if (fTo)   q = q.lte('data_disparo', fTo+'T23:59:59')
+      if (fFrom) q = q.gte('data_disparo', dayBoundsSaoPaulo(fFrom).start)
+      if (fTo)   q = q.lte('data_disparo', dayBoundsSaoPaulo(fTo).end)
       const{data:b}=await q.order('data_disparo',{ascending:false}).range(from,from+999)
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
@@ -195,8 +195,8 @@ export function DisparosClient({ isAdmin, ownerName, ownerHubspotId }: { isAdmin
         // Atualização leve: só adiciona o registro novo na lista, sem recarregar
         // tudo (evitar o flash de "carregando" cobrindo a tela a cada disparo).
         const row=payload.new as Disparo
-        if(fFrom && row.data_disparo < fFrom+'T00:00:00') return
-        if(fTo   && row.data_disparo > fTo+'T23:59:59')   return
+        if(fFrom && row.data_disparo < dayBoundsSaoPaulo(fFrom).start) return
+        if(fTo   && row.data_disparo > dayBoundsSaoPaulo(fTo).end)   return
         if(!isAdmin){
           const nameNorm=(ownerName??'').trim().toLowerCase()
           const matches=(ownerHubspotId && row.proprietario_hubspot_id && row.proprietario_hubspot_id===ownerHubspotId) ||

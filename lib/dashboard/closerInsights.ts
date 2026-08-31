@@ -77,16 +77,24 @@ async function generateInsight(c: CloserCardInput): Promise<string> {
   // se fosse uma falha; pra eles, essa linha simplesmente não entra no prompt.
   const isR1Team = c.team === 'R1'
 
-  const discountLines = c.discountByVertical.length > 0
-    ? c.discountByVertical.map(d =>
+  // Proteção defensiva: esses dois campos vêm de queries auxiliares em
+  // page.tsx e podem chegar como undefined pra algum closer (ex: sem
+  // nenhuma venda ou link no período) mesmo a interface marcando como
+  // obrigatório. Sem isso, ".length" quebra o dashboard inteiro pra
+  // qualquer superadmin logando no dia.
+  const discountByVertical   = c.discountByVertical   ?? []
+  const paymentModeBreakdown = c.paymentModeBreakdown ?? []
+
+  const discountLines = discountByVertical.length > 0
+    ? discountByVertical.map(d =>
         d.count > 0
           ? `${d.vertical}: closer dá em média ${d.avgPct.toFixed(1)}% de desconto (média do time nessa vertical: ${d.companyAvgPct.toFixed(1)}%)`
           : `${d.vertical}: nunca concedeu desconto`
       ).join('; ')
     : null
 
-  const paymentModeLine = c.paymentModeBreakdown.length > 0
-    ? c.paymentModeBreakdown.map(p => `${p.mode}: ${p.pct.toFixed(0)}% dos links (${p.count})`).join('; ')
+  const paymentModeLine = paymentModeBreakdown.length > 0
+    ? paymentModeBreakdown.map(p => `${p.mode}: ${p.pct.toFixed(0)}% dos links (${p.count})`).join('; ')
     : null
 
   const prompt = [

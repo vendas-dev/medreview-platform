@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { CommercialAnalysis } from './CommercialAnalysis'
 import {
   Users, Target, TrendingUp,
-  ArrowRight, X, Sparkles, Stethoscope, HeartPulse, ClipboardList
+  ArrowRight, X, Sparkles, Stethoscope, HeartPulse, ClipboardList, ChevronDown
 } from 'lucide-react'
 
 // ── Mini bar ────────────────────────────────────────────────
@@ -120,31 +120,126 @@ function LiveTicker({ lastSaleAt }: { lastSaleAt: string | null }) {
   )
 }
 
+// ── Mesma informação do LiveTicker acima, só que na moldura de "chip com
+// ícone + duas linhas" usada no novo header — pra bater com as outras duas.
+function LiveTickerChip({ lastSaleAt }: { lastSaleAt: string | null }) {
+  const [, forceTick] = useState(0)
+  useEffect(() => { const id = setInterval(() => forceTick(t => t + 1), 30000); return () => clearInterval(id) }, [])
+  if (!lastSaleAt) return null
+  const diffMs = Date.now() - new Date(lastSaleAt).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  const label = mins < 1 ? 'agora mesmo' : mins < 60 ? `há ${mins}min` : `há ${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}min` : ''}`
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderRadius: 14, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)' }}>
+      <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 1.4, repeat: Infinity }} style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 8px #4ade80', flexShrink: 0 }} />
+      <div>
+        <p style={{ fontSize: 12, fontWeight: 800, color: '#fff', margin: 0, lineHeight: 1.25 }}>Última venda {label}</p>
+        <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', margin: 0, lineHeight: 1.25 }}>Quando o foco vira resultado</p>
+      </div>
+    </div>
+  )
+}
+
 // ── Anel duplo — % da meta (externo) vs % do mês decorrido (interno) ──
+// ── Raios de luz radiais atrás do foguete — dão o efeito "explosão de luz"
+// do fundo, sem precisar de uma imagem pronta ──────────────────────────
+function RadialRays() {
+  const rays = useMemo(() => Array.from({ length: 14 }, (_, i) => i * (360 / 14)), [])
+  return (
+    <div style={{ position: 'absolute', top: '30%', right: 'clamp(220px,30vw,350px)', width: 420, height: 420, transform: 'translate(30%,-45%)', pointerEvents: 'none' }}>
+      <svg viewBox="0 0 420 420" style={{ width: '100%', height: '100%', opacity: 0.5 }}>
+        {rays.map(deg => (
+          <line key={deg} x1="210" y1="210" x2="210" y2="0"
+            stroke="url(#rayGrad)" strokeWidth="2"
+            transform={`rotate(${deg} 210 210)`} />
+        ))}
+        <defs>
+          <linearGradient id="rayGrad" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor="rgba(196,181,253,0.35)" />
+            <stop offset="100%" stopColor="rgba(196,181,253,0)" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  )
+}
+
+// ── Foguete com trilha de luz e faíscas — o elemento de impacto do header.
+// Desenhado em SVG (sem imagem externa), flutuando suavemente. ─────────
+function RocketIllustration() {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const sparks = useMemo(() => Array.from({ length: 10 }, (_, i) => ({
+    id: i, t: i / 10, offset: (Math.random() - 0.5) * 22, size: 1.5 + Math.random() * 2, delay: Math.random() * 2,
+  })), [])
+  return (
+    <motion.div
+      animate={{ y: [0, -10, 0], rotate: [-2, 2, -2] }}
+      transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+      style={{ position: 'absolute', top: '8%', right: 'clamp(200px,26vw,320px)', width: 'clamp(150px,20vw,270px)', height: 'clamp(200px,26vw,360px)', pointerEvents: 'none', zIndex: 1 }}>
+      <svg viewBox="0 0 200 320" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+        <defs>
+          <linearGradient id="trailGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#c4b5fd" stopOpacity="0.85" />
+            <stop offset="100%" stopColor="#c4b5fd" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="rocketBody" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#e0e7ff" />
+            <stop offset="100%" stopColor="#a5b4fc" />
+          </linearGradient>
+        </defs>
+
+        {/* Trilha de luz atrás do foguete */}
+        <path d="M 100,120 C 60,180 30,230 -10,300" fill="none" stroke="url(#trailGrad)" strokeWidth="20" strokeLinecap="round" opacity="0.55" />
+        {mounted && sparks.map(s => (
+          <motion.circle key={s.id}
+            cx={100 - s.t * 110 + s.offset} cy={120 + s.t * 180}
+            r={s.size} fill="#e9d5ff"
+            animate={{ opacity: [0, 1, 0] }}
+            transition={{ duration: 1.6, repeat: Infinity, delay: s.delay, ease: 'easeInOut' }} />
+        ))}
+
+        {/* Corpo do foguete */}
+        <g transform="rotate(28 100 100)">
+          <path d="M100,20 C118,45 124,75 124,100 L76,100 C76,75 82,45 100,20 Z" fill="url(#rocketBody)" />
+          <circle cx="100" cy="78" r="13" fill="#312e81" stroke="#c4b5fd" strokeWidth="3" />
+          <path d="M76,90 L48,125 L76,112 Z" fill="#7c3aed" />
+          <path d="M124,90 L152,125 L124,112 Z" fill="#7c3aed" />
+          <rect x="82" y="98" width="36" height="14" rx="4" fill="#a5b4fc" />
+          {/* Chama */}
+          <motion.path d="M88,112 C88,140 100,160 100,160 C100,160 112,140 112,112 Z" fill="#fbbf24"
+            animate={{ scaleY: [1, 1.25, 1], opacity: [0.85, 1, 0.85] }} transition={{ duration: 0.5, repeat: Infinity }}
+            style={{ transformOrigin: '100px 112px' }} />
+        </g>
+      </svg>
+    </motion.div>
+  )
+}
+
 function DualRingGauge({ pctGoal, pctMonth }: { pctGoal: number; pctMonth: number }) {
-  const R1 = 38, R2 = 26
+  const R1 = 32, R2 = 22
   const C1 = 2 * Math.PI * R1, C2 = 2 * Math.PI * R2
   const diff = pctGoal - pctMonth
   const ahead = diff >= 0
   return (
     <div style={{ textAlign: 'center', flexShrink: 0 }}>
-      <div style={{ position: 'relative', width: 110, height: 110 }}>
-        <svg width="110" height="110" style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx="55" cy="55" r={R1} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="9" />
-          <motion.circle cx="55" cy="55" r={R1} fill="none" stroke="#4ade80" strokeWidth="9" strokeLinecap="round"
+      <div style={{ position: 'relative', width: 92, height: 92 }}>
+        <svg width="92" height="92" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx="46" cy="46" r={R1} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="8" />
+          <motion.circle cx="46" cy="46" r={R1} fill="none" stroke="#4ade80" strokeWidth="8" strokeLinecap="round"
             initial={{ strokeDasharray: `0 ${C1}` }} animate={{ strokeDasharray: `${(pctGoal / 100) * C1} ${C1}` }} transition={{ duration: 1.2, ease: 'easeOut' }} />
-          <circle cx="55" cy="55" r={R2} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="6" />
-          <motion.circle cx="55" cy="55" r={R2} fill="none" stroke="#60a5fa" strokeWidth="6" strokeLinecap="round"
+          <circle cx="46" cy="46" r={R2} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5" />
+          <motion.circle cx="46" cy="46" r={R2} fill="none" stroke="#60a5fa" strokeWidth="5" strokeLinecap="round"
             initial={{ strokeDasharray: `0 ${C2}` }} animate={{ strokeDasharray: `${(pctMonth / 100) * C2} ${C2}` }} transition={{ duration: 1.2, ease: 'easeOut', delay: 0.15 }} />
         </svg>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 24, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{pctGoal.toFixed(0)}%</span>
-          <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>da meta</span>
+          <span style={{ fontSize: 20, fontWeight: 900, color: '#fff', lineHeight: 1 }}>{pctGoal.toFixed(0)}%</span>
+          <span style={{ fontSize: 7, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>da meta</span>
         </div>
       </div>
-      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-        <span style={{ fontSize: 11, fontWeight: 800, color: ahead ? '#4ade80' : '#f87171' }}>{ahead ? '▲' : '▼'} {Math.abs(diff).toFixed(0)}pp</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)' }}>vs ritmo do mês</span>
+      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+        <span style={{ fontSize: 10, fontWeight: 800, color: ahead ? '#4ade80' : '#f87171' }}>{ahead ? '▲' : '▼'} {Math.abs(diff).toFixed(0)}pp</span>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)' }}>vs ritmo do mês</span>
       </div>
     </div>
   )
@@ -180,7 +275,7 @@ function MetaRealizadoCard({ meta, realizado, evolucao, diasNoMes }: {
   const pct = meta > 0 ? (realizado / meta) * 100 : 0
   const acimaOuNoRitmo = evolucao.length > 0 && evolucao[evolucao.length - 1].realizado >= evolucao[evolucao.length - 1].ritmoLinear
 
-  const W = 700, H = 175, padX = 10, padY = 20
+  const W = 700, H = 140, padX = 10, padY = 18
   // Escala pelo range real dos dados visíveis (realizado + ritmo), não pela
   // meta inteira — se a meta for muito maior que o realizado até agora, usar
   // a meta como referência espreme as duas linhas lá embaixo, quase retas.
@@ -192,7 +287,7 @@ function MetaRealizadoCard({ meta, realizado, evolucao, diasNoMes }: {
   const ritmoLinePath = ritmoPts.length > 1 ? `M ${ritmoPts[0].x},${ritmoPts[0].y} L ${ritmoPts[ritmoPts.length - 1].x},${ritmoPts[ritmoPts.length - 1].y}` : ''
 
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Target size={15} style={{ color: '#6366f1' }} />
         <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Meta x Realizado</p>
@@ -272,14 +367,14 @@ function ClosingForecastCard({ realizado, recorrenciaPrevista, ritmoNovaVenda, f
     { label: 'Meta', value: meta, color: '#6366f1' },
   ]
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <TrendingUp size={15} style={{ color: '#3b82f6' }} />
         <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Forecast de fechamento do mês</p>
       </div>
       <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 16px' }}>Nesse ritmo, onde a empresa termina o mês</p>
 
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, marginBottom: 16, height: 90 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 12, height: 74 }}>
         {bars.map((b, i) => (
           <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
             <span style={{ fontSize: 12, fontWeight: 900, color: b.color, marginBottom: 4 }}><CountUp value={b.value} format={fmtBRL} /></span>
@@ -323,7 +418,7 @@ function ForecastHero({ total, monthly, detail }: {
 }) {
   const [hovered, setHovered] = useState<number | null>(null)
   const safeMonthly = monthly ?? []
-  const safeDetail  = detail ?? { mrrAtual: 0, persistenceRate: 0, sampleSize: 0, ativas: 0, atrasadas: 0, emRisco: 0, completas: 0 }
+  const safeDetail  = detail ?? { mrrAtual: 0, persistenceRate: 0, sampleSize: 0, ativas: 0, atrasadas: 0, emRisco: 0, completas: 0, restamAPagarMes: 0, atrasadasMes: 0, jaPagasMes: 0 }
   // Mesma técnica/proporção do RevenueChart — pra ter a mesma "cara" dos
   // outros gráficos do dashboard, em vez de um tratamento visual próprio.
   const W = 700, H = 90, padX = 10, padY = 18
@@ -335,15 +430,19 @@ function ForecastHero({ total, monthly, detail }: {
   const linePath = smoothPath(pts)
   const areaPath = pts.length > 1 ? `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z` : ''
 
+  // 'restam a pagar', 'atrasadas' e 'já pagas' agora são recortados pro MÊS
+  // ATUAL (mudam de verdade dia a dia), não mais uma foto da vida inteira da
+  // base de assinaturas. 'Em risco' continua sendo um sinal de todo o
+  // histórico — é sobre saúde/churn, faz sentido independente do mês.
   const healthItems = [
-    { label: 'restam a pagar', count: safeDetail.ativas, emoji: '💚' },
-    { label: 'atrasadas', count: safeDetail.atrasadas, emoji: '⏰' },
-    { label: 'em risco', count: safeDetail.emRisco, emoji: '⚠️' },
-    { label: 'já pagas', count: safeDetail.completas, emoji: '✅' },
+    { label: 'restam a pagar este mês', count: safeDetail.restamAPagarMes ?? safeDetail.ativas, emoji: '💚' },
+    { label: 'atrasadas',               count: safeDetail.atrasadasMes ?? safeDetail.atrasadas, emoji: '⏰' },
+    { label: 'em risco',                count: safeDetail.emRisco,                              emoji: '⚠️' },
+    { label: 'já pagas este mês',       count: safeDetail.jaPagasMes ?? safeDetail.completas,    emoji: '✅' },
   ].filter(h => h.count > 0)
 
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <HeartPulse size={15} style={{ color: '#0d9488' }} />
@@ -417,58 +516,112 @@ function ForecastHero({ total, monthly, detail }: {
 }
 
 // ── Mural de insights de IA — nível de empresa ────────────────
-const INSIGHT_STYLE = {
-  alerta:       { emoji: '⚠️', color: '#ef4444', bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)' },
-  oportunidade: { emoji: '💡', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.25)' },
-  destaque:     { emoji: '✨', color: '#a855f7', bg: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.25)' },
+// Paleta por GRAVIDADE, não por "tipo de ação" como antes (que deixava tudo
+// vermelho/laranja e parecia emergência igual pra tudo). O dado que vem do
+// backend hoje só tem 3 categorias (alerta/oportunidade/destaque) — dentro
+// de "alerta", uma heurística de texto separa Crítico de Atenção, olhando
+// padrões como "caiu/queda X%" ou "sem vender há N dias". Isso é só uma
+// classificação de apresentação; se quiser que a própria IA já devolva o
+// nível de gravidade (mais preciso), isso exigiria mudar o gerador dos
+// insights (fora do escopo de design).
+const SEVERITY_STYLE = {
+  critico: { label: 'Crítico',       emoji: '🔴', color: '#ef4444', bg: 'rgba(239,68,68,0.07)',  border: 'rgba(239,68,68,0.22)' },
+  aviso:   { label: 'Atenção',       emoji: '🟠', color: '#f59e0b', bg: 'rgba(245,158,11,0.07)', border: 'rgba(245,158,11,0.22)' },
+  info:    { label: 'Oportunidade',  emoji: '🔵', color: '#3b82f6', bg: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.22)' },
 } as const
 
-function InsightMural({ insights }: { insights: { type: 'alerta' | 'oportunidade' | 'destaque'; titulo: string; motivo: string | null; sugestao: string | null }[] }) {
-  if (!insights || insights.length === 0) return null
+function classifySeverity(ins: { type: string; titulo: string; motivo: string | null }): keyof typeof SEVERITY_STYLE {
+  if (ins.type !== 'alerta') return 'info'
+  const text = `${ins.titulo} ${ins.motivo ?? ''}`.toLowerCase()
+  const hasDropLanguage = /(caiu|queda|abaixo|despenc)/.test(text)
+  const pctMatch = text.match(/(\d+(?:\.\d+)?)\s*%/)
+  const pct = pctMatch ? parseFloat(pctMatch[1]) : 0
+  const daysMatch = text.match(/(\d+)\s*dias?/)
+  const days = daysMatch ? parseInt(daysMatch[1]) : 0
+  const isBigDrop = hasDropLanguage && pct >= 25
+  const isLongInactive = days >= 6 && /sem vender|sem vendas|inativ/.test(text)
+  return (isBigDrop || isLongInactive) ? 'critico' : 'aviso'
+}
+
+function InsightRow({ ins, severity, isOpen, onToggle, isLast }: {
+  ins: { type: 'alerta' | 'oportunidade' | 'destaque'; titulo: string; motivo: string | null; sugestao: string | null }
+  severity: keyof typeof SEVERITY_STYLE; isOpen: boolean; onToggle: () => void; isLast: boolean
+}) {
+  const s = SEVERITY_STYLE[severity]
+  const hasDetail = !!(ins.motivo || ins.sugestao)
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+    <div style={{ borderBottom: isLast ? 'none' : '1px solid var(--border)' }}>
+      <button onClick={onToggle} disabled={!hasDetail}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: 'transparent', border: 'none', cursor: hasDetail ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left', transition: 'background 0.12s' }}
+        onMouseEnter={e => { if (hasDetail) (e.currentTarget as HTMLElement).style.background = 'var(--secondary)' }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0, boxShadow: severity === 'critico' ? `0 0 6px ${s.color}` : 'none' }} />
+        <span style={{ fontSize: 15, flexShrink: 0 }}>{s.emoji}</span>
+        <p style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: 'var(--foreground)', margin: 0, lineHeight: 1.4 }}>{ins.titulo}</p>
+        <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, background: s.bg, border: `1px solid ${s.border}`, padding: '3px 9px', borderRadius: 999, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
+          {s.label}
+        </span>
+        {hasDetail && (
+          <ChevronDown size={14} style={{ color: 'var(--muted-foreground)', flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+        )}
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && hasDetail && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}
+            style={{ overflow: 'hidden' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '2px 16px 16px 46px' }}>
+              {ins.motivo && (
+                <div>
+                  <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.05em' }}>Provável motivo</span>
+                  <p style={{ fontSize: 12.5, color: 'var(--muted-foreground)', margin: '3px 0 0', lineHeight: 1.5 }}>{ins.motivo}</p>
+                </div>
+              )}
+              {ins.sugestao && (
+                <div>
+                  <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.05em' }}>Sugestão</span>
+                  <p style={{ fontSize: 12.5, color: 'var(--foreground)', margin: '3px 0 0', lineHeight: 1.5, fontWeight: 600 }}>{ins.sugestao}</p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function InsightMural({ insights }: { insights: { type: 'alerta' | 'oportunidade' | 'destaque'; titulo: string; motivo: string | null; sugestao: string | null }[] }) {
+  // Aberto por padrão só o primeiro item de maior gravidade — o resto começa
+  // recolhido, pra não repetir a poluição visual de antes.
+  const classified = useMemo(() => (insights ?? []).map(ins => ({ ins, severity: classifySeverity(ins) })), [insights])
+  const order: Record<string, number> = { critico: 0, aviso: 1, info: 2 }
+  const sorted = useMemo(() => [...classified].sort((a, b) => order[a.severity] - order[b.severity]), [classified])
+  const firstCriticalIdx = sorted.findIndex(x => x.severity === 'critico')
+  const [openIdx, setOpenIdx] = useState<number | null>(firstCriticalIdx >= 0 ? firstCriticalIdx : (sorted.length > 0 ? 0 : null))
+
+  if (!insights || insights.length === 0) return null
+
+  const counts = { critico: sorted.filter(x => x.severity === 'critico').length, aviso: sorted.filter(x => x.severity === 'aviso').length, info: sorted.filter(x => x.severity === 'info').length }
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9, flexWrap: 'wrap' }}>
         <Stethoscope size={15} style={{ color: '#a855f7' }} />
         <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Diagnóstico do Dia</p>
         <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>· gerado 1x por dia, olhando o painel inteiro</span>
+        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+          {(['critico', 'aviso', 'info'] as const).filter(k => counts[k] > 0).map(k => (
+            <span key={k} style={{ fontSize: 10, fontWeight: 700, color: SEVERITY_STYLE[k].color, background: SEVERITY_STYLE[k].bg, border: `1px solid ${SEVERITY_STYLE[k].border}`, padding: '2px 8px', borderRadius: 999 }}>
+              {counts[k]} {SEVERITY_STYLE[k].label.toLowerCase()}
+            </span>
+          ))}
+        </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 12 }}>
-        {insights.map((ins, i) => {
-          const s = INSIGHT_STYLE[ins.type] ?? INSIGHT_STYLE.destaque
-          return (
-            <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08, duration: 0.4 }}
-              whileHover={{ y: -3 }}
-              style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', transition: 'box-shadow .2s ease' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-sm)' }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg,${s.color},${s.color}66)` }} />
 
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 10, background: `${s.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 16 }}>
-                  {s.emoji}
-                </div>
-                <p style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--foreground)', margin: 0, lineHeight: 1.35, paddingTop: 3 }}>{ins.titulo}</p>
-              </div>
-
-              {(ins.motivo || ins.sugestao) && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 46, borderLeft: `2px solid ${s.color}30`, marginLeft: 17 }}>
-                  {ins.motivo && (
-                    <div>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.05em' }}>Provável motivo</span>
-                      <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '2px 0 0', lineHeight: 1.4 }}>{ins.motivo}</p>
-                    </div>
-                  )}
-                  {ins.sugestao && (
-                    <div>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: '.05em' }}>Sugestão</span>
-                      <p style={{ fontSize: 12, color: 'var(--foreground)', margin: '2px 0 0', lineHeight: 1.4, fontWeight: 600 }}>{ins.sugestao}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </motion.div>
-          )
-        })}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+        {sorted.map(({ ins, severity }, i) => (
+          <InsightRow key={i} ins={ins} severity={severity} isOpen={openIdx === i} onToggle={() => setOpenIdx(openIdx === i ? null : i)} isLast={i === sorted.length - 1} />
+        ))}
       </div>
     </div>
   )
@@ -478,7 +631,7 @@ function InsightMural({ insights }: { insights: { type: 'alerta' | 'oportunidade
 function PulseDivider() {
   const pathD = 'M0,10 L40,10 L48,10 L53,2 L58,18 L63,10 L72,10 L200,10'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 18px', opacity: 0.5 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '2px 0 12px', opacity: 0.5 }}>
       <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
       <svg width="90" height="20" viewBox="0 0 200 20" preserveAspectRatio="xMidYMid meet">
         <path d={pathD} fill="none" stroke="var(--muted-foreground)" strokeWidth="1.5" />
@@ -514,7 +667,7 @@ function DeckCard({ c, index, onOpen }: { c: any; index: number; onOpen: () => v
     <div onClick={onOpen}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       style={{
-        width: 172, height: 250, flexShrink: 0, marginLeft: index === 0 ? 0 : -58,
+        width: 155, height: 225, flexShrink: 0, marginLeft: index === 0 ? 0 : -52,
         cursor: 'pointer', position: 'relative', perspective: 1200,
         transform: hovered ? 'rotate(0deg) translateY(-18px) scale(1.06)' : `rotate(${rot}deg)`,
         transition: 'transform .3s ease', zIndex: hovered ? 999 : index,
@@ -531,9 +684,9 @@ function DeckCard({ c, index, onOpen }: { c: any; index: number; onOpen: () => v
               {topBadge.emoji}
             </div>
           )}
-          <div style={{ padding: '20px 14px 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
+          <div style={{ padding: '17px 12px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: teamColor, background: `${teamColor}18`, padding: '2px 10px', borderRadius: 999, marginBottom: 10 }}>{c.team ?? '—'}</span>
-            <Avatar name={c.name} url={c.avatarUrl} size={64} />
+            <Avatar name={c.name} url={c.avatarUrl} size={56} />
             <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '10px 0 2px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{c.name}</p>
             <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '0 0 10px' }}>#{c.rank} no ranking</p>
             <div style={{ marginTop: 'auto', width: '100%', textAlign: 'center' }}>
@@ -668,7 +821,7 @@ interface Props {
     totalRevMonth: number; totalSalesMonth: number; totalSalesToday: number; totalRevToday: number
     avgTicketAll: number; totalMoneyLeft: number; totalCertsMonth: number
     forecast: number; monthlyForecast: { label: string; ajustado: number }[]
-    forecastDetail: { mrrAtual: number; persistenceRate: number; sampleSize: number; ativas: number; atrasadas: number; emRisco: number; completas: number }
+    forecastDetail: { mrrAtual: number; persistenceRate: number; sampleSize: number; ativas: number; atrasadas: number; emRisco: number; completas: number; restamAPagarMes?: number; atrasadasMes?: number; jaPagasMes?: number }
     revenueByDay: { day: string; revenue: number }[]
     closerCards: any[]; totalGoalMonth: number; pctCompanyGoal: number
     productRanking: { product: string; vertical: string; count: number; rev: number }[]
@@ -723,37 +876,67 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1200, margin: '0 auto' }}>
 
-      <div style={{ background: 'linear-gradient(135deg,#2e1065 0%,#3730a3 30%,#4f46e5 68%,#7c3aed 100%)', borderRadius: 22, padding: 'clamp(20px,3vw,32px)', marginBottom: 24, position: 'relative', overflow: 'hidden', boxShadow: '0 16px 48px rgba(79,70,229,0.35)' }}>
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'absolute', bottom: -60, right: 80, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
+      <div style={{ background: 'linear-gradient(160deg,#0f0524 0%,#1e0a4a 35%,#2e1065 65%,#3b1590 100%)', borderRadius: 22, padding: 'clamp(18px,2.6vw,30px)', marginBottom: 18, position: 'relative', overflow: 'hidden', boxShadow: '0 20px 56px rgba(46,16,101,0.5)', minHeight: 190 }}>
+        {/* Data — canto superior direito, discreta */}
+        <div style={{ position: 'absolute', top: 20, right: 24, zIndex: 2 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'capitalize' }}>
+            {now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </span>
+        </div>
+
+        <RadialRays />
         <ParticleField />
+        <RocketIllustration />
         <HeartbeatLine />
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.15)', color: '#fff', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                🚀 Plataforma Operacional · Time Comercial
+
+        <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 24 }}>
+          <div style={{ maxWidth: 560 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 13px', borderRadius: 999, background: 'rgba(139,92,246,0.18)', color: '#c4b5fd', border: '1px solid rgba(196,181,253,0.3)' }}>
+                <Sparkles size={11} /> Gestão360
               </span>
             </div>
-            <h1 style={{ fontSize: 'clamp(22px,4vw,34px)', fontWeight: 900, color: '#fff', margin: '0 0 8px', letterSpacing: '-0.03em', lineHeight: 1.15 }}>
-              {greet}, {userName}!
+
+            <h1 style={{ fontSize: 'clamp(18px,2.6vw,22px)', fontWeight: 800, color: '#fff', margin: '0 0 2px', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+              {greet}, {userName}! 👋
             </h1>
-            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.72)', margin: '0 0 18px', maxWidth: 440, lineHeight: 1.6 }}>
-              Central de controle da MedReview. Tudo que você precisa saber em um só lugar.
+            <h2 style={{
+              fontSize: 'clamp(24px,3.6vw,34px)', fontWeight: 900, margin: '0 0 10px', letterSpacing: '-0.03em', lineHeight: 1.1,
+              background: 'linear-gradient(90deg,#c4b5fd,#a78bfa,#818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+            }}>
+              Vamos pra cima hoje?
+            </h2>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.62)', margin: '0 0 16px', maxWidth: 420, lineHeight: 1.55 }}>
+              Acompanhe os principais indicadores e impulsione os resultados do nosso time.
             </p>
+
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.3)' }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 8px #4ade80' }} />
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#4ade80' }}>Sistema online</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                <Users size={12} style={{ color: '#fff' }} />
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{onlineList.length} online agora</span>
-              </div>
-              <LiveTicker lastSaleAt={commercial.lastSaleAt} />
+              {[
+                { icon: <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 8px #4ade80', flexShrink: 0 }} />, label: 'Sistema online', sub: 'Todos os sistemas operando', labelColor: '#4ade80' },
+                { icon: <Users size={14} style={{ color: '#a78bfa', flexShrink: 0 }} />, label: `${onlineList.length} online agora`, sub: 'Conectados no sistema', labelColor: '#fff' },
+              ].map((chip, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', borderRadius: 13, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)' }}>
+                  {chip.icon}
+                  <div>
+                    <p style={{ fontSize: 11.5, fontWeight: 800, color: chip.labelColor, margin: 0, lineHeight: 1.25 }}>{chip.label}</p>
+                    <p style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.45)', margin: 0, lineHeight: 1.25 }}>{chip.sub}</p>
+                  </div>
+                </div>
+              ))}
+              <LiveTickerChip lastSaleAt={commercial.lastSaleAt} />
             </div>
           </div>
-          <DualRingGauge pctGoal={commercial.pctCompanyGoal} pctMonth={commercial.pctMonthElapsed} />
+
+          {/* Painel da meta — moldura própria, como na referência.
+              Usa a MESMA base do card "Meta x Realizado" mais abaixo
+              (meta oficial da empresa, não a soma das metas individuais
+              dos closers) — senão os dois números do dashboard podem
+              contradizer um ao outro. */}
+          <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(196,181,253,0.25)', borderRadius: 18, padding: '16px 22px', backdropFilter: 'blur(10px)', textAlign: 'center', flexShrink: 0 }}>
+            <DualRingGauge
+              pctGoal={commercial.metaGeralMes > 0 ? Math.min((commercial.totalRevMonth / commercial.metaGeralMes) * 100, 100) : 0}
+              pctMonth={commercial.pctMonthElapsed} />
+          </div>
         </div>
       </div>
 
@@ -763,17 +946,17 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
       <PulseDivider />
 
-      <div className="sd-row-meta" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 16, marginBottom: 16 }}>
+      <div className="sd-row-meta" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 12, marginBottom: 12 }}>
         <MetaRealizadoCard meta={commercial.metaGeralMes} realizado={commercial.totalRevMonth} evolucao={commercial.dailyCumulative} diasNoMes={commercial.daysInMonthTotal} />
         <ClosingForecastCard realizado={commercial.totalRevMonth} recorrenciaPrevista={commercial.recorrenciaPrevistaMes} ritmoNovaVenda={commercial.projecaoRestanteNovaVenda}
           forecast={commercial.forecastFechamentoMes} meta={commercial.metaGeralMes} pctVsMeta={commercial.pctForecastVsMeta} />
       </div>
 
-      <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, marginBottom: 16 }}>
+      <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 12, marginBottom: 12 }}>
 
         <ForecastHero total={commercial.forecast} monthly={commercial.monthlyForecast} detail={commercial.forecastDetail} />
 
-        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '18px 20px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '15px 17px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e', animation: 'pulse 2s ease-in-out infinite' }} />
@@ -823,7 +1006,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
       <PulseDivider />
 
-      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '22px 24px', boxShadow: 'var(--shadow-sm)', marginBottom: 16 }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '18px 20px', boxShadow: 'var(--shadow-sm)', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClipboardList size={15} style={{ color: '#eab308' }} />
@@ -849,7 +1032,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
       <div className="sd-row3" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 16 }}>
 
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb, var(--secondary) 50%, var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '13px 18px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb, var(--secondary) 50%, var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <HeartPulse size={14} style={{ color: '#6366f1' }} />
               <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Atividade recente</p>
@@ -857,7 +1040,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
             <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>últimos 7 dias</span>
           </div>
 
-          <div style={{ maxHeight: 380, overflowY: 'auto', padding: '8px 0' }} className="scrollbar-hide">
+          <div style={{ maxHeight: 320, overflowY: 'auto', padding: '6px 0' }} className="scrollbar-hide">
             {loadingActivity ? (
               <div style={{ padding: '32px', textAlign: 'center' }}>
                 <motion.div animate={{ scale: [1, 1.4, 1], opacity: [0.5, 1, 0.5] }} transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}

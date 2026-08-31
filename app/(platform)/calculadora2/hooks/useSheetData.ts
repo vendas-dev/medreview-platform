@@ -44,6 +44,7 @@ function rowToModel(cols: string[], map: Record<string, number>): PriceRow | nul
     canalVenda:    get('canalVenda'),
     precoCheio:    parseBRL(get('precoCheio')),
     precoEspecial: parseBRL(get('precoEspecial')),
+    entregaveis:   get('entregaveis'),
   }
 }
 

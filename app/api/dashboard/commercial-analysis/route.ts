@@ -70,6 +70,16 @@ export async function GET(req: NextRequest) {
   const salesList = sales ?? []
   const closers    = closerProfiles ?? []
 
+  // Meta individual de cada closer — SEMPRE a meta MENSAL, independente do
+  // período selecionado no filtro. Em "hoje" ou "essa semana", a barra vai
+  // aparecer pequena mesmo que o closer esteja no ritmo certo — isso é
+  // esperado e correto: mostra o quanto daquele período já contribuiu pra
+  // meta do mês inteiro, não uma "meta do dia" que não existe no sistema.
+  const monthKey = today.slice(0, 7)
+  const { data: closerGoals } = await admin.from('closer_goals').select('user_id, goal_sales').eq('month', monthKey)
+  const goalsMap: Record<string, number> = {}
+  ;(closerGoals ?? []).forEach((g: any) => { goalsMap[g.user_id] = Number(g.goal_sales) || 0 })
+
   // ── KPIs do período (mesma regra de sempre: ticket médio só 1ª parcela) ──
   const totalRevenue = salesList.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
   const totalSales   = salesList.length
@@ -192,7 +202,10 @@ export async function GET(req: NextRequest) {
     const withDiscount = mySales.filter((e: any) => !e.is_self_checkout)
       .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
     const avgDiscountPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
-    return { id: c.id, name: c.name, avatarUrl: c.avatar_url, revenue, salesCount, avgTicket, convRate, moneyLeft: moneyLeftCloser, avgDiscountPct }
+    return {
+      id: c.id, name: c.name, avatarUrl: c.avatar_url, revenue, salesCount, avgTicket, convRate, moneyLeft: moneyLeftCloser, avgDiscountPct,
+      goalSales: goalsMap[c.id] ?? 0,
+    }
   }).filter(c => c.salesCount > 0 || c.revenue > 0).sort((a, b) => b.revenue - a.revenue)
 
   return NextResponse.json({

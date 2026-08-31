@@ -11,14 +11,38 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS })
 }
 
+// Converte uma data recebida do webhook pra ISO UTC. TODO valor sem fuso
+// explícito (seja formato DD/MM/YYYY, seja ISO "YYYY-MM-DD HH:MM") é tratado
+// como horário de São Paulo — é sempre isso que a fonte externa quer dizer.
+//
+// Bug corrigido aqui: antes, só o formato DD/MM/YYYY forçava -03:00. Se a
+// fonte mandasse em outro formato sem fuso (ex: "2026-08-27 09:50:00"), caía
+// no fallback `new Date(val)`, que o servidor (rodando em UTC) interpretava
+// como se já fosse UTC — o vencimento gravado ficava 3h adiantado do horário
+// de SP pretendido (ex: 09:50 SP virava 06:50 SP na prática).
 function parsePtbrDate(val: string | null | undefined): string | null {
   if (!val) return null
-  const m = val.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/)
-  if (m) {
-    const [, d, mo, y, h, min, s = '00'] = m
+  const v = String(val).trim()
+
+  // Formato DD/MM/YYYY HH:MM[:SS] — sempre horário de SP
+  const brMatch = v.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (brMatch) {
+    const [, d, mo, y, h, min, s = '00'] = brMatch
     return new Date(`${y}-${mo}-${d}T${h}:${min}:${s}-03:00`).toISOString()
   }
-  try { return new Date(val).toISOString() } catch { return null }
+
+  // Formato ISO "YYYY-MM-DD[T ]HH:MM[:SS]" SEM fuso explícito — também
+  // tratado como horário de SP (mesma regra do formato acima). Só cai fora
+  // daqui se a string já trouxer 'Z' ou um offset explícito no final.
+  const isoNoTzMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?\s*$/)
+  if (isoNoTzMatch) {
+    const [, y, mo, d, h, min, s = '00'] = isoNoTzMatch
+    return new Date(`${y}-${mo}-${d}T${h}:${min}:${s}-03:00`).toISOString()
+  }
+
+  // Qualquer outro formato — presume que já vem com fuso explícito (Z,
+  // +00:00 etc.) e deixa o parser nativo interpretar normalmente.
+  try { return new Date(v).toISOString() } catch { return null }
 }
 
 function normalize(raw: any): any {

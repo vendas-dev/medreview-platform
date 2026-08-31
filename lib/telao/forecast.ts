@@ -114,8 +114,14 @@ export function computePersistenceRate(allRecurringSales: RecurringSale[]): { ra
 
 // Projeção mês a mês, limitada ao fim do ano corrente (a partir do próximo mês).
 // Para assinaturas "atrasadas", a próxima parcela esperada é ancorada no
-// próximo mês (já está em atraso, então a expectativa é que regularize em breve).
-// Para assinaturas "ativas", a cadência continua a partir da última parcela paga.
+// próximo mês (já está em atraso, então a expectativa é que regularize em breve)
+// — MAS só projetamos a PRÓXIMA parcela dela, não todas as restantes de uma
+// vez. Projetar todas as parcelas restantes de uma assinatura já atrasada
+// empilhava tudo de uma vez num mês só, criando picos artificiais no gráfico
+// que não refletiam uma expectativa realista (uma assinatura atrasada há
+// meses provavelmente regulariza aos poucos, se regularizar, não quita tudo
+// de uma vez). Para assinaturas "ativas", a cadência continua normalmente a
+// partir da última parcela paga, com todas as parcelas restantes projetadas.
 export function computeMonthlyForecast(
   states: SubscriptionState[],
   persistenceRate: number,
@@ -137,7 +143,10 @@ export function computeMonthlyForecast(
       ? new Date(now.getFullYear(), now.getMonth() + 1, 1)
       : new Date(s.lastPaymentDate)
 
-    for (let k = 1; k <= s.remaining; k++) {
+    // Atrasada: só a próxima parcela (k=1). Ativa: todas as restantes.
+    const maxK = s.status === 'atrasada' ? 1 : s.remaining
+
+    for (let k = 1; k <= maxK; k++) {
       const expected = new Date(anchor)
       expected.setDate(expected.getDate() + k * CADENCE_DAYS)
       if (expected.getFullYear() > year) break // passou do fim do ano, para essa assinatura
@@ -222,4 +231,67 @@ export function computeRemainingMonthRecurring(
     }
   }
   return total
+}
+
+// ── Estatísticas de recorrência RECORTADAS pro mês atual ─────────
+//
+// Os contadores "ativas/atrasadas/em_risco/completas" do computeForecast são
+// uma FOTO DA VIDA INTEIRA da base de assinaturas — uma assinatura completada
+// há 8 meses continua contando pra sempre em "completas", por exemplo. Isso
+// fazia os números do card "sinal vital" mal mudarem de um dia pro outro,
+// mesmo sendo re-gerados diariamente.
+//
+// Aqui é diferente: três números recortados especificamente pro mês corrente,
+// que mudam de verdade conforme o mês avança:
+//  - jaPagas: parcelas que REALMENTE ocorreram dentro do mês atual (contagem
+//    direta, sem ambiguidade — sobe conforme o mês avança e mais parcelas
+//    chegam).
+//  - restamAPagar: assinaturas cuja PRÓXIMA parcela esperada (pela cadência
+//    normal) cai dentro do mês atual, mas ainda não venceu.
+//  - atrasadas: assinaturas cuja parcela esperada (deste mês ou arrastada de
+//    um mês anterior) já passou da data e ainda não foi paga.
+export interface CurrentMonthRecurringStats {
+  restamAPagar:       number
+  restamAPagarValue:  number
+  atrasadas:          number
+  atrasadasValue:     number
+  jaPagas:            number
+  jaPagasValue:       number
+}
+
+export function computeCurrentMonthRecurringStats(
+  allRecurringSales: RecurringSale[],
+  states: SubscriptionState[],
+  now: Date = new Date()
+): CurrentMonthRecurringStats {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+
+  const paidThisMonth = allRecurringSales.filter(s => {
+    const d = new Date(s.occurred_at)
+    return d >= monthStart && d <= monthEnd
+  })
+  const jaPagas      = paidThisMonth.length
+  const jaPagasValue = paidThisMonth.reduce((sum, s) => sum + s.value, 0)
+
+  let restamAPagar = 0, restamAPagarValue = 0
+  let atrasadas = 0, atrasadasValue = 0
+
+  for (const s of states) {
+    if (s.status === 'completa' || s.remaining <= 0) continue
+    const expected = new Date(s.lastPaymentDate)
+    expected.setDate(expected.getDate() + CADENCE_DAYS)
+
+    if (expected >= monthStart && expected <= monthEnd) {
+      if (expected < now) { atrasadas++; atrasadasValue += s.value }
+      else                { restamAPagar++; restamAPagarValue += s.value }
+    } else if (expected < monthStart && (s.status === 'atrasada' || s.status === 'em_risco')) {
+      // Esperada de um mês anterior, ainda pendente agora — continua
+      // "atrasada" no recorte deste mês, porque segue sem ser paga.
+      atrasadas++
+      atrasadasValue += s.value
+    }
+  }
+
+  return { restamAPagar, restamAPagarValue, atrasadas, atrasadasValue, jaPagas, jaPagasValue }
 }

@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback } f
 import { createClient } from '@/lib/supabase/client'
 import { TelaoEvent, Closer, Goal, MonthRevenue, VerticalId } from '@/lib/telao/types'
 import { todayStart, monthStart, monthKey, todayKey } from '@/lib/telao/format'
+import { todayInSaoPaulo } from '@/lib/timezone'
 
 interface LiveDataContext {
   events:       TelaoEvent[]
@@ -47,11 +48,25 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
       .select('*')
       .order('name')
 
-    // Goals hoje + mês
-    const { data: goalsData } = await supabase
-      .from('telao_goals')
-      .select('*')
-      .in('period_key', [todayKey(), monthKey()])
+    // ── Metas ──────────────────────────────────────────────────
+    // Não são mais definidas no telão (/telao/settings) — agora vêm sempre
+    // de /intel/goals (tabela company_goals: "Meta Geral" e "Metas por
+    // Vertical", por mês). Sintetizamos aqui o mesmo formato de Goal que o
+    // resto do telão já espera (period/period_key/vertical/target_value),
+    // pra não precisar mexer em GoalBar nem no restante do componente.
+    const monthKeyStr = monthKey()
+    const { data: companyGoalsRaw } = await supabase
+      .from('company_goals')
+      .select('scope, goal_value')
+      .eq('month', monthKeyStr)
+    const goalMap = Object.fromEntries((companyGoalsRaw ?? []).map((g: any) => [g.scope, Number(g.goal_value) || 0]))
+
+    // company_goals usa o nome por extenso da vertical (ex: "Anest-Review"),
+    // o telão usa a chave curta (ex: "anestreview") — precisa converter.
+    const VERT_LABEL_TO_KEY: Record<string, VerticalId> = {
+      'Med-Review R1': 'medreview', 'Anest-Review': 'anestreview',
+      'Oft-Review': 'oftreview', 'Ortop-Review': 'ortopreview',
+    }
 
     // Receita mensal
     const { data: monthData } = await supabase
@@ -69,12 +84,41 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
       mr.byVertical[vk] = (mr.byVertical[vk] ?? 0) + v
     }
 
+    // Meta do dia = (meta mensal − já realizado no mês) ÷ dias restantes
+    // (incluindo hoje) — não é uma divisão fixa por 30, ela "respira" com o
+    // ritmo real: atrasou, a meta diária sobe; adiantou, desce. Dá o norte
+    // de quanto precisa vender HOJE pra continuar no caminho de bater a meta.
+    const todaySP = todayInSaoPaulo()
+    const [anoSP, mesSP] = todaySP.split('-').map(Number)
+    const diasNoMes    = new Date(anoSP, mesSP, 0).getDate()
+    const diaAtual      = Number(todaySP.slice(8, 10))
+    const diasRestantes = Math.max(diasNoMes - diaAtual + 1, 1) // +1 inclui hoje
+
+    function metaDoDia(metaMensal: number, jaRealizadoNoMes: number): number {
+      if (metaMensal <= 0) return 0
+      const restante = Math.max(metaMensal - jaRealizadoNoMes, 0)
+      return restante / diasRestantes
+    }
+
+    const synthGoals: Goal[] = []
+    const metaGeralMensal = goalMap['geral'] ?? 0
+    if (metaGeralMensal > 0) {
+      synthGoals.push({ id: 'geral-month', period: 'month', period_key: monthKeyStr, vertical: null, target_value: metaGeralMensal } as unknown as Goal)
+      synthGoals.push({ id: 'geral-day',   period: 'day',   period_key: todayKey(),  vertical: null, target_value: metaDoDia(metaGeralMensal, mr.overall) } as unknown as Goal)
+    }
+    for (const [label, key] of Object.entries(VERT_LABEL_TO_KEY)) {
+      const metaVert = goalMap[label] ?? 0
+      if (metaVert <= 0) continue
+      synthGoals.push({ id: `${key}-month`, period: 'month', period_key: monthKeyStr, vertical: key, target_value: metaVert } as unknown as Goal)
+      synthGoals.push({ id: `${key}-day`,   period: 'day',   period_key: todayKey(),  vertical: key, target_value: metaDoDia(metaVert, mr.byVertical[key] ?? 0) } as unknown as Goal)
+    }
+
     const evs = (eventsData ?? []) as TelaoEvent[]
     evs.forEach(e => seenIds.current.add(e.id))
 
     setEvents(evs)
     setClosers((closersData ?? []) as Closer[])
-    setGoals((goalsData ?? []) as Goal[])
+    setGoals(synthGoals)
     setMonthRevenue(mr)
     setLoading(false)
   }, [])
@@ -128,18 +172,15 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
           }
         }
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'telao_goals' }, () => {
-        // Re-fetch goals quando houver mudança
-        createClient()
-          .from('telao_goals')
-          .select('*')
-          .in('period_key', [todayKey(), monthKey()])
-          .then(({ data }) => { if (data) setGoals(data as Goal[]) })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'company_goals' }, () => {
+        // Metas mudaram em /intel/goals — refaz a busca completa (ela já
+        // recalcula a meta do dia com base no realizado mais atual).
+        fetchAll()
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [])
+  }, [fetchAll])
 
   return (
     <Ctx.Provider value={{

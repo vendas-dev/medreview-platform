@@ -5,9 +5,11 @@ import { useSettings }       from './hooks/useSettings'
 import { useSheetData }      from './hooks/useSheetData'
 import { SalesConfigurator } from './components/SalesConfigurator'
 import { PaymentCard }       from './components/PaymentCard'
+import { WhatsAppPreview }   from './components/WhatsAppPreview'
+import { InstallmentsPanel } from './components/InstallmentsPanel'
 import { SettingsDialog }    from './components/SettingsDialog'
 import { PaymentMode }       from './lib/types'
-import { simulate, rateForVertical } from './lib/pricing'
+import { simulate, rateForVertical, parseBRL, buildWhatsAppMessage } from './lib/pricing'
 
 interface Props { isAdmin?: boolean; userTeam?: string | null }
 
@@ -15,7 +17,6 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
   const { settings, setSettings, reset, loaded } = useSettings()
   const { rows: allRows, loading, error, refresh } = useSheetData(settings, loaded)
 
-  // Filtrar verticais disponíveis por time (exceto superadmin)
   const TEAM_VERTICALS: Record<string,string[]> = {
     'R1':  ['Med-Review R1'],
     'OAO': ['Anest-Review', 'Oft-Review', 'Ortop-Review'],
@@ -33,11 +34,26 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
   const [upsellOn,      setUpsellOn]      = useState(false)
   const [upsellProduto, setUpsellProduto] = useState('')
   const [usoInterno,    setUsoInterno]    = useState(false)
-  const [paymentMode,   setPaymentMode]   = useState<PaymentMode>('parcelado')
+  const [paymentMode,   setPaymentModeRaw]= useState<PaymentMode>('parcelado')
   const [manualN,       setManualN]       = useState(12)
   const [manualRate,    setManualRate]    = useState(settings.defaultMonthlyRate)
   const [eventoSub,     setEventoSub]     = useState<'avista'|'parcelado'>('parcelado')
   const [showSettings,  setShowSettings]  = useState(false)
+
+  // ── Negociação — barra 0-20% + campo de valor desejado ──────────
+  const [discountPct,  setDiscountPct]  = useState(0)
+  const [targetValue,  setTargetValue]  = useState('')
+  const [hoveredParcela, setHoveredParcela] = useState<{ n: number; valor: number } | null>(null)
+
+  // Trocar pra "à vista" pula automaticamente pro desconto configurado —
+  // mas o closer ainda pode arrastar a barra livremente depois disso.
+  function setPaymentMode(mode: PaymentMode) {
+    setPaymentModeRaw(mode)
+    if (mode === 'avista') {
+      setDiscountPct(settings.cashDiscountPercent)
+      setTargetValue('')
+    }
+  }
 
   const selectedRow = useMemo(() => {
     if (!vertical || !produto || !tempo || !tipoAluno || !canal) return null
@@ -61,98 +77,157 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     ) ?? rows.find(r => r.vertical === vertical && r.produto === upsellProduto) ?? null
   }, [rows, upsellOn, upsellProduto, selectedRow, vertical, tempo, tipoAluno, canal])
 
+  const entregaveisFinal = useMemo(() => {
+    if (!selectedRow) return ''
+    if (selectedRow.entregaveis) return selectedRow.entregaveis
+    const irma = rows.find(r =>
+      r.vertical === selectedRow.vertical && r.produto === selectedRow.produto &&
+      r.tempoAcesso === selectedRow.tempoAcesso && r.tipoAluno === selectedRow.tipoAluno &&
+      r.canalVenda === selectedRow.canalVenda && r.entregaveis
+    )
+    return irma?.entregaveis ?? ''
+  }, [selectedRow, rows])
+
+  // PV original (antes da negociação) — produto + upsell
   const PV = useMemo(() => {
     if (!selectedRow) return 0
     return selectedRow.precoEspecial + (upsellOn && upsellRow ? upsellRow.precoEspecial : 0)
   }, [selectedRow, upsellOn, upsellRow])
 
+  const totalCheioComUpsell = useMemo(() => {
+    if (!selectedRow) return 0
+    return selectedRow.precoCheio + (upsellOn && upsellRow ? upsellRow.precoCheio : 0)
+  }, [selectedRow, upsellOn, upsellRow])
+
+  // Cálculo reverso: se o closer digitou um valor desejado, qual % de
+  // desconto isso implica sobre o PV?
+  const impliedPct = useMemo(() => {
+    if (!targetValue || PV <= 0) return null
+    const tv = parseBRL(targetValue)
+    if (tv <= 0) return null
+    return Math.max(0, (1 - tv / PV) * 100)
+  }, [targetValue, PV])
+
+  // Limite da barra — configurável por vertical, não mais fixo em 20%.
+  const maxDiscountPct = settings.discountLimits?.[vertical] ?? 20
+  const isOverLimit = impliedPct !== null && impliedPct > maxDiscountPct
+
+  // Enquanto o valor digitado ficar DENTRO do limite, a barra acompanha e
+  // fica destravada. Passou do limite: a barra trava na última posição
+  // válida (visualmente "apagada"), mas o valor final ainda reflete
+  // exatamente o que o closer digitou — só o destaque visual muda.
+  const effectiveDiscountPct = isOverLimit ? discountPct : (impliedPct ?? discountPct)
+
+  const effectivePV = useMemo(() => {
+    if (isOverLimit) {
+      const tv = parseBRL(targetValue)
+      return tv > 0 ? tv : PV
+    }
+    if (impliedPct !== null) return PV * (1 - impliedPct / 100)
+    return PV * (1 - discountPct / 100)
+  }, [isOverLimit, targetValue, PV, impliedPct, discountPct])
+
   const simResult = useMemo(() => {
-    if (!selectedRow || PV <= 0) return null
-    return simulate(PV, paymentMode, settings, vertical, manualN, manualRate, eventoSub)
-  }, [selectedRow, PV, paymentMode, settings, vertical, manualN, manualRate, eventoSub])
+    if (!selectedRow || effectivePV <= 0) return null
+    return simulate(effectivePV, paymentMode, settings, vertical, manualN, manualRate, eventoSub)
+  }, [selectedRow, effectivePV, paymentMode, settings, vertical, manualN, manualRate, eventoSub])
 
   const hasUrl = !!settings.spreadsheetUrl
+  const currentRate    = rateForVertical(vertical || '', settings)
+  const isSemJurosMode = currentRate === 0
+
+  function clearAll() {
+    setVertical(''); setProduto(''); setTempo(''); setTipoAluno(''); setCanal('')
+    setUpsellOn(false); setUpsellProduto('')
+    setUsoInterno(false)
+    setPaymentModeRaw('parcelado')
+    setDiscountPct(0); setTargetValue('')
+    setHoveredParcela(null)
+  }
+
+
+  // ── Mensagem ao vivo pro painel de prévia ────────────────────────
+  const cursoLabelFull = selectedRow ? `${selectedRow.produto}${selectedRow.tipoAluno ? ` (${selectedRow.tipoAluno})` : ''}${upsellRow ? ` + ${upsellRow.produto}` : ''}` : ''
+  const liveMessage = useMemo(() => {
+    if (!simResult || !selectedRow) return 'Selecione um produto pra ver a prévia da mensagem aqui.'
+    return buildWhatsAppMessage({
+      cursoLabel: cursoLabelFull, tempoAcesso: selectedRow.tempoAcesso, entregaveis: entregaveisFinal,
+      totalCheio: totalCheioComUpsell, totalBase: effectivePV, result: simResult, parcela: hoveredParcela,
+    })
+  }, [simResult, selectedRow, cursoLabelFull, entregaveisFinal, totalCheioComUpsell, effectivePV, hoveredParcela])
 
   return (
-    <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1240, margin: '0 auto' }}>
+    <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1440, margin: '0 auto' }}>
 
-      {/* Header */}
-      <div style={{ background: 'linear-gradient(135deg,#2e1065 0%,#3730a3 30%,#4f46e5 68%,#7c3aed 100%)', borderRadius: 22, padding: 'clamp(18px,3vw,28px)', marginBottom: 22, position: 'relative', overflow: 'hidden', boxShadow: '0 12px 40px rgba(79,70,229,0.3)' }}>
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 12px', borderRadius: 999, background: 'rgba(255,255,255,0.15)', color: '#fff', display: 'inline-block', marginBottom: 10, border: '1px solid rgba(255,255,255,0.2)' }}>
-              🧮 Calculadora Comercial
-            </span>
-            <h1 style={{ fontSize: 'clamp(20px,3vw,26px)', fontWeight: 900, color: '#fff', margin: '0 0 6px', letterSpacing: '-0.03em' }}>
-              Simulador de Investimento
-            </h1>
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', margin: 0 }}>
-              {rows.length > 0
-                ? `${rows.length} produtos · Atualiza a cada 60s`
-                : 'Carregando produtos...'}
-            </p>
-          </div>
+      {/* Header — mais direto, menos decorativo. Classes ".calc2-hdr*"
+          definem o visual CLARO por padrão; o bloco ".dark .calc2-hdr*"
+          logo abaixo restaura, char a char, o gradiente escuro original —
+          modo escuro fica 100% como estava. */}
+      <div className="calc2-hdr" style={{ borderRadius: 12, padding: 'clamp(16px,2.4vw,22px)', marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <span className="calc2-hdr-badge" style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 5, background: 'rgba(245,158,11,0.15)', display: 'inline-block', marginBottom: 8 }}>
+            Simulador de Oferta
+          </span>
+          <h1 className="calc2-hdr-title" style={{ fontSize: 'clamp(18px,2.6vw,22px)', fontWeight: 900, margin: '0 0 3px', letterSpacing: '-0.02em' }}>
+            Negociação Comercial
+          </h1>
+          <p className="calc2-hdr-sub" style={{ fontSize: 12.5, margin: 0 }}>
+            {rows.length > 0 ? `${rows.length} produtos carregados` : 'Carregando produtos...'}
+          </p>
+        </div>
 
-          {/* Botões — refresh sempre visível, configurações só para admin */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            {hasUrl && (
-              <button onClick={refresh} disabled={loading} title="Atualizar"
-                style={{ width: 40, height: 40, borderRadius: 11, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', backdropFilter: 'blur(8px)', transition: 'all 0.15s' }}>
-                <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              </button>
-            )}
-
-            {/* ← Configurações: APENAS para superadmin */}
-            {isAdmin && (
-              <button onClick={() => setShowSettings(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 16px', borderRadius: 11, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.12)', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'inherit', backdropFilter: 'blur(8px)', transition: 'all 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.22)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}>
-                <Settings size={15} /> Configurações
-              </button>
-            )}
-          </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {hasUrl && (
+            <button onClick={refresh} disabled={loading} title="Atualizar" className="calc2-hdr-btn"
+              style={{ width: 38, height: 38, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setShowSettings(true)} className="calc2-hdr-btn"
+              style={{ display: 'flex', alignItems: 'center', gap: 7, height: 38, padding: '0 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
+              <Settings size={14} /> Configurações
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Aviso de planilha não configurada — só para admin */}
       {isAdmin && !hasUrl && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderRadius: 14, background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.25)', marginBottom: 20 }}>
-          <AlertCircle size={18} style={{ color: '#d97706', flexShrink: 0 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.25)', marginBottom: 16 }}>
+          <AlertCircle size={17} style={{ color: '#d97706', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 2px' }}>Planilha não configurada</p>
-            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>Cole a URL CSV da planilha nas configurações para carregar os produtos.</p>
+            <p style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 2px' }}>Planilha não configurada</p>
+            <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0 }}>Cole a URL CSV da planilha nas configurações para carregar os produtos.</p>
           </div>
           <button onClick={() => setShowSettings(true)}
-            style={{ height: 36, padding: '0 16px', borderRadius: 9, border: 'none', background: '#d97706', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+            style={{ height: 34, padding: '0 14px', borderRadius: 7, border: 'none', background: '#d97706', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
             Configurar
           </button>
         </div>
       )}
 
       {error && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', marginBottom: 20 }}>
-          <AlertCircle size={16} style={{ color: '#ef4444', flexShrink: 0 }} />
-          <p style={{ fontSize: 13, color: '#ef4444', margin: 0 }}>Erro ao carregar planilha: {error}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16 }}>
+          <AlertCircle size={15} style={{ color: '#ef4444', flexShrink: 0 }} />
+          <p style={{ fontSize: 12.5, color: '#ef4444', margin: 0 }}>Erro ao carregar planilha: {error}</p>
         </div>
       )}
 
       {loading && rows.length === 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 12, background: 'var(--secondary)', marginBottom: 20 }}>
-          <Loader2 size={16} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
-          <p style={{ fontSize: 13, color: 'var(--muted-foreground)', margin: 0 }}>Carregando produtos da planilha...</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', borderRadius: 8, background: 'var(--secondary)', marginBottom: 16 }}>
+          <Loader2 size={15} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+          <p style={{ fontSize: 12.5, color: 'var(--muted-foreground)', margin: 0 }}>Carregando produtos da planilha...</p>
         </div>
       )}
 
-      {/* Layout 2 colunas */}
-      <div className="calc2-grid" style={{ display: 'grid', gridTemplateColumns: '400px 1fr', gap: 20, alignItems: 'start' }}>
+      {/* Layout 3 colunas — configuração | oferta+negociação | prévia WhatsApp */}
+      <div className="calc2-grid" style={{ display: 'grid', gridTemplateColumns: '340px 1fr 320px', gap: 16, alignItems: 'start' }}>
         <div>
           <SalesConfigurator
             rows={rows}
             settings={settings}
-            vertical={vertical}         setVertical={v  => { setVertical(v);  setProduto(''); setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto('') }}
-            produto={produto}           setProduto={v   => { setProduto(v);   setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto('') }}
+            vertical={vertical}         setVertical={v  => { setVertical(v);  setProduto(''); setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto(''); setDiscountPct(0); setTargetValue('') }}
+            produto={produto}           setProduto={v   => { setProduto(v);   setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto(''); setDiscountPct(0); setTargetValue('') }}
             tempo={tempo}               setTempo={v     => { setTempo(v);     setTipoAluno(''); setCanal('') }}
             tipoAluno={tipoAluno}       setTipoAluno={v => { setTipoAluno(v); setCanal('') }}
             canal={canal}               setCanal={setCanal}
@@ -160,39 +235,88 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
             upsellProduto={upsellProduto} setUpsellProduto={setUpsellProduto}
             upsellRow={upsellRow}
             usoInterno={usoInterno}     setUsoInterno={setUsoInterno}
-            paymentMode={paymentMode}   setPaymentMode={setPaymentMode}
-            manualN={manualN}           setManualN={setManualN}
-            manualRate={manualRate}     setManualRate={setManualRate}
-            eventoSub={eventoSub}       setEventoSub={setEventoSub}
             selectedRow={selectedRow}
+            onClearAll={clearAll}
           />
         </div>
 
-        <div style={{ position: 'sticky', top: 20 }}>
+        <div>
           <PaymentCard
             result={simResult}
-            cursoLabel={selectedRow ? `${selectedRow.produto}${selectedRow.tipoAluno ? ` (${selectedRow.tipoAluno})` : ''}${upsellRow ? ` + ${upsellRow.produto}` : ''}` : ''}
+            cursoLabel={cursoLabelFull}
+            entregaveis={entregaveisFinal}
             tempoAcesso={selectedRow?.tempoAcesso ?? ''}
             produtoLabel={selectedRow ? `${selectedRow.produto}${upsellRow ? ` + ${upsellRow.produto}` : ''} — ${selectedRow.tempoAcesso}` : ''}
             precoCheio={selectedRow ? selectedRow.precoCheio + (upsellOn && upsellRow ? upsellRow.precoCheio : 0) : 0}
-            precoBase={selectedRow?.precoEspecial ?? 0}
+            precoBase={selectedRow ? effectivePV : 0}
             upsellLabel={upsellRow?.produto}
             upsellPrice={upsellOn && upsellRow ? upsellRow.precoEspecial : 0}
             vertical={vertical}
             eventDiscount={settings.eventDiscounts[vertical]}
-            cashDiscountPct={settings.cashDiscountPercent}
+            paymentMode={paymentMode}   setPaymentMode={setPaymentMode}
+            usoInterno={usoInterno}
+            manualN={manualN}           setManualN={setManualN}
+            manualRate={manualRate}     setManualRate={setManualRate}
+            eventoSub={eventoSub}       setEventoSub={setEventoSub}
+            currentRate={currentRate}
+            isSemJurosMode={isSemJurosMode}
+            pvOriginal={PV}
+            effectivePV={effectivePV}
+            discountPct={effectiveDiscountPct}
+            setDiscountPct={setDiscountPct}
+            targetValue={targetValue}   setTargetValue={setTargetValue}
+            impliedPct={impliedPct}
+            isOverLimit={isOverLimit}
+            defaultCashPct={settings.cashDiscountPercent}
+            maxDiscountPct={maxDiscountPct}
+            onHoverParcela={setHoveredParcela}
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <WhatsAppPreview message={liveMessage} isHoveringParcela={!!hoveredParcela} />
+          <InstallmentsPanel
+            result={simResult}
+            cursoLabel={cursoLabelFull}
+            tempoAcesso={selectedRow?.tempoAcesso ?? ''}
+            entregaveis={entregaveisFinal}
+            totalCheio={totalCheioComUpsell}
+            totalBase={effectivePV}
+            onHoverParcela={setHoveredParcela}
           />
         </div>
       </div>
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
+
+        /* Header — claro por padrão (fundo var(--card), texto escuro,
+           badge em tom mais escuro pra contraste sobre fundo claro).
+           .dark restaura o gradiente escuro original, ponto a ponto. */
+        .calc2-hdr { background: var(--card); border: 1px solid var(--border); }
+        .calc2-hdr-title { color: var(--foreground); }
+        .calc2-hdr-sub { color: var(--muted-foreground); }
+        .calc2-hdr-badge { color: #d97706; }
+        .calc2-hdr-btn { border: 1px solid var(--border); background: var(--secondary); color: var(--muted-foreground); }
+        .calc2-hdr-btn:hover { background: var(--border); color: var(--foreground); }
+
+        .dark .calc2-hdr { background: linear-gradient(135deg,#0f0524,#1e0b45,#2e1065); border: none; }
+        .dark .calc2-hdr-title { color: #fff; }
+        .dark .calc2-hdr-sub { color: rgba(255,255,255,0.55); }
+        .dark .calc2-hdr-badge { color: #fbbf24; }
+        .dark .calc2-hdr-btn { border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.08); color: #fff; }
+        .dark .calc2-hdr-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
+
+        @media (max-width: 1180px) {
+          .calc2-grid { grid-template-columns: 320px 1fr !important; }
+          .calc2-grid > div:nth-child(3) { grid-column: 1 / -1; }
+        }
         @media (max-width: 860px) {
           .calc2-grid { grid-template-columns: 1fr !important; }
+          .calc2-grid > div:nth-child(3) { grid-column: auto; }
         }
       `}</style>
 
-      {/* Dialog de configurações — só abre se isAdmin (dupla proteção) */}
       {isAdmin && showSettings && (
         <SettingsDialog settings={settings} onSave={setSettings} onReset={reset} onClose={() => setShowSettings(false)} />
       )}

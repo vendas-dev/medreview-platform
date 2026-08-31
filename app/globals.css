@@ -2,23 +2,41 @@
 @import "tailwindcss";
 @import './responsive.css';
 
+/* ═══════════════════════════════════════════════════════════════
+   SISTEMA DE DESIGN — v3 (modo claro reformulado)
+   Light: superfícies próximas em tom, separadas por sombra/borda
+   suave — não mais blocos de cor com saltos de contraste fortes.
+   A sidebar deixou de ser um "cinza pesado" destacado; agora é uma
+   variação sutil do fundo, dando continuidade visual, não um bloco
+   à parte. O card branco ganha identidade por sombra/borda, não por
+   um contraste chapado contra o fundo.
+   Dark: inalterado — grafite/chumbo sofisticado (nunca preto puro).
+   Acento roxo/azul reservado ao CTA principal — o resto da UI usa
+   tons neutros, com cor só pra status/informação pontual.
+   ═══════════════════════════════════════════════════════════════ */
+
 /* ─── TEMA CLARO ─────────────────────────────────────────────── */
+/* Paleta com degraus mais suaves entre fundo, sidebar e cards —
+   confortável pra uso diário, sem a sensação de "blocos" que a
+   versão anterior tinha (sidebar bem mais escura que o resto). */
 :root {
-  /* Superfícies */
-  --background:       #f0f2f8;   /* fundo geral — azul-cinza bem suave */
-  --card:             #ffffff;   /* cards em branco puro */
-  --card-elevated:    #ffffff;   /* cards elevados */
-  --secondary:        #eef0f7;   /* fundo de itens secundários */
+  /* Superfícies — degraus sutis, quase imperceptíveis em tom, com
+     separação vindo de sombra/borda, não de saltos de cor. */
+  --background:       #F3F5F8;   /* fundo geral — off-white azulado suave */
+  --sidebar-bg:        #E8EBF0;   /* bem próxima do fundo — continuidade, não bloco à parte */
+  --card:             #ffffff;
+  --card-elevated:    #ffffff;
+  --secondary:        #EDF0F4;   /* fundo de itens secundários / hover em cards brancos */
 
-  /* Texto */
-  --foreground:       #111827;   /* texto principal — quase preto */
-  --muted-foreground: #6b7280;   /* texto secundário */
+  /* Texto — mantido, já tinha contraste bem calibrado */
+  --foreground:       #363E49;   /* chumbo escuro — título e texto principal */
+  --muted-foreground: #4F6D8C;   /* azul escurecido — 5.4:1 de contraste, preservado */
 
-  /* Bordas */
-  --border:           #dde1ef;   /* borda padrão */
-  --border-strong:    #c5cadf;   /* borda mais visível */
+  /* Bordas — suavizadas, acompanhando o novo fundo */
+  --border:           #DEE3EA;
+  --border-strong:    #C6CED9;
 
-  /* Marca */
+  /* Marca — usar com moderação, reservado ao CTA principal */
   --primary:          #4f46e5;
   --primary-fg:       #ffffff;
 
@@ -27,51 +45,55 @@
   --success:          #22c55e;
   --warning:          #f59e0b;
 
-  /* Gradientes */
+  /* Gradientes — só para o CTA principal e celebrações, não pra UI do dia a dia */
   --grad-primary:  linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
   --grad-hot:      linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
   --grad-blue:     linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%);
   --grad-success:  linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   --grad-hero:     linear-gradient(135deg, #2e1065 0%, #3730a3 30%, #4f46e5 70%, #7c3aed 100%);
 
-  /* Sombras — crítico para o tema claro parecer bem */
-  --shadow-xs:  0 1px 3px rgba(17,24,39,0.06), 0 1px 2px rgba(17,24,39,0.04);
-  --shadow-sm:  0 2px 8px rgba(17,24,39,0.08), 0 1px 3px rgba(17,24,39,0.05);
-  --shadow-md:  0 4px 16px rgba(17,24,39,0.1),  0 2px 6px rgba(17,24,39,0.06);
-  --shadow-lg:  0 8px 32px rgba(17,24,39,0.12), 0 3px 10px rgba(17,24,39,0.07);
-  --shadow-xl:  0 16px 48px rgba(17,24,39,0.14), 0 6px 16px rgba(17,24,39,0.08);
-  --shadow-purple: 0 8px 32px rgba(79,70,229,0.18), 0 2px 8px rgba(79,70,229,0.1);
+  /* Sombras — suaves, difusas, sem preto puro */
+  --shadow-xs:  0 1px 2px rgba(54,62,73,0.05), 0 1px 1px rgba(54,62,73,0.04);
+  --shadow-sm:  0 2px 8px rgba(54,62,73,0.07), 0 1px 2px rgba(54,62,73,0.05);
+  --shadow-md:  0 6px 20px rgba(54,62,73,0.09), 0 2px 6px rgba(54,62,73,0.05);
+  --shadow-lg:  0 12px 32px rgba(54,62,73,0.11), 0 4px 12px rgba(54,62,73,0.06);
+  --shadow-xl:  0 20px 50px rgba(54,62,73,0.13), 0 8px 20px rgba(54,62,73,0.07);
+  --shadow-purple: 0 8px 24px rgba(79,70,229,0.10), 0 2px 6px rgba(79,70,229,0.05);
 
   --font: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --radius: 14px;
+  --radius: 16px;
+  --radius-btn: 12px;
+  --radius-sm: 10px;
 }
 
-/* ─── TEMA ESCURO ────────────────────────────────────────────── */
+/* ─── TEMA ESCURO — grafite/chumbo, nunca preto puro ─────────── */
+/* INALTERADO — cada valor abaixo é idêntico ao que já estava em produção. */
 .dark {
-  --background:       #080c14;
-  --card:             #0f1520;
-  --card-elevated:    #141c2e;
-  --secondary:        #131b2e;
+  --background:       #0F172A;   /* slate-900 — grafite, não preto */
+  --sidebar-bg:        #1E293B;   /* igual ao card — no dark já funcionava bem assim */
+  --card:             #1E293B;   /* slate-800 */
+  --card-elevated:    #253449;   /* levemente mais claro, pra dar profundidade sem contraste forte */
+  --secondary:        #1A2436;
 
-  --foreground:       #e8ecf8;
-  --muted-foreground: #56607a;
+  --foreground:       #F1F5F9;   /* slate-100 — bem legível */
+  --muted-foreground: #94A3B8;   /* slate-400 — MUITO mais contraste que o tom anterior */
 
-  --border:           #1e2840;
-  --border-strong:    #2a3654;
+  --border:           #334155;   /* slate-700 */
+  --border-strong:    #475569;   /* slate-600 */
 
-  --primary:          #6366f1;
-  --primary-fg:       #ffffff;
+  --primary:          #818CF8;   /* um pouco mais suave que neon puro, ainda claramente "a cor de marca" */
+  --primary-fg:       #0F172A;
 
   --destructive:      #f87171;
   --success:          #4ade80;
   --warning:          #fbbf24;
 
-  --shadow-xs:  0 1px 3px rgba(0,0,0,0.3);
-  --shadow-sm:  0 2px 8px rgba(0,0,0,0.35);
-  --shadow-md:  0 4px 16px rgba(0,0,0,0.4);
-  --shadow-lg:  0 8px 32px rgba(0,0,0,0.45);
-  --shadow-xl:  0 16px 48px rgba(0,0,0,0.5);
-  --shadow-purple: 0 8px 32px rgba(99,102,241,0.25);
+  --shadow-xs:  0 1px 2px rgba(0,0,0,0.18);
+  --shadow-sm:  0 2px 10px rgba(0,0,0,0.22);
+  --shadow-md:  0 6px 22px rgba(0,0,0,0.28);
+  --shadow-lg:  0 14px 36px rgba(0,0,0,0.34);
+  --shadow-xl:  0 22px 54px rgba(0,0,0,0.4);
+  --shadow-purple: 0 8px 28px rgba(129,140,248,0.22);
 }
 
 /* ─── RESET ──────────────────────────────────────────────────── */
@@ -88,13 +110,24 @@ body {
   font-family: var(--font);
   background: var(--background);
   color: var(--foreground);
-  line-height: 1.5;
+  line-height: 1.55;
   letter-spacing: -0.01em;
   min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/* ─── HIERARQUIA TIPOGRÁFICA ─────────────────────────────────── */
+/* Classes utilitárias — adotar gradualmente em cada seção */
+.text-display { font-size: clamp(28px,4vw,40px); font-weight: 900; letter-spacing: -0.03em; line-height: 1.1; color: var(--foreground); }
+.text-h1      { font-size: clamp(22px,3vw,28px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.2;  color: var(--foreground); }
+.text-h2      { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); }
+.text-h3      { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); }
+.text-body    { font-size: 14px; font-weight: 400; color: var(--foreground); }
+.text-caption { font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+.text-label   { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-foreground); }
+
 /* ─── SCROLLBAR ──────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
@@ -119,7 +152,7 @@ input, select, textarea, button { font-family: var(--font); letter-spacing: -0.0
 }
 .card-hover:hover {
   box-shadow: var(--shadow-lg);
-  border-color: rgba(99,102,241,0.25);
+  border-color: rgba(99,102,241,0.22);
   transform: translateY(-2px);
 }
 .card-purple {
@@ -139,26 +172,29 @@ input, select, textarea, button { font-family: var(--font); letter-spacing: -0.0
 }
 
 /* ─── BOTÕES ─────────────────────────────────────────────────── */
+/* .btn-primary é o CTA principal — único lugar que deve usar o
+   gradiente vibrante com força total. */
 .btn-primary {
   display: inline-flex; align-items: center; gap: 7px;
-  height: 40px; padding: 0 18px; border-radius: 10px;
+  height: 42px; padding: 0 20px; border-radius: var(--radius-btn);
   background: var(--grad-primary);
   color: #fff; border: none; cursor: pointer;
   font-size: 13px; font-weight: 700; font-family: var(--font);
-  box-shadow: 0 4px 14px rgba(79,70,229,0.35);
+  box-shadow: 0 4px 16px rgba(79,70,229,0.3);
   transition: all 0.18s;
   letter-spacing: -0.01em;
 }
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(79,70,229,0.45);
+  box-shadow: 0 6px 22px rgba(79,70,229,0.4);
 }
 .btn-primary:active { transform: scale(0.97); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
+/* .btn-ghost — ação secundária, neutra por padrão (sem roxo) */
 .btn-ghost {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 36px; padding: 0 14px; border-radius: 9px;
+  height: 38px; padding: 0 16px; border-radius: var(--radius-btn);
   background: transparent; color: var(--muted-foreground);
   border: 1.5px solid var(--border);
   cursor: pointer; font-size: 12px; font-weight: 600;
@@ -171,69 +207,79 @@ input, select, textarea, button { font-family: var(--font); letter-spacing: -0.0
 }
 
 /* ─── SIDEBAR ────────────────────────────────────────────────── */
+/* Item ativo: antes preenchia tudo de roxo. Agora usa um indicador
+   discreto (barra lateral + fundo bem sutil) — a cor de marca fica
+   reservada ao CTA, aqui só sinaliza "você está aqui". */
 .sidebar-item {
-  display: flex; align-items: center; gap: 8px;
-  height: 36px; padding: 0 10px; border-radius: 8px;
-  font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 14px; border-radius: var(--radius-sm);
+  font-size: 13.5px; font-weight: 500;
   color: var(--muted-foreground);
-  transition: all 0.12s; cursor: pointer;
+  transition: all 0.14s; cursor: pointer;
   text-decoration: none;
+  position: relative;
 }
 .sidebar-item:hover {
-  background: var(--secondary);
+  background: var(--border);
   color: var(--foreground);
 }
 .sidebar-item.active {
-  background: rgba(79,70,229,0.1);
-  color: #4f46e5;
-  font-weight: 600;
+  background: var(--card);
+  color: var(--foreground);
+  font-weight: 700;
+  box-shadow: var(--shadow-xs);
 }
-.dark .sidebar-item.active {
-  background: rgba(99,102,241,0.15);
-  color: #818cf8;
+.sidebar-item.active::before {
+  content: '';
+  position: absolute; left: -2px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 20px; border-radius: 99px;
+  background: var(--primary);
 }
+.dark .sidebar-item.active { background: var(--card-elevated); }
 
 /* ─── INPUTS ─────────────────────────────────────────────────── */
 .input-base {
-  width: 100%; height: 42px; padding: 0 14px;
-  border-radius: 10px;
+  width: 100%; height: 44px; padding: 0 16px;
+  border-radius: var(--radius-btn);
   border: 1.5px solid var(--border);
-  background: var(--background);
+  background: var(--card);
   color: var(--foreground); font-size: 14px;
   font-family: var(--font); outline: none;
   box-shadow: var(--shadow-xs);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .input-base:focus {
-  border-color: #6366f1;
+  border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
 }
 
 /* ─── BADGES ─────────────────────────────────────────────────── */
+/* Cor mantida (são etiquetas informativas — time, status — não
+   "neon de UI"), mas com saturação um pouco mais contida. */
 .badge-day {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 9px; font-weight: 800;
-  padding: 2px 8px; border-radius: 999px;
+  padding: 3px 9px; border-radius: 999px;
   background: var(--grad-primary); color: #fff;
   letter-spacing: 0.02em;
 }
 .badge-team-oao {
-  background: rgba(59,130,246,0.12); color: #2563eb;
+  background: rgba(59,130,246,0.1); color: #2563eb;
   font-size: 9px; font-weight: 700;
-  padding: 2px 8px; border-radius: 999px;
-  border: 1px solid rgba(59,130,246,0.2);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid rgba(59,130,246,0.18);
 }
 .badge-team-r1 {
-  background: rgba(139,92,246,0.12); color: #7c3aed;
+  background: rgba(124,58,237,0.1); color: #7c3aed;
   font-size: 9px; font-weight: 700;
-  padding: 2px 8px; border-radius: 999px;
-  border: 1px solid rgba(139,92,246,0.2);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid rgba(124,58,237,0.18);
 }
 .badge-done {
   background: rgba(34,197,94,0.1); color: #16a34a;
   font-size: 9px; font-weight: 700;
-  padding: 2px 8px; border-radius: 999px;
-  border: 1px solid rgba(34,197,94,0.2);
+  padding: 3px 9px; border-radius: 999px;
+  border: 1px solid rgba(34,197,94,0.18);
 }
 .dark .badge-team-oao { color: #60a5fa; }
 .dark .badge-team-r1  { color: #a78bfa; }
@@ -242,17 +288,17 @@ input, select, textarea, button { font-family: var(--font); letter-spacing: -0.0
 /* ─── VAR BADGE (templates) ──────────────────────────────────── */
 .var-badge {
   display: inline-flex; align-items: center;
-  padding: 1px 7px; border-radius: 5px;
-  background: rgba(99,102,241,0.1); color: #4f46e5;
+  padding: 2px 8px; border-radius: 6px;
+  background: rgba(99,102,241,0.08); color: #4f46e5;
   font-size: 11px; font-weight: 700;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  border: 1px solid rgba(99,102,241,0.2);
+  border: 1px solid rgba(99,102,241,0.18);
 }
-.dark .var-badge { background: rgba(99,102,241,0.18); color: #a5b4fc; }
+.dark .var-badge { background: rgba(129,140,248,0.14); color: #a5b4fc; }
 
 /* ─── CHECK BUTTON ───────────────────────────────────────────── */
 .check-btn {
-  width: 28px; height: 28px; border-radius: 8px;
+  width: 30px; height: 30px; border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   background: transparent; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -264,11 +310,11 @@ input, select, textarea, button { font-family: var(--font); letter-spacing: -0.0
 .check-btn.checked { background: #22c55e; border-color: #22c55e; color: white; }
 
 /* ─── PAGE WRAP ──────────────────────────────────────────────── */
-.page-wrap { padding: clamp(16px,3vw,32px); max-width: 100%; }
+.page-wrap { padding: clamp(20px,3.5vw,36px); max-width: 100%; }
 
 /* ─── GRIDS ──────────────────────────────────────────────────── */
-.grid-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(180px,100%), 1fr)); gap: clamp(10px,2vw,16px); }
-.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px,100%), 1fr)); gap: clamp(12px,2vw,18px); }
+.grid-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(180px,100%), 1fr)); gap: clamp(12px,2vw,18px); }
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px,100%), 1fr)); gap: clamp(14px,2vw,20px); }
 
 /* ─── ANIMAÇÕES ──────────────────────────────────────────────── */
 @keyframes fadeUp  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }

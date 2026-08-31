@@ -124,6 +124,56 @@ function MyRevenueChart({ data }: { data: { day: string; revenue: number }[] }) 
   )
 }
 
+// ── "Seu ritmo" — transforma números isolados (ticket médio, vendas no
+// mês) numa interpretação: no ritmo certo pra bater a meta, ou não. Cálculo
+// 100% derivado de `commercial`, sem nenhum dado novo do backend.
+function MyPaceCard({ commercial }: { commercial: NonNullable<Props['commercial']> }) {
+  if (commercial.goalSales <= 0) return null
+
+  const now = new Date()
+  const diaAtual = now.getDate()
+  const diasNoMes = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const diasRestantes = Math.max(diasNoMes - diaAtual + 1, 1)
+
+  const ritmoAtual = commercial.salesCount / diaAtual
+  const receitaRestante = Math.max(commercial.goalSales - commercial.revenue, 0)
+  const vendasRestantesEstimadas = commercial.avgTicket > 0 ? receitaRestante / commercial.avgTicket : 0
+  const ritmoNecessario = vendasRestantesEstimadas / diasRestantes
+  const acimaDoRitmo = ritmoNecessario > 0 ? ((ritmoAtual - ritmoNecessario) / ritmoNecessario) * 100 : null
+  const noRitmo = acimaDoRitmo === null || acimaDoRitmo >= 0
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '20px 22px', boxShadow: 'var(--shadow-sm)', marginBottom: 20 }}>
+      <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 4px' }}>⚡ Seu ritmo</p>
+      <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '0 0 18px' }}>
+        {noRitmo ? 'Você está vendendo no ritmo certo (ou acima) para bater sua meta.' : 'Seu ritmo atual está abaixo do necessário para bater a meta este mês.'}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+        <div>
+          <p style={{ fontSize: 21, fontWeight: 900, color: 'var(--foreground)', margin: '0 0 2px', letterSpacing: '-0.02em' }}>{fmtBRL(commercial.avgTicket)}</p>
+          <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>Ticket médio</p>
+        </div>
+        <div>
+          <p style={{ fontSize: 21, fontWeight: 900, color: noRitmo ? '#22c55e' : '#f97316', margin: '0 0 2px', letterSpacing: '-0.02em' }}>{ritmoAtual.toFixed(1)} venda/dia</p>
+          <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>Ritmo atual</p>
+        </div>
+        <div>
+          <p style={{ fontSize: 21, fontWeight: 900, color: 'var(--foreground)', margin: '0 0 2px', letterSpacing: '-0.02em' }}>{ritmoNecessario.toFixed(1)} venda/dia</p>
+          <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>Ritmo necessário</p>
+        </div>
+      </div>
+      {acimaDoRitmo !== null && (
+        <p style={{ fontSize: 12.5, fontWeight: 700, color: noRitmo ? '#16a34a' : '#ea580c', margin: '16px 0 0' }}>
+          {acimaDoRitmo >= 0 ? '+' : ''}{acimaDoRitmo.toFixed(0)}% {acimaDoRitmo >= 0 ? 'acima' : 'abaixo'} do ritmo necessário
+        </p>
+      )}
+      {acimaDoRitmo === null && ritmoAtual > 0 && (
+        <p style={{ fontSize: 12.5, fontWeight: 700, color: '#16a34a', margin: '16px 0 0' }}>Meta já garantida no ritmo atual 🎉</p>
+      )}
+    </div>
+  )
+}
+
 // ── Mini barras por vertical (só as vendas dele) ────────────────
 function MyVerticalBars({ data }: { data: { vertical: string; revenue: number; count: number }[] }) {
   if (data.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '30px 0' }}>Nenhuma venda registrada este mês ainda.</p>
@@ -166,63 +216,93 @@ function MyKpiCard({ icon: Icon, label, rawValue, format = fmtBRL, sub, grad, co
   )
 }
 
-// ── A carta grande — só dele, com a IA falando ───────────────────
-function MyBigCard({ userName, avatarUrl, teamName, commercial }: { userName: string; avatarUrl?: string | null; teamName: string; commercial: NonNullable<Props['commercial']> }) {
+// ── Resumo do mês — linguagem natural, calculada a partir dos mesmos
+// números que já vêm em `commercial` (nada de novo do backend). O insight
+// gerado pela IA continua exibido, só que como nota secundária — não
+// removi nada, só dei mais peso ao que é direto e humano primeiro.
+function MonthSummary({ commercial }: { commercial: NonNullable<Props['commercial']> }) {
   let insight: { resumo?: string; destaque?: string | null; atencao?: string | null } = {}
   try { insight = commercial.insight ? JSON.parse(commercial.insight) : {} } catch { insight = { resumo: commercial.insight } }
+
+  const hasGoal = commercial.goalSales > 0
+  const overGoalPct = hasGoal ? commercial.pctGoal - 100 : null
+
+  // Vertical onde o desconto médio dele está mais abaixo da média do time
+  // (ou seja, o melhor resultado em disciplina de desconto)
+  const bestDiscount = commercial.discountByVertical.length > 0
+    ? [...commercial.discountByVertical].sort((a, b) => (a.avgPct - a.companyAvgPct) - (b.avgPct - b.companyAvgPct))[0]
+    : null
+  const bestDiscountGap = bestDiscount ? bestDiscount.companyAvgPct - bestDiscount.avgPct : 0
+
+  const headline = !hasGoal
+    ? 'Confira como está seu mês até agora.'
+    : commercial.pctGoal >= 100
+      ? 'Você já bateu sua meta. 🔥'
+      : `Faltam ${fmtBRL(commercial.goalSales - commercial.revenue)} para bater a meta.`
+
+  return (
+    <div>
+      <p style={{ fontSize: 10.5, fontWeight: 800, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Seu mês até agora</p>
+      <p style={{ fontSize: 16, fontWeight: 800, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.01em' }}>{headline}</p>
+      <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', margin: 0, lineHeight: 1.5 }}>
+        {fmtMoneyCompact(commercial.revenue)} vendidos{overGoalPct !== null ? ` — ${Math.abs(overGoalPct).toFixed(0)}% ${overGoalPct >= 0 ? 'acima' : 'abaixo'} do objetivo.` : '.'}
+      </p>
+      {bestDiscount && bestDiscountGap > 0.5 && (
+        <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.7)', margin: '8px 0 0', lineHeight: 1.5 }}>
+          Seu melhor resultado está vindo da <strong style={{ color: '#fff' }}>{bestDiscount.vertical}</strong>, onde seu desconto médio está {bestDiscountGap.toFixed(1)} p.p. abaixo da média do time.
+        </p>
+      )}
+      {insight.resumo && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.1)', display: 'flex', gap: 7 }}>
+            <Sparkles size={12} style={{ color: 'rgba(255,255,255,0.7)', flexShrink: 0, marginTop: 1 }} />
+            <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.85)', margin: 0, lineHeight: 1.4 }}>{insight.resumo}</p>
+          </div>
+          {insight.destaque && <p style={{ fontSize: 11, color: '#dcfce7', margin: 0, paddingLeft: 4, opacity: 0.85 }}>✅ {insight.destaque}</p>}
+          {insight.atencao && <p style={{ fontSize: 11, color: '#fef3c7', margin: 0, paddingLeft: 4, opacity: 0.85 }}>⚠️ {insight.atencao}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── A carta principal — premium e editorial. Sem avatar (já está na
+// sidebar), sem grid de indicadores duplicado (já tem no grid de KPIs logo
+// abaixo) — só o essencial: quem, quanto, contra qual meta, e por quê.
+function MyBigCard({ userName, avatarUrl, teamName, commercial }: { userName: string; avatarUrl?: string | null; teamName: string; commercial: NonNullable<Props['commercial']> }) {
   const teamColor = teamName === 'R1' ? '#8b5cf6' : teamName === 'OAO' ? '#3b82f6' : '#6366f1'
+  const firstName = userName.split(' ')[0]
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
-      style={{ background: `linear-gradient(135deg,${teamColor}ee,${teamColor}bb)`, borderRadius: 22, padding: 'clamp(20px,3vw,30px)', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: `0 16px 48px ${teamColor}44` }}>
+      style={{ background: `linear-gradient(135deg,${teamColor}ee,${teamColor}bb)`, borderRadius: 22, padding: 'clamp(22px,3vw,32px)', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: `0 16px 48px ${teamColor}44` }}>
       <div style={{ position: 'absolute', top: -50, right: -30, width: 220, height: 220, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <Avatar name={userName} url={avatarUrl} size={76} />
-          <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.18)', padding: '3px 12px', borderRadius: 999 }}>Time {teamName || '—'} · #{commercial.rank} de {commercial.totalClosers}</span>
-        </div>
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: 28, flexWrap: 'wrap' }}>
 
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', margin: '0 0 4px' }}>Sua receita este mês</p>
-          <p style={{ fontSize: 'clamp(26px,4vw,38px)', fontWeight: 900, color: '#fff', margin: '0 0 8px', letterSpacing: '-0.03em', lineHeight: 1 }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <Avatar name={userName} url={avatarUrl} size={40} />
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#fff', margin: 0 }}>{firstName}</p>
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.18)', padding: '2px 10px', borderRadius: 999 }}>#{commercial.rank} de {commercial.totalClosers} · Time {teamName || '—'}</span>
+          </div>
+
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', margin: '0 0 4px' }}>Receita este mês</p>
+          <p style={{ fontSize: 'clamp(32px,4.5vw,44px)', fontWeight: 900, color: '#fff', margin: '0 0 10px', letterSpacing: '-0.03em', lineHeight: 1 }}>
             <CountUp value={commercial.revenue} format={fmtBRL} />
           </p>
           {commercial.goalSales > 0 && (
-            <div style={{ marginBottom: 10 }}>
+            <div>
               <div style={{ height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 999, overflow: 'hidden', marginBottom: 4 }}>
                 <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(commercial.pctGoal, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
                   style={{ height: '100%', background: commercial.pctGoal >= 100 ? '#4ade80' : '#fff', borderRadius: 999 }} />
               </div>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)' }}>{commercial.pctGoal.toFixed(0)}% da meta ({fmtBRL(commercial.goalSales)})</span>
-            </div>
-          )}
-
-          {insight.resumo && (
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ padding: '9px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.12)', display: 'flex', gap: 8 }}>
-                <Sparkles size={13} style={{ color: '#fff', flexShrink: 0, marginTop: 1 }} />
-                <p style={{ fontSize: 12, color: '#fff', margin: 0, lineHeight: 1.4 }}>{insight.resumo}</p>
-              </div>
-              {insight.destaque && <p style={{ fontSize: 11.5, color: '#dcfce7', margin: 0, paddingLeft: 4 }}>✅ {insight.destaque}</p>}
-              {insight.atencao && <p style={{ fontSize: 11.5, color: '#fef3c7', margin: 0, paddingLeft: 4 }}>⚠️ {insight.atencao}</p>}
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>{commercial.pctGoal.toFixed(0)}% da meta ({fmtBRL(commercial.goalSales)})</span>
             </div>
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, alignContent: 'start', minWidth: 200 }}>
-          {[
-            { label: 'Vendas no mês', value: commercial.salesCount },
-            { label: 'Ticket médio', value: fmtBRL(commercial.avgTicket) },
-            { label: 'Dias sem vender', value: commercial.daysSinceLastSale === null ? '—' : commercial.daysSinceLastSale },
-            teamName === 'R1'
-              ? { label: 'Embaixadores', value: commercial.certsCount }
-              : { label: 'Deixado na mesa', value: fmtBRL(commercial.moneyLeft) },
-          ].map((m, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ fontSize: 15, fontWeight: 900, color: '#fff', margin: 0 }}>{m.value}</p>
-              <p style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.7)', margin: '2px 0 0' }}>{m.label}</p>
-            </div>
-          ))}
+        <div style={{ flex: 1, minWidth: 260, borderLeft: '1px solid rgba(255,255,255,0.15)', paddingLeft: 28 }} className="mybigcard-divider">
+          <MonthSummary commercial={commercial} />
         </div>
       </div>
     </motion.div>
@@ -343,6 +423,67 @@ function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
   )
 }
 
+// ── "Atenção" — distila os sinais mais importantes (links vencidos, meta)
+// num painel curto, tipo assistente. Não busca nada novo — só reorganiza
+// os mesmos dados de `linkAlerts` e `commercial` que já chegam por prop.
+function AttentionPanel({ linkAlerts, commercial }: { linkAlerts?: Props['linkAlerts']; commercial?: Props['commercial'] }) {
+  const items: { color: string; bg: string; border: string; title: string; sub?: string }[] = []
+
+  if (linkAlerts) {
+    const { expiringSoon, expired } = linkAlerts
+    if (expired.length > 0) {
+      const potencial = expired.reduce((s: number, l: any) => s + (Number(l.deal_value) || 0), 0)
+      items.push({
+        color: '#f87171', bg: 'rgba(248,113,113,.08)', border: 'rgba(248,113,113,.25)',
+        title: `${expired.length} link${expired.length !== 1 ? 's' : ''} vencido${expired.length !== 1 ? 's' : ''}`,
+        sub: `${fmtMoneyCompact(potencial)} em potencial parado`,
+      })
+    }
+    const now = new Date(), todayStr = spDateStr(now)
+    const hojeList = expiringSoon.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === todayStr)
+    if (hojeList.length > 0) {
+      const top = [...hojeList].sort((a: any, b: any) => (Number(b.deal_value) || 0) - (Number(a.deal_value) || 0))[0]
+      const { primary } = parseDealName(top.deal_name)
+      items.push({
+        color: '#fbbf24', bg: 'rgba(251,191,36,.08)', border: 'rgba(251,191,36,.25)',
+        title: hojeList.length === 1 ? '1 link vence hoje' : `${hojeList.length} links vencem hoje`,
+        sub: `${primary} · ${fmtBRL(top.deal_value)}`,
+      })
+    }
+  }
+
+  if (commercial && commercial.goalSales > 0 && commercial.pctGoal >= 100) {
+    items.push({
+      color: '#4ade80', bg: 'rgba(74,222,128,.08)', border: 'rgba(74,222,128,.25)',
+      title: `Você está ${(commercial.pctGoal - 100).toFixed(0)}% acima da meta`,
+      sub: 'Continue nesse ritmo até o fim do mês.',
+    })
+  }
+
+  if (items.length === 0) return null
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
+        <Zap size={14} style={{ color: '#f59e0b' }} />
+        <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Atenção</p>
+        <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>· {items.length} coisa{items.length !== 1 ? 's' : ''} precisa{items.length === 1 ? '' : 'm'} da sua atenção</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: it.bg, border: `1px solid ${it.border}` }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: it.color, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>{it.title}</p>
+              {it.sub && <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '1px 0 0' }}>{it.sub}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 
 interface Step {
   id: string; title: string; day_number?: number | null
@@ -417,102 +558,12 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1080, margin: '0 auto' }}>
 
-      {/* ── HERO ─────────────────────────────────────────────── */}
-      <div style={{ background: 'linear-gradient(135deg,#2e1065 0%,#3730a3 28%,#4f46e5 65%,#7c3aed 100%)', borderRadius: 22, padding: 'clamp(22px,3vw,36px)', marginBottom: 24, position: 'relative', overflow: 'hidden', boxShadow: '0 20px 60px rgba(79,70,229,0.4)' }}>
-        <div style={{ position: 'absolute', top: -60, right: -60, width: 260, height: 260, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'absolute', bottom: -50, left: '35%', width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-        <div style={{ position: 'absolute', top: 20, right: 120, width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.4)' }} />
-        <div style={{ position: 'absolute', top: 60, right: 80, width: 4, height: 4, borderRadius: '50%', background: 'rgba(255,255,255,0.3)' }} />
-
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          {/* Linha topo */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <Avatar name={userName} url={avatarUrl} size={54} />
-              <div>
-                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', margin: '0 0 4px', letterSpacing: '0.03em' }}>
-                  {greet} · {teamName ? `Time ${teamName}` : 'MedReview'}
-                </p>
-                <h1 style={{ fontSize: 'clamp(20px,4vw,30px)', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.03em', lineHeight: 1.1 }}>
-                  {allDone ? `Missão cumprida, ${firstName}! 🏆` : `Vamos nessa, ${firstName}! 🚀`}
-                </h1>
-              </div>
-            </div>
-
-            {/* Mini stats */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {[
-                { icon: '✅', label: 'Concluídas', value: completed },
-                { icon: '⏳', label: 'Restantes',  value: pending.length },
-                { icon: '🔥', label: 'Sequência',  value: `${activities.filter(a => a.type === 'completion').length}` },
-              ].map((s, i) => (
-                <div key={i} style={{ padding: '8px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', textAlign: 'center', minWidth: 70 }}>
-                  <p style={{ fontSize: 18, fontWeight: 900, color: '#fff', margin: '0 0 2px', lineHeight: 1 }}>{s.icon} {s.value}</p>
-                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', margin: 0 }}>{s.label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Barra de progresso */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>Progresso na Trilha Comercial</span>
-              <span style={{ fontSize: 28, fontWeight: 900, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>{pct}%</span>
-            </div>
-            <div style={{ height: 16, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden', position: 'relative' }}>
-              <div style={{
-                height: '100%', borderRadius: 999,
-                background: allDone ? 'linear-gradient(90deg,#4ade80,#22c55e)' : 'linear-gradient(90deg,#c4b5fd,#a78bfa,#818cf8,#fff)',
-                width: `${pct}%`,
-                transition: 'width 1.4s cubic-bezier(0.16,1,0.3,1)',
-                boxShadow: '0 0 16px rgba(255,255,255,0.25)',
-              }} />
-              {[25, 50, 75].map(m => (
-                <div key={m} style={{ position: 'absolute', top: 0, bottom: 0, left: `${m}%`, width: 1, background: 'rgba(255,255,255,0.15)' }} />
-              ))}
-              {/* Bolinha na ponta */}
-              {pct > 3 && pct < 98 && (
-                <div style={{ position: 'absolute', top: '50%', left: `calc(${pct}% - 8px)`, transform: 'translateY(-50%)', width: 16, height: 16, borderRadius: '50%', background: '#fff', boxShadow: '0 0 8px rgba(255,255,255,0.8)' }} />
-              )}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{completed}/{total} módulos</span>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{pending.length} para concluir</span>
-            </div>
-          </div>
-
-          {/* CTA */}
-          {!allDone && current && (
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <Link href={`/onboarding/trilha/${current.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, height: 44, padding: '0 22px', borderRadius: 13, background: '#fff', cursor: 'pointer', transition: 'all 0.18s', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}
-                  onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-2px)'; el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.25)' }}
-                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'none'; el.style.boxShadow = '0 4px 20px rgba(0,0,0,0.2)' }}>
-                  <Play size={14} style={{ color: '#4f46e5', fill: '#4f46e5' }} />
-                  <span style={{ fontSize: 13, fontWeight: 800, color: '#4f46e5' }}>
-                    {inProgress ? 'Continuar de onde parou' : 'Começar próxima etapa'}
-                  </span>
-                  <ArrowRight size={14} style={{ color: '#4f46e5' }} />
-                </div>
-              </Link>
-              <Link href="/onboarding/trilha" style={{ textDecoration: 'none' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 44, padding: '0 18px', borderRadius: 13, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', transition: 'all 0.15s', backdropFilter: 'blur(8px)' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.18)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)'}>
-                  <BookOpen size={14} style={{ color: '#fff' }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Ver trilha completa</span>
-                </div>
-              </Link>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* ── MEU DESEMPENHO COMERCIAL ─────────────────────────── */}
       {commercial && (
         <>
           <MyBigCard userName={userName} avatarUrl={avatarUrl} teamName={teamName} commercial={commercial} />
+
+          <AttentionPanel linkAlerts={linkAlerts} commercial={commercial} />
 
           {linkAlerts && <LinkAlerts alerts={linkAlerts} />}
 
@@ -533,6 +584,8 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
               <MyVerticalBars data={commercial.verticalBreakdown.filter(v => v.count > 0)} />
             </div>
           </div>
+
+          <MyPaceCard commercial={commercial} />
 
           {commercial.discountByVertical.length > 0 && (
             <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '18px 22px', boxShadow: 'var(--shadow-sm)', marginBottom: 20 }}>
@@ -556,6 +609,49 @@ export function UserDashboard({ userName, avatarUrl, teamName, completed, total,
 
         {/* ESQUERDA */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Barra de progresso da trilha — junto com o resto do conteúdo
+              de trilha, não mais competindo lá no topo com o comercial */}
+          <div style={{ background: 'linear-gradient(135deg,#2e1065 0%,#3730a3 28%,#4f46e5 65%,#7c3aed 100%)', borderRadius: 18, padding: 'clamp(16px,2.4vw,22px)', position: 'relative', overflow: 'hidden', boxShadow: '0 10px 32px rgba(79,70,229,0.28)' }}>
+            <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                <p style={{ fontSize: 15, fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.01em' }}>
+                  {allDone ? 'Trilha concluída! 🏆' : 'Sua Trilha Comercial'}
+                </p>
+              </div>
+
+              {/* Barra de progresso fina, inline */}
+              <div style={{ flex: '2 1 260px', minWidth: 180 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+                  <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.6)' }}>{completed}/{total} módulos</span>
+                  <span style={{ fontSize: 15, fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>{pct}%</span>
+                </div>
+                <div style={{ height: 7, borderRadius: 999, background: 'rgba(255,255,255,0.15)', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 999,
+                    background: allDone ? 'linear-gradient(90deg,#4ade80,#22c55e)' : 'linear-gradient(90deg,#a78bfa,#818cf8,#fff)',
+                    width: `${pct}%`, transition: 'width 1.2s cubic-bezier(0.16,1,0.3,1)',
+                  }} />
+                </div>
+              </div>
+
+              {/* CTA único, compacto */}
+              {!allDone && current && (
+                <Link href={`/onboarding/trilha/${current.id}`} style={{ textDecoration: 'none', flexShrink: 0 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 38, padding: '0 16px', borderRadius: 11, background: '#fff', cursor: 'pointer', transition: 'all 0.18s', boxShadow: '0 3px 12px rgba(0,0,0,0.18)' }}
+                    onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'translateY(-1px)' }}
+                    onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.transform = 'none' }}>
+                    <Play size={12} style={{ color: '#4f46e5', fill: '#4f46e5' }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: '#4f46e5', whiteSpace: 'nowrap' }}>
+                      {inProgress ? 'Continuar' : 'Começar'}
+                    </span>
+                    <ArrowRight size={12} style={{ color: '#4f46e5' }} />
+                  </div>
+                </Link>
+              )}
+            </div>
+          </div>
 
           {/* Continue de onde parou */}
           <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>

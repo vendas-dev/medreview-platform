@@ -55,7 +55,10 @@ const TABS = [
   { id:'naoconvertidos' as TabId, label:'Não Convertidos', icon:AlertTriangle },
 ]
 const COLORS=['#a78bfa','#60a5fa','#34d399','#fbbf24','#f87171','#818cf8','#fb923c','#e879f9','#2dd4bf','#f472b6']
-const TOOLTIP_STYLE={ background:'#1a1a2e', border:'1px solid rgba(139,92,246,.3)', borderRadius:10, fontSize:12, color:'#e2e8f0' }
+// Antes fixo em '#1a1a2e' (fundo escuro) + '#e2e8f0' (texto claro) — ficava
+// com cara de modo escuro mesmo com o app no modo claro. Agora usa as
+// variáveis de tema, iguais às que o resto da tela já usa.
+const TOOLTIP_STYLE={ background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, fontSize:12, color:'var(--foreground)' }
 
 function todayIso(){ return new Date().toISOString().slice(0,10) }
 function pad(n:number){ return String(n).padStart(2,'0') }
@@ -84,8 +87,11 @@ function FDate({ label, value, onChange, placeholder }: { label:string;value:str
       <label style={{ fontSize:9, fontWeight:800, color:'rgba(99,102,241,.7)', display:'block', marginBottom:5, textTransform:'uppercase', letterSpacing:'.1em' }}>{label}</label>
       <div style={{ position:'relative' }}>
         <Calendar size={13} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'rgba(99,102,241,.7)', pointerEvents:'none' }}/>
+        {/* colorScheme era fixo em 'dark' — fazia o seletor nativo de data
+            do navegador abrir sempre escuro, mesmo com o app no modo claro.
+            'light dark' deixa o navegador escolher com base no tema real. */}
         <input type="date" value={value} onChange={e=>onChange(e.target.value)}
-          style={{ width:'100%', height:38, padding:'0 12px 0 30px', borderRadius:9, border:'1.5px solid var(--border)', background:'rgba(99,102,241,.08)', color:value?'var(--foreground)':'var(--muted-foreground)', fontSize:13, outline:'none', fontFamily:'inherit', colorScheme:'dark' }}
+          style={{ width:'100%', height:38, padding:'0 12px 0 30px', borderRadius:9, border:'1.5px solid var(--border)', background:'rgba(99,102,241,.08)', color:value?'var(--foreground)':'var(--muted-foreground)', fontSize:13, outline:'none', fontFamily:'inherit', colorScheme:'light dark' }}
           onFocus={e=>{e.target.style.borderColor='rgba(99,102,241,.6)'; e.target.style.boxShadow='0 0 0 2px rgba(99,102,241,.15)'}}
           onBlur={e=>{e.target.style.borderColor='rgba(99,102,241,.25)'; e.target.style.boxShadow='none'}}/>
       </div>
@@ -206,8 +212,6 @@ function DealModal({ dealId, dealName, rows, onClose }: { dealId:string;dealName
 
 // ── Aba "Não Convertidos" ──────────────────────────────────────
 
-// Deal_name às vezes vem como "Nome | email@algo.com" — separa pra dar
-// destaque ao nome e deixar o e-mail como informação secundária.
 function parseDealName(dealName: string | null): { primary: string; secondary: string | null } {
   if (!dealName) return { primary: 'Sem nome', secondary: null }
   const parts = dealName.split('|').map(s => s.trim()).filter(Boolean)
@@ -215,13 +219,10 @@ function parseDealName(dealName: string | null): { primary: string; secondary: s
   return { primary: dealName, secondary: null }
 }
 
-// Compara pelo fuso de SP, não pelo fuso do navegador.
 function spDateStr(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 }
 
-// Status de urgência — a data/hora vira praticamente um selo de prioridade,
-// não só um texto pequeno.
 function urgencyInfo(expiresAt: string | null): { label: string; color: string; bg: string; dot: string; order: number } {
   if (!expiresAt) return { label: '—', color: '#94a3b8', bg: 'rgba(148,163,184,.1)', dot: '⚪', order: 4 }
   const now = new Date()
@@ -247,9 +248,6 @@ function fmtMoneyCompact(v: number): string {
 function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: boolean }) {
   const naoConvertidos = useMemo(() => {
     const candidates = data.filter(d => !d.converted_at && !d.superseded_by_link_id && d.expires_at)
-    // Se o mesmo negócio (deal_id) tem mais de um link pendente — geralmente
-    // porque reemitiram antes do anterior vencer, ou geraram errado e
-    // corrigiram — mostra só o mais recente.
     const byDeal = new Map<string, GeracaoLink>()
     candidates.forEach(d => {
       const key = d.deal_id ?? d.id
@@ -339,7 +337,6 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
           </div>
         </div>
 
-        {/* Cabeçalho de colunas */}
         <div style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 90px' : '1fr 130px 90px 130px 90px', gap:10, padding:'6px 16px', background:'var(--secondary)', borderTop:'1px solid var(--border)' }}>
           {(isAdmin ? ['Proprietário','Lead','Produto','Valor','Vencimento','Ação'] : ['Lead','Produto','Valor','Vencimento','Ação']).map((h, i, arr) => (
             <span key={h} style={{ fontSize:9, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.06em', textAlign: i >= arr.length - 3 && i !== arr.length - 3 ? 'right' : 'left' }}>{h}</span>
@@ -367,7 +364,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const [dealM,   setDealM]   = useState<{id:string;name:string;rows:GeracaoLink[]}|null>(null)
   const [tblPage, setTblPage] = useState(0)
   const PAGE=50
-  // Filtros cascateados
   const [fOwner,  setFOwner]  = useState('')
   const [fVert,   setFVert]   = useState('')
   const [fProd,   setFProd]   = useState('')
@@ -378,10 +374,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const [search,  setSearch]  = useState('')
   const channelRef=useRef<any>(null)
 
-  // Mesma proteção do módulo de Disparos: se uma busca mais antiga responder
-  // depois de uma mais nova (ex: usuário mudou o filtro de data antes da
-  // busca anterior terminar), o resultado antigo é descartado em vez de
-  // sobrescrever o que já está certo na tela.
   const requestIdRef = useRef(0)
 
   const fetchData=useCallback(async()=>{
@@ -395,8 +387,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       if(!b||b.length===0)break; all=[...all,...b]; if(b.length<1000)break; from+=1000
     }
     if (myRequestId !== requestIdRef.current) return
-    // Usuário comum só vê os próprios links — mesmo critério do módulo de disparos
-    // e do telão: hubspot_id primeiro, nome como fallback pros registros antigos.
     if(!isAdmin){
       const nameNorm=(ownerName??'').trim().toLowerCase()
       all=all.filter(d=>
@@ -411,8 +401,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   useEffect(()=>{
     if(channelRef.current)supabase.removeChannel(channelRef.current)
     const ch=supabase.channel(`links-${Math.random()}`).on('postgres_changes',{event:'INSERT',schema:'public',table:'geracoes_links'},(payload:any)=>{
-      // Atualização leve: só adiciona o registro novo na lista, sem recarregar
-      // tudo (evitar o flash de "carregando" cobrindo a tela a cada link gerado).
       const row=payload.new as GeracaoLink
       if(fFrom && row.generated_at < dayBoundsSaoPaulo(fFrom).start) return
       if(fTo   && row.generated_at > dayBoundsSaoPaulo(fTo).end)   return
@@ -424,9 +412,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       }
       setData(prev=>prev.some(d=>d.id===row.id)?prev:[row,...prev])
     }).on('postgres_changes',{event:'UPDATE',schema:'public',table:'geracoes_links'},(payload:any)=>{
-      // Também escuta UPDATE — é assim que um link passa a "Pago" ou
-      // "Reemissão paga" (a venda enriquece o registro depois de criado,
-      // não é um INSERT novo).
       const row=payload.new as GeracaoLink
       setData(prev=>prev.map(d=>d.id===row.id?row:d))
     }).subscribe()
@@ -443,9 +428,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     return true
   }),[data,fOwner,fVert,fProd,fEtapa,fCond,search])
 
-  // Opções cascateadas — cada filtro só mostra opções que ainda existem
-  // considerando os OUTROS filtros já selecionados (ex: se só existe link
-  // parcelado do Nathan, ao filtrar por Nathan a Condição só mostra "Parcelado").
   const opts=useMemo(()=>{
     const ex=(skip:string)=>data.filter(d=>{
       if(skip!=='owner'&&fOwner&&d.owner_name!==fOwner)return false
@@ -464,7 +446,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     }
   },[data,fOwner,fVert,fProd,fEtapa,fCond])
 
-  // KPIs
   const kpis=useMemo(()=>{
     const hoje=todayInSaoPaulo()
     const dealMap=new Map<string,GeracaoLink[]>()
@@ -487,7 +468,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     }
   },[filtered])
 
-  // Chart data
   const byDay    =useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const k=dateInSaoPaulo(d.generated_at);m[k]=(m[k]??0)+1});return Object.entries(m).sort().map(([date,count])=>({date:fmtShortDate(date),count,_date:date}))},[filtered])
   const byHour   =useMemo(()=>{const m:Record<number,number>={};for(let i=0;i<24;i++)m[i]=0;filtered.forEach(d=>{const h=hourInSaoPaulo(d.generated_at);m[h]=(m[h]??0)+1});return Object.entries(m).map(([h,count])=>({hora:`${pad(+h)}h`,count}))},[filtered])
   const byOwner  =useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{m[d.owner_name]=(m[d.owner_name]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([name,count])=>({name,count}))},[filtered])
@@ -508,8 +488,6 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
   const byVertical=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const v=d.vertical??'S/vertical';m[v]=(m[v]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))},[filtered])
   const byCondition=useMemo(()=>{const m:Record<string,number>={};filtered.forEach(d=>{const c=conditionLabel(d)??'S/condição';m[c]=(m[c]??0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}))},[filtered])
   const reemByOwner=useMemo(()=>{const dm=new Map<string,GeracaoLink[]>();filtered.forEach(r=>{const k=r.deal_id??r.id;if(!dm.has(k))dm.set(k,[]);dm.get(k)!.push(r)});const m:Record<string,number>={};dm.forEach(rows=>{if(rows.length>1)rows.slice(1).forEach(r=>{m[r.owner_name]=(m[r.owner_name]??0)+1})});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([name,count])=>({name,count}))},[filtered])
-  // Mesmo agrupamento acima, mas guardando as linhas de verdade (não só a
-  // contagem) — pra o clique no gráfico de reemissões abrir a tabela certa.
   const reemRowsByOwner=useMemo(()=>{const dm=new Map<string,GeracaoLink[]>();filtered.forEach(r=>{const k=r.deal_id??r.id;if(!dm.has(k))dm.set(k,[]);dm.get(k)!.push(r)});const m:Record<string,GeracaoLink[]>={};dm.forEach(rows=>{if(rows.length>1)rows.slice(1).forEach(r=>{(m[r.owner_name]??=[]).push(r)})});return m},[filtered])
 
   const tableRows=useMemo(()=>filtered.slice(tblPage*PAGE,(tblPage+1)*PAGE),[filtered,tblPage])

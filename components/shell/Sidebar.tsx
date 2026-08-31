@@ -87,22 +87,30 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
   )
   const [open, setOpen] = useState(anyChildActive)
 
-  const h  = depth === 0 ? 36 : 30
-  const fs = depth === 0 ? 13 : 12
-  const ic = depth === 0 ? 15 : 12
+  const h  = depth === 0 ? 44 : 36
+  const fs = depth === 0 ? 13.5 : 12.5
+  const ic = depth === 0 ? 17 : 14
 
-  const activeBg    = 'rgba(79,70,229,0.1)'
-  const activeColor = '#4f46e5'
-  const hoverBg     = 'var(--secondary)'
+  // O item ativo agora é um "pill" elevado (fundo branco + sombra leve),
+  // contrastando com o fundo próprio da sidebar (--sidebar-bg) — preserva
+  // a mesma linguagem visual do dark, onde o item ativo também se destaca
+  // por elevação, não por preenchimento de cor.
+  const activeBg    = 'var(--card)'
+  const activeColor = 'var(--foreground)'
+  const hoverBg     = 'var(--border)'
+  const activeShadow = 'var(--shadow-xs)'
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
         {hasChildren ? (
           <button onClick={() => setOpen(o => !o)}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, height: h, padding: `0 ${!collapsed ? '6px' : '10px'} 0 10px`, borderRadius: hasChildren && !collapsed ? '8px 0 0 8px' : 8, border: 'none', background: (isActive || anyChildActive) ? activeBg : 'transparent', cursor: 'pointer', fontSize: fs, fontWeight: (isActive || anyChildActive) ? 600 : 500, color: (isActive || anyChildActive) ? activeColor : 'var(--muted-foreground)', fontFamily: 'inherit', textAlign: 'left', transition: 'all 0.12s', whiteSpace: 'nowrap' }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, height: h, padding: `0 ${!collapsed ? '6px' : '10px'} 0 12px`, borderRadius: hasChildren && !collapsed ? '10px 0 0 10px' : 10, border: 'none', background: (isActive || anyChildActive) ? activeBg : 'transparent', boxShadow: (isActive || anyChildActive) ? activeShadow : 'none', cursor: 'pointer', fontSize: fs, fontWeight: (isActive || anyChildActive) ? 700 : 500, color: (isActive || anyChildActive) ? activeColor : 'var(--muted-foreground)', fontFamily: 'inherit', textAlign: 'left', transition: 'all 0.14s', whiteSpace: 'nowrap', position: 'relative' }}
             onMouseEnter={e => { if (!isActive && !anyChildActive) { e.currentTarget.style.background = hoverBg; e.currentTarget.style.color = 'var(--foreground)' } }}
             onMouseLeave={e => { if (!isActive && !anyChildActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' } }}>
+            {depth === 0 && (isActive || anyChildActive) && (
+              <span style={{ position: 'absolute', left: -6, top: '50%', transform: 'translateY(-50%)', width: 3, height: 20, borderRadius: 99, background: 'var(--primary)' }} />
+            )}
             <Icon size={ic} style={{ flexShrink: 0 }} />
             <AnimatePresence initial={false}>
               {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}</motion.span>}
@@ -110,9 +118,12 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
           </button>
         ) : (
           <Link href={item.href} style={{ textDecoration: 'none', flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: h, padding: '0 10px', borderRadius: 8, background: isActive ? activeBg : 'transparent', fontSize: fs, fontWeight: isActive ? 600 : 500, color: isActive ? activeColor : 'var(--muted-foreground)', transition: 'all 0.12s', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: h, padding: '0 12px', borderRadius: 10, background: isActive ? activeBg : 'transparent', boxShadow: isActive ? activeShadow : 'none', fontSize: fs, fontWeight: isActive ? 700 : 500, color: isActive ? activeColor : 'var(--muted-foreground)', transition: 'all 0.14s', cursor: 'pointer', whiteSpace: 'nowrap', position: 'relative' }}
               onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = hoverBg; (e.currentTarget as HTMLElement).style.color = 'var(--foreground)' } }}
               onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--muted-foreground)' } }}>
+              {depth === 0 && isActive && (
+                <span style={{ position: 'absolute', left: -6, top: '50%', transform: 'translateY(-50%)', width: 3, height: 20, borderRadius: 99, background: 'var(--primary)' }} />
+              )}
               <Icon size={ic} style={{ flexShrink: 0 }} />
               <AnimatePresence initial={false}>
                 {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}</motion.span>}
@@ -122,11 +133,11 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
         )}
         {hasChildren && !collapsed && (
           <button onClick={() => setOpen(o => !o)}
-            style={{ width: 24, height: h, border: 'none', background: (isActive || anyChildActive) ? activeBg : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', borderRadius: '0 8px 8px 0', transition: 'background 0.12s', flexShrink: 0 }}
+            style={{ width: 28, height: h, border: 'none', background: (isActive || anyChildActive) ? activeBg : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', borderRadius: '0 10px 10px 0', transition: 'background 0.14s', flexShrink: 0 }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = (isActive || anyChildActive) ? activeBg : 'transparent')}>
             <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.15 }}>
-              <ChevronDown size={11} />
+              <ChevronDown size={12} />
             </motion.div>
           </button>
         )}
@@ -135,7 +146,7 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
       <AnimatePresence initial={false}>
         {hasChildren && !collapsed && open && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.15 }} style={{ overflow: 'hidden' }}>
-            <div style={{ marginLeft: 14, paddingLeft: 10, borderLeft: '2px solid var(--border)', marginTop: 1, marginBottom: 2 }}>
+            <div style={{ marginLeft: 18, paddingLeft: 14, borderLeft: '2px solid var(--border)', marginTop: 3, marginBottom: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {item.children.map((c: any) => <NavNode key={c.href} item={c} depth={depth + 1} collapsed={collapsed} activeModules={activeModules} />)}
             </div>
           </motion.div>
@@ -179,66 +190,71 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 
   return (
     <motion.aside
-      animate={{ width: collapsed ? 56 : 248 }}
+      animate={{ width: collapsed ? 60 : 260 }}
       transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-      style={{ height: '100vh', background: 'var(--card)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden', zIndex: 20, boxShadow: isDark ? '2px 0 20px rgba(0,0,0,0.4)' : '2px 0 20px rgba(17,24,39,0.06), 1px 0 0 var(--border)' }}>
+      style={{ height: '100vh', background: 'var(--sidebar-bg)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden', zIndex: 20, boxShadow: isDark ? '2px 0 20px rgba(0,0,0,0.28)' : '2px 0 20px rgba(15,23,42,0.05), 1px 0 0 var(--border)' }}>
 
       {/* Logo */}
-      <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 0 }}>
-          <div style={{ width: 30, height: 30, borderRadius: 9, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 3px 10px rgba(79,70,229,0.3)' }}>
-            <MedLogoSVG size={18} color="#fff" />
+      <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 3px 10px rgba(79,70,229,0.3)' }}>
+            <MedLogoSVG size={19} color="#fff" />
           </div>
           <AnimatePresence initial={false}>
-            {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} style={{ fontSize: 14, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap', letterSpacing: '-0.025em' }}>MedReview</motion.span>}
+            {!collapsed && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, lineHeight: 1.25 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap', letterSpacing: '-0.025em' }}>{isAdmin ? 'Gestão360' : 'Comercial360'}</span>
+                <span style={{ fontSize: 9, fontWeight: 500, color: 'var(--muted-foreground)', whiteSpace: 'nowrap', opacity: 0.65 }}>{isAdmin ? 'Gestão Operacional' : 'Plataforma Operacional'}</span>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
         <button onClick={onToggle}
-          style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s', boxShadow: 'var(--shadow-xs)' }}
+          style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 9, border: '1px solid var(--border)', background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.14s', boxShadow: 'var(--shadow-xs)' }}
           onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'var(--secondary)')}>
-          {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+          onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
+          {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
         </button>
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: '8px 6px', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 0 }} className="scrollbar-hide">
+      <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 3 }} className="scrollbar-hide">
         {visible.map(item => <NavNode key={item.key} item={item} depth={0} collapsed={collapsed} activeModules={activeModules} />)}
       </nav>
 
       {/* Footer */}
-      <div style={{ padding: '6px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+      <div style={{ padding: '12px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
         {!collapsed && profile && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 10, background: 'var(--secondary)', marginBottom: 4, border: '1px solid var(--border)', boxShadow: 'var(--shadow-xs)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'var(--card)', marginBottom: 8, border: '1px solid var(--border)', boxShadow: 'var(--shadow-xs)' }}>
             <UserAvatar name={profile.name} avatarUrl={profile.avatar_url} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.name}</p>
-              <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: 0, textTransform: 'capitalize' }}>{profile.role}</p>
+              <p style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.name}</p>
+              <p style={{ fontSize: 10.5, color: 'var(--muted-foreground)', margin: 0, textTransform: 'capitalize' }}>{profile.role}</p>
             </div>
             <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
-              style={{ width: 26, height: 26, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s', flexShrink: 0, boxShadow: 'var(--shadow-xs)' }}
+              style={{ width: 28, height: 28, borderRadius: 9, border: '1px solid var(--border)', background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.14s', flexShrink: 0, boxShadow: 'var(--shadow-xs)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
-              {isDark ? <Sun size={12} /> : <Moon size={12} />}
+              {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
           </div>
         )}
         {collapsed && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
             <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
-              style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', boxShadow: 'var(--shadow-xs)' }}
+              style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', boxShadow: 'var(--shadow-xs)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'var(--secondary)')}>
-              {isDark ? <Sun size={13} /> : <Moon size={13} />}
+              onMouseLeave={e => (e.currentTarget.style.background = 'var(--card)')}>
+              {isDark ? <Sun size={14} /> : <Moon size={14} />}
             </button>
           </div>
         )}
         <form action={logout}>
           <button type="submit"
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px', height: 34, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--muted-foreground)', fontFamily: 'inherit', transition: 'all 0.12s', justifyContent: collapsed ? 'center' : 'flex-start' }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', height: 38, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--muted-foreground)', fontFamily: 'inherit', transition: 'all 0.14s', justifyContent: collapsed ? 'center' : 'flex-start' }}
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = '#ef4444' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
-            <LogOut size={13} style={{ flexShrink: 0 }} />
+            <LogOut size={14} style={{ flexShrink: 0 }} />
             <AnimatePresence initial={false}>
               {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ whiteSpace: 'nowrap' }}>Sair</motion.span>}
             </AnimatePresence>
