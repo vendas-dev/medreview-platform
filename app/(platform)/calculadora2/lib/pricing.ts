@@ -112,7 +112,13 @@ export function buildCopyText(result: SimResult, label: string): string {
 
 // ── Mensagem padrão pro WhatsApp — usada tanto pelos botões de copiar
 // quanto pela prévia ao vivo, garantindo que o que se vê é exatamente o
-// que se copia (nunca diverge). ──────────────────────────────────────
+// que se copia (nunca diverge).
+//
+// Formato simplificado: mostra só o valor final de cada condição (sem o
+// "De X por Y" do preço cheio) — "Parcelado" mostra só "Nx de R$X", "À
+// vista" mostra só o valor final. totalCheio continua no parâmetro por
+// compatibilidade com quem já chama essa função, mas não é mais usado
+// aqui dentro. ──────────────────────────────────────────────────────
 export function buildWhatsAppMessage(params: {
   cursoLabel:   string
   tempoAcesso?: string
@@ -122,17 +128,16 @@ export function buildWhatsAppMessage(params: {
   result:       SimResult
   parcela?:     { n: number; valor: number } | null
 }): string {
-  const { cursoLabel, tempoAcesso, entregaveis, totalCheio, totalBase, result, parcela } = params
+  const { cursoLabel, tempoAcesso, entregaveis, totalBase, result, parcela } = params
   const lines: (string | null)[] = [
     `*Curso:* ${cursoLabel}`,
     tempoAcesso ? `*Tempo de Acesso:* ${tempoAcesso}` : null,
     entregaveis ? `*Entregáveis:* ${entregaveis}` : null,
   ]
   if (parcela && parcela.n >= 2) {
-    const valorCheioParcela = pmt(totalCheio, result.rate, parcela.n)
-    lines.push(`*Parcelado:* De ${fmt(valorCheioParcela)} por ${parcela.n}x de ${fmt(parcela.valor)}`)
+    lines.push(`*Parcelado:* ${parcela.n}x de ${fmt(parcela.valor)}`)
   }
-  lines.push(`*À vista:* De ${fmt(totalCheio)} por ${fmt(totalBase)}`)
+  lines.push(`*À vista:* ${fmt(totalBase)}`)
   return lines.filter(Boolean).join('\n')
 }
 

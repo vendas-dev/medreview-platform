@@ -129,7 +129,7 @@ export default async function DashboardPage() {
         .select('closer_id, closer_hubspot_id')
         .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd)
         .limit(999999),
-      admin2.from('closer_goals').select('user_id, goal_sales').eq('month', monthKeyStr),
+      admin2.from('closer_goals').select('user_id, goal_sales, goals_by_vertical').eq('month', monthKeyStr),
       admin2.from('company_goals').select('scope, goal_value').eq('month', monthKeyStr),
       admin2.from('hubspot_leads').select('owner_id').gte('created_at_hs', mStart).lte('created_at_hs', mEnd).limit(999999),
       // Histórico COMPLETO de recorrência (não limitado ao mês) — necessário
@@ -148,6 +148,11 @@ export default async function DashboardPage() {
     const salesMonth   = (monthSales ?? []) as any[]
     const certsMonth   = (monthCerts ?? []) as any[]
     const goalsMap     = Object.fromEntries((closerGoals ?? []).map((g: any) => [g.user_id, g.goal_sales ?? 0]))
+    // Meta POR VERTICAL de cada closer (só o time OAO usa de verdade — vende
+    // em 3 verticais diferentes no mesmo mês; R1 só tem a própria vertical,
+    // então a meta geral já basta pra eles). Vem de /intel/goals.
+    const goalsByVerticalMap: Record<string, Record<string, number>> =
+      Object.fromEntries((closerGoals ?? []).map((g: any) => [g.user_id, g.goals_by_vertical ?? {}]))
     const leadsMonth   = (monthLeads ?? []) as any[]
 
     // Maior venda única do mês (empresa toda), pra dar o selo "💰 maior ticket"
@@ -555,7 +560,19 @@ export default async function DashboardPage() {
       const withDiscount = mySales.filter((e: any) => !e.is_self_checkout)
         .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
       const avgDiscountPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
-      return { id: c.id, name: c.name, avatarUrl: c.avatarUrl, revenue: c.revenue, salesCount: c.salesCount, avgTicket: c.avgTicket, convRate: c.convRate, moneyLeft: c.moneyLeft, avgDiscountPct, goalSales: c.goalSales }
+      // Receita desse closer, separada por vertical — usada pra calcular
+      // "% de atingimento por vertical" na tabela do time OAO, comparando
+      // com a meta DAQUELA vertical específica (não a meta geral).
+      const revenueByVertical: Record<string, number> = {}
+      mySales.forEach((e: any) => {
+        const v = vLabel(e.vertical ?? 'outros')
+        revenueByVertical[v] = (revenueByVertical[v] ?? 0) + (Number(e.value) || 0)
+      })
+      return {
+        id: c.id, name: c.name, avatarUrl: c.avatarUrl, team: c.team, revenue: c.revenue, salesCount: c.salesCount,
+        avgTicket: c.avgTicket, convRate: c.convRate, moneyLeft: c.moneyLeft, avgDiscountPct, goalSales: c.goalSales,
+        revenueByVertical, goalsByVertical: goalsByVerticalMap[c.id] ?? {},
+      }
     }).sort((a, b) => b.revenue - a.revenue)
 
     const commercialAnalysisInitial = {
@@ -672,7 +689,7 @@ export default async function DashboardPage() {
     // link do mesmo negócio — candidatos a "expirando" ou "vencido".
     admin3.from('geracoes_links')
       .select('id, deal_id, deal_name, deal_value, expires_at, generated_at, coupon_code, owner_name, owner_hubspot_id, product_name')
-      .is('converted_at', null).is('superseded_by_link_id', null)
+      .is('converted_at', null).is('superseded_by_link_id', null).is('dismissed_at', null)
       .not('expires_at', 'is', null)
       .limit(999999),
     // TODOS os links gerados por ele esse mês (independente de status) — pra
@@ -681,7 +698,7 @@ export default async function DashboardPage() {
     // aqui e quebrava a geração do insight pessoal).
     admin3.from('geracoes_links')
       .select('owner_hubspot_id, payment_mode, installments_no_interest')
-      .gte('generated_at', mStart3).lte('generated_at', mEnd3).limit(999999),
+      .gte('generated_at', mStart3).lte('generated_at', mEnd3).is('dismissed_at', null).limit(999999),
   ])
 
   const allSales3 = monthSalesAll ?? []
@@ -750,11 +767,23 @@ export default async function DashboardPage() {
     .map(([mode, count]) => ({ mode, count, pct: myMonthLinks.length > 0 ? (count / myMonthLinks.length) * 100 : 0 }))
     .sort((a, b) => b.count - a.count)
 
-  // Receita dele nos últimos 7 dias
+  // Receita dele nos últimos 7 dias — precisa de uma busca PRÓPRIA, porque
+  // `mySales3`/`allSales3` são limitados ao mês corrente (mStart3..mEnd3).
+  // Nos primeiros dias de cada mês, os "últimos 7 dias" incluem datas do mês
+  // anterior — reaproveitar o dataset do mês fazia esses dias aparecerem
+  // zerados no gráfico assim que o mês virava.
+  const sevenDaysAgoStr = addDaysToDateStr(today3, -6)
+  const { start: last7Start } = dayBoundsSaoPaulo(sevenDaysAgoStr)
+  const { end: last7End }     = dayBoundsSaoPaulo(today3)
+  const { data: last7SalesRaw } = await admin3.from('telao_events')
+    .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, event_type')
+    .eq('event_type', 'sale').gte('occurred_at', last7Start).lte('occurred_at', last7End).limit(999999)
+  const myLast7Sales = (last7SalesRaw ?? []).filter((e: any) => matchesCloser(e, me))
+
   const myRevenueByDay = Array.from({ length: 7 }, (_, i) => {
     const d = addDaysToDateStr(today3, i - 6)
     const { start, end } = dayBoundsSaoPaulo(d)
-    const dayRev = mySales3.filter((e: any) => e.occurred_at >= start && e.occurred_at <= end)
+    const dayRev = myLast7Sales.filter((e: any) => e.occurred_at >= start && e.occurred_at <= end)
       .reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
     return { day: d.slice(5).split('-').reverse().join('/'), revenue: dayRev }
   })
@@ -791,6 +820,10 @@ export default async function DashboardPage() {
   const linksExpired = myPendingLinks
     .filter((l: any) => l.expires_at < nowIso)
     .sort((a: any, b: any) => b.expires_at.localeCompare(a.expires_at))
+  // Todos os links ainda válidos (não vencidos), independente de quão longe
+  // está o vencimento — usado só pra calcular a cadência de cobrança, que
+  // pode disparar bem antes do link entrar na janela de "vencendo em breve".
+  const linksPendingAll = myPendingLinks.filter((l: any) => l.expires_at >= nowIso)
 
   // Insight de IA pessoal — mesmo gerador/cache usado no baralho do superadmin,
   // só que passando um array com um closer só (ele mesmo).
@@ -820,7 +853,7 @@ export default async function DashboardPage() {
         discountByVertical: myDiscountByVertical, verticalBreakdown: myVerticalBreakdown, revenueByDay: myRevenueByDay,
         insight: myInsight,
       }}
-      linkAlerts={{ expiringSoon: linksExpiringSoon, expired: linksExpired }}
+      linkAlerts={{ expiringSoon: linksExpiringSoon, expired: linksExpired, pending: linksPendingAll }}
     />
   )
 }

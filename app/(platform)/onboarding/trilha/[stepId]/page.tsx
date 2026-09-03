@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ArrowLeft }          from 'lucide-react'
 import { StepDetail }         from './StepDetail'
 import { computeUnlockedStepIds } from '@/lib/onboarding/trilhaSequence'
+import { ensureStepCompletion } from '../../actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,23 @@ export default async function StepDetailPage(
     .from('onboarding_steps').select('*').eq('id', stepId).single()
   if (!step) notFound()
 
+  // ── Fecha a etapa automaticamente se ela já bate os critérios ──────
+  // Existia desde antes uma função pronta pra isso (ensureStepCompletion),
+  // com o comentário dizendo que deveria rodar "sempre que o usuário abre
+  // a página da etapa" — mas ela nunca era chamada em lugar nenhum. Na
+  // prática, isso significava que uma etapa sem quiz (ex: critério "apenas
+  // visualizar" ou "visualizar materiais") só fechava se: (a) não tivesse
+  // nenhum material/pergunta (aparecia um botão manual de concluir), ou
+  // (b) o usuário clicasse em "marcar concluído" em CADA material. Só
+  // visualizar os materiais, sem clicar nesse botão, nunca completava a
+  // etapa de verdade no banco — e por isso a próxima etapa nunca destravava,
+  // não importa qual critério estivesse configurado.
+  // Só roda pra usuário comum — admin só está visualizando/gerenciando,
+  // não precisa (nem deveria) ter progresso pessoal registrado.
+  if (!isAdmin) {
+    await ensureStepCompletion(stepId)
+  }
+
   // ── Modo da trilha + próxima etapa ─────────────────────────
   // Antes, isso só era buscado dentro do "if (!isAdmin)" pra checagem de
   // bloqueio, e nunca chegava até o StepDetail — por isso o componente
@@ -41,6 +59,8 @@ export default async function StepDetailPage(
     .from('onboarding_steps')
     .select('id, title, day_number, order_index, team')
     .eq('is_active', true)
+    .order('day_number', { ascending: true, nullsFirst: false })
+    .order('order_index', { ascending: true })
 
   const userTeam  = p?.team ?? null
   const teamSteps = isAdmin

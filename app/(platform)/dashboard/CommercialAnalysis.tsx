@@ -282,17 +282,56 @@ function ProductRankingMini({ data }: { data: { product: string; vertical: strin
 }
 
 // ── Performance dos closers — comparação completa, não só receita ──
-function CloserPerformanceTable({ data }: { data: { id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number; goalSales?: number }[] }) {
+// ── Mini barra de atingimento — usada tanto pro "Geral" quanto por vertical.
+function MiniAttainmentBar({ label, pct, color, hasGoal }: { label: string; pct: number; color: string; hasGoal: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted-foreground)', width: 34, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 4, borderRadius: 999, background: 'var(--border)', overflow: 'hidden', minWidth: 40 }}>
+        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(pct, 100)}%` }} transition={{ duration: 0.6 }}
+          style={{ height: '100%', background: color, borderRadius: 999 }} />
+      </div>
+      <span style={{ fontSize: 10, fontWeight: 800, color, minWidth: 30, textAlign: 'right', flexShrink: 0 }}>
+        {hasGoal ? `${pct.toFixed(0)}%` : '—'}
+      </span>
+    </div>
+  )
+}
+
+// ── Performance dos closers — comparação completa, não só receita.
+// showVerticalBreakdown: só o time OAO vende em mais de uma vertical no
+// mesmo mês, então só ele ganha a coluna extra de atingimento por vertical.
+// As médias (avgDiscountAll/avgConvAll) são calculadas só com o `data`
+// recebido — o chamador já filtra por time antes de passar aqui, então a
+// comparação "X% acima da média" nunca mistura R1 com OAO.
+function CloserPerformanceTable({ data, showVerticalBreakdown }: {
+  data: {
+    id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number
+    avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number
+    goalSales?: number; revenueByVertical?: Record<string, number>; goalsByVertical?: Record<string, number>
+  }[]
+  showVerticalBreakdown?: boolean
+}) {
   if (data.length === 0) return <p style={{ fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '40px 0' }}>Nenhuma venda no período.</p>
   const maxRevenue = Math.max(...data.map(d => d.revenue), 1)
   const avgDiscountAll = data.reduce((s, d) => s + d.avgDiscountPct, 0) / data.length
   const avgConvAll = data.reduce((s, d) => s + d.convRate, 0) / data.length
+
+  const VERT_COLS = [
+    { key: 'Anest-Review', label: 'Anest', color: '#3b82f6' },
+    { key: 'Oft-Review',   label: 'Oft',   color: '#eab308' },
+    { key: 'Ortop-Review', label: 'Ortop', color: '#f97316' },
+  ]
+
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 680 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: showVerticalBreakdown ? 800 : 680 }}>
         <thead>
           <tr>
-            {['Closer', 'Receita', 'Ticket médio', 'Conversão', 'Deixado na mesa', 'Desconto médio'].map((h, i) => (
+            {(showVerticalBreakdown
+              ? ['Closer', 'Receita', 'Atingimento por vertical', 'Ticket médio', 'Conversão', 'Deixado na mesa', 'Desconto médio']
+              : ['Closer', 'Receita', 'Ticket médio', 'Conversão', 'Deixado na mesa', 'Desconto médio']
+            ).map((h, i) => (
               <th key={h} style={{ textAlign: i === 0 ? 'left' : 'right', padding: '0 10px 10px', fontSize: 10, fontWeight: 800, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>{h}</th>
             ))}
           </tr>
@@ -303,12 +342,9 @@ function CloserPerformanceTable({ data }: { data: { id: string; name: string; av
             const greatConversion = c.convRate > avgConvAll * 1.3 && c.convRate > 0
             // Barra de receita: mostra o quanto já foi vendido em relação À
             // PRÓPRIA META do closer (não ao closer que mais vendeu no mês).
-            // Sem isso, quem tem meta pequena mas já bateu ela aparecia com
-            // uma barra minúscula, só porque vendeu menos em valor absoluto
-            // que o topo do ranking — dava a entender que estava indo mal,
-            // quando na verdade tinha superado a própria meta.
             const hasGoal = !!c.goalSales && c.goalSales > 0
             const barPct = hasGoal ? Math.min((c.revenue / (c.goalSales as number)) * 100, 100) : (c.revenue / maxRevenue) * 100
+            const realPct = hasGoal ? (c.revenue / (c.goalSales as number)) * 100 : 0
             const metGoal = hasGoal && c.revenue >= (c.goalSales as number)
             return (
               <motion.tr key={c.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
@@ -318,7 +354,7 @@ function CloserPerformanceTable({ data }: { data: { id: string; name: string; av
                     <Avatar name={c.name} url={c.avatarUrl} size={26} />
                     <span style={{ fontWeight: 700, color: 'var(--foreground)' }}>{c.name}</span>
                     {metGoal && <span title="Já bateu a própria meta do mês" style={{ fontSize: 11 }}>🎯</span>}
-                    {highDiscountHighRev && <span title="Vende muito, mas com desconto bem acima da média" style={{ fontSize: 11 }}>⚠️</span>}
+                    {highDiscountHighRev && <span title="Vende muito, mas com desconto bem acima da média do time" style={{ fontSize: 11 }}>⚠️</span>}
                     {greatConversion && <span title="Conversão mais de 30% acima da média do time" style={{ fontSize: 11 }}>⭐</span>}
                   </div>
                 </td>
@@ -329,8 +365,25 @@ function CloserPerformanceTable({ data }: { data: { id: string; name: string; av
                         style={{ height: '100%', background: metGoal ? 'linear-gradient(90deg,#16a34a,#4ade80)' : 'linear-gradient(90deg,#16a34a,#22c55e)' }} />
                     </div>
                     <span style={{ fontWeight: 800, color: 'var(--foreground)', minWidth: 68 }}>{fmtBRL(c.revenue)}</span>
+                    {hasGoal && <span style={{ fontSize: 10, fontWeight: 700, color: metGoal ? '#16a34a' : 'var(--muted-foreground)', minWidth: 30 }}>({realPct.toFixed(0)}%)</span>}
                   </div>
                 </td>
+                {/* Atingimento por vertical — só o time OAO, já que só ele
+                    vende em mais de uma vertical. O "Geral" não repete aqui:
+                    já está como % ao lado da barra de Receita, à esquerda. */}
+                {showVerticalBreakdown && (
+                  <td style={{ padding: '10px 10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 150 }}>
+                      {VERT_COLS.map(vc => {
+                        const vGoal = c.goalsByVertical?.[vc.key] ?? 0
+                        const vRev  = c.revenueByVertical?.[vc.key] ?? 0
+                        const vHasGoal = vGoal > 0
+                        const vPct = vHasGoal ? (vRev / vGoal) * 100 : 0
+                        return <MiniAttainmentBar key={vc.key} label={vc.label} pct={vPct} color={vc.color} hasGoal={vHasGoal} />
+                      })}
+                    </div>
+                  </td>
+                )}
                 <td style={{ padding: '10px', textAlign: 'right', color: 'var(--foreground)', fontWeight: 600 }}>{fmtBRL(c.avgTicket)}</td>
                 <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: c.convRate > avgConvAll ? '#22c55e' : 'var(--foreground)' }}>{c.convRate > 0 ? `${c.convRate.toFixed(0)}%` : '—'}</td>
                 <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: c.moneyLeft > 0 ? '#f97316' : 'var(--muted-foreground)' }}>{fmtBRL(c.moneyLeft)}</td>
@@ -388,7 +441,7 @@ interface InitialData {
   kpis: { totalRevenue: number; totalSales: number; avgTicket: number; moneyLeft: number; revenueToday: number; salesToday: number; certsCount: number }
   verticalBreakdown: { vertical: string; revenue: number; count: number; avgTicket: number; moneyLeft: number; avgDiscountPct: number }[]
   productRanking: { product: string; vertical: string; count: number; rev: number }[]
-  closerPerformance: { id: string; name: string; avatarUrl: string | null; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number; goalSales?: number }[]
+  closerPerformance: { id: string; name: string; avatarUrl: string | null; team?: string; revenue: number; salesCount: number; avgTicket: number; convRate: number; moneyLeft: number; avgDiscountPct: number; goalSales?: number; revenueByVertical?: Record<string, number>; goalsByVertical?: Record<string, number> }[]
   byType: { closer: { rev: number; count: number }; ambassador: { rev: number; count: number }; selfcheckout: { rev: number; count: number }; ambassadorCloser: { rev: number; count: number } }
   novaVsRecorrente: { nova: { rev: number; count: number }; recorrente: { rev: number; count: number } }
   certsRanking: { name: string; count: number; avatarUrl: string | null }[]
@@ -519,14 +572,24 @@ export function CommercialAnalysis({ initialData }: { initialData: InitialData }
         </motion.div>
       </div>
 
-      <motion.div key={`performance-${period}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: 0.1 }}
+      <motion.div key={`performance-oao-${period}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: 0.1 }}
         style={{ ...CARD_STYLE, marginTop: 12, opacity: loading ? 0.5 : 1, transition: 'opacity .2s' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <TrendingUp size={14} style={{ color: '#22c55e' }} />
-          <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Performance dos closers</p>
+          <TrendingUp size={14} style={{ color: '#3b82f6' }} />
+          <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Performance dos closers — Time OAO</p>
         </div>
-        <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 14px' }}>{data.label} · quem vende mais e por quê</p>
-        <CloserPerformanceTable data={data.closerPerformance} />
+        <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 14px' }}>{data.label} · médias e comparações calculadas só dentro do time OAO</p>
+        <CloserPerformanceTable data={data.closerPerformance.filter(c => c.team === 'OAO')} showVerticalBreakdown />
+      </motion.div>
+
+      <motion.div key={`performance-r1-${period}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: 0.11 }}
+        style={{ ...CARD_STYLE, marginTop: 12, opacity: loading ? 0.5 : 1, transition: 'opacity .2s' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <TrendingUp size={14} style={{ color: '#8b5cf6' }} />
+          <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Performance dos closers — Time R1</p>
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 14px' }}>{data.label} · médias e comparações calculadas só dentro do time R1</p>
+        <CloserPerformanceTable data={data.closerPerformance.filter(c => c.team === 'R1')} />
       </motion.div>
 
       <motion.div key={`produtos-${period}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: 0.12 }}

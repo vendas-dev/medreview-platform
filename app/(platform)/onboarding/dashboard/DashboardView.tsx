@@ -1,6 +1,9 @@
 'use client'
 import { useState, useMemo } from 'react'
-import { Users, Trophy, Clock, MessageSquare, TrendingUp, AlertTriangle, CheckCircle2, BarChart3, Target, Zap, Filter, ChevronDown, X, Play } from 'lucide-react'
+import { Users, Trophy, Clock, MessageSquare, TrendingUp, AlertTriangle, CheckCircle2, BarChart3, Target, Filter, ChevronDown, X, Award, ThumbsDown } from 'lucide-react'
+import {
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
+} from 'recharts'
 
 interface Props {
   users: any[]; steps: any[]; progress: any[]
@@ -8,27 +11,7 @@ interface Props {
   videoViews: any[]; attempts: any[]
 }
 
-function MiniBar({ pct, color }: { pct: number; color: string }) {
-  return (
-    <div style={{ height: 6, borderRadius: 999, background: 'var(--border)', overflow: 'hidden', flex: 1 }}>
-      <div style={{ height: '100%', borderRadius: 999, background: color, width: `${Math.min(pct, 100)}%`, transition: 'width 0.6s ease' }} />
-    </div>
-  )
-}
-
-function DonutChart({ pct, color, size = 80 }: { pct: number; color: string; size?: number }) {
-  const r = (size - 12) / 2
-  const circ = 2 * Math.PI * r
-  const dash = (pct / 100) * circ
-  return (
-    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--border)" strokeWidth={8} />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={8}
-        strokeDasharray={`${dash} ${circ - dash}`} strokeLinecap="round"
-        style={{ transition: 'stroke-dasharray 0.8s ease' }} />
-    </svg>
-  )
-}
+const TOOLTIP_STYLE = { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12, color: 'var(--foreground)' }
 
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
@@ -38,12 +21,111 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
   )
 }
 
-function CardTitle({ icon: Icon, label, color }: { icon: any; label: string; color: string }) {
+function CardTitle({ icon: Icon, label, sub, color }: { icon: any; label: string; sub?: string; color: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-      <Icon size={14} style={{ color }} />
-      <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em' }}>{label}</p>
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon size={14} style={{ color }} />
+        <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em' }}>{label}</p>
+      </div>
+      {sub && <p style={{ fontSize: 10.5, color: 'var(--muted-foreground)', margin: '3px 0 0 22px' }}>{sub}</p>}
     </div>
+  )
+}
+
+function Empty({ text = 'Sem dados ainda.' }: { text?: string }) {
+  return <p style={{ fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '24px 0' }}>{text}</p>
+}
+
+const teamColor = (t: string) => t === 'OAO'
+  ? { grad: 'linear-gradient(135deg,#3b82f6,#4f46e5)', dot: '#3b82f6' }
+  : { grad: 'linear-gradient(135deg,#8b5cf6,#a855f7)', dot: '#8b5cf6' }
+
+// ── Avatar — mostra a foto do usuário quando existe; cai pra iniciais com
+// gradiente do time só quando não tem foto cadastrada.
+function Avatar({ name, url, size, grad }: { name: string; url?: string | null; size: number; grad: string }) {
+  if (url) {
+    return <img src={url} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1px solid var(--border)' }} />
+  }
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.4, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+      {name.charAt(0)}
+    </div>
+  )
+}
+
+// ── Ranking de pessoas (aprovação / erros) — visual de leaderboard, não
+// gráfico de barras, porque o assunto aqui são PESSOAS competindo, não
+// uma métrica estrutural. Medalha nos 3 primeiros.
+function PeopleRanking({ icon, label, sub, color, items, metric }: {
+  icon: any; label: string; sub: string; color: string
+  items: { id: string; name: string; team: string; avatarUrl?: string | null; value: number; suffix: string }[]
+  metric: (v: number) => string
+}) {
+  return (
+    <Card>
+      <CardTitle icon={icon} label={label} sub={sub} color={color} />
+      {items.length === 0 ? <Empty /> : (
+        <div>
+          {items.map((u, i) => {
+            const tc = teamColor(u.team)
+            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null
+            return (
+              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 2px', borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <span style={{ width: 22, textAlign: 'center', fontSize: medal ? 15 : 11, fontWeight: 900, color: medal ? undefined : 'var(--muted-foreground)', flexShrink: 0 }}>
+                  {medal ?? i + 1}
+                </span>
+                <Avatar name={u.name} url={u.avatarUrl} size={28} grad={tc.grad} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</p>
+                  <span style={{ fontSize: 8.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: u.team === 'OAO' ? 'rgba(59,130,246,.1)' : 'rgba(139,92,246,.1)', color: u.team === 'OAO' ? '#2563eb' : '#7c3aed' }}>Time {u.team}</span>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 900, color, flexShrink: 0 }}>{metric(u.value)}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ── Gráfico de barras horizontais — substitui as antigas "linhas de
+// progresso" empilhadas por algo com cara de gráfico de verdade.
+function truncateLabel(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s
+}
+
+// Rótulo customizado do eixo Y — trunca textos longos (o eixo padrão do
+// recharts cortava sem "…" e ficava com aparência de erro), com fonte maior
+// e mais legível. O nome completo continua disponível no tooltip ao passar
+// o mouse na barra.
+function YAxisLabel(props: any) {
+  const { x, y, payload } = props
+  return (
+    <text x={x} y={y} dy={4} textAnchor="end" fontSize={12} fontWeight={600} fill="var(--foreground)">
+      {truncateLabel(String(payload.value), 24)}
+    </text>
+  )
+}
+
+function HBarChart({ data, dataKey, labelKey, colorFn, unit = '%', height }: {
+  data: any[]; dataKey: string; labelKey: string; colorFn: (v: number) => string; unit?: string; height?: number
+}) {
+  if (data.length === 0) return <Empty />
+  return (
+    <ResponsiveContainer width="100%" height={height ?? data.length * 40 + 16}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 46, bottom: 4, left: 4 }} barCategoryGap={14}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+        <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10.5, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
+        <YAxis type="category" dataKey={labelKey} width={172} tick={<YAxisLabel />} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'var(--secondary)' }} labelFormatter={(v) => v} />
+        <Bar dataKey={dataKey} radius={[0, 7, 7, 0]} maxBarSize={18}>
+          {data.map((d, i) => <Cell key={i} fill={colorFn(d[dataKey])} />)}
+          <LabelList dataKey={dataKey} position="right" formatter={(v: number) => `${v}${unit}`} style={{ fontSize: 12, fontWeight: 800, fill: 'var(--foreground)' }} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
   )
 }
 
@@ -61,59 +143,130 @@ export function DashboardView({ users, steps, progress, totalConversations, tota
   const filteredIds     = new Set(filteredUsers.map(u => u.id))
   const filteredProgress = progress.filter(p => filteredIds.has(p.user_id))
   const filteredAttempts = attempts.filter(a => filteredIds.has(a.user_id))
+  const totalU = filteredUsers.length
 
-  const totalU       = filteredUsers.length
-  const completedU   = new Set(filteredProgress.filter(p => p.status==='concluido').map(p=>p.user_id)).size
-  const activeU      = new Set(filteredProgress.filter(p => p.status==='em_andamento').map(p=>p.user_id)).size
-  const notStartedU  = totalU - completedU - activeU
-  const completionRate = totalU > 0 ? Math.round((completedU/totalU)*100) : 0
+  // ── Primeira tentativa de cada usuário em cada etapa — usada tanto pro
+  // ranking de erro por etapa quanto pros rankings de pessoas. "Primeira"
+  // = created_at mais antigo entre todas as tentativas daquele usuário
+  // naquela etapa específica (reincidências não contam aqui).
+  const firstArr = useMemo(() => {
+    const acc: Record<string, any> = {}
+    filteredAttempts.forEach((a: any) => {
+      const key = `${a.user_id}-${a.step_id}`
+      if (!acc[key] || new Date(a.created_at) < new Date(acc[key].created_at)) acc[key] = a
+    })
+    return Object.values(acc) as any[]
+  }, [filteredAttempts])
+  const passedFirst = firstArr.filter((a: any) => a.passed).length
+  const firstPassRate = firstArr.length > 0 ? Math.round((passedFirst / firstArr.length) * 100) : 0
 
-  const firstAttempts = filteredAttempts.reduce((acc: Record<string,any>, a: any) => {
-    const key = `${a.user_id}-${a.step_id}`
-    if (!acc[key] || new Date(a.created_at) < new Date(acc[key].created_at)) acc[key] = a
-    return acc
-  }, {})
-  const firstArr = Object.values(firstAttempts) as any[]
-  const passedFirst = firstArr.filter((a:any) => a.passed).length
-  const firstPassRate = firstArr.length > 0 ? Math.round((passedFirst/firstArr.length)*100) : 0
+  // ── Cartão por usuário — base de tudo daqui pra baixo. `isComplete`
+  // exige TODAS as etapas aplicáveis ao time dele concluídas (não só uma
+  // etapa qualquer — esse era o bug do "14 concluíram"). `hasStarted`
+  // marca quem já tocou no onboarding de alguma forma, usado pra tirar
+  // gente antiga que nunca vai fazer da tabela de desempenho individual.
+  const userCards = useMemo(() => filteredUsers.map(u => {
+    const up   = filteredProgress.filter(p => p.user_id === u.id)
+    const ua   = filteredAttempts.filter((a: any) => a.user_id === u.id)
+    const done = up.filter(p => p.status === 'concluido').length
+    const ts   = steps.filter(s => s.team === u.team || s.team === 'ambos')
+    const pct  = ts.length > 0 ? Math.round((done / ts.length) * 100) : 0
+    const avg  = ua.length > 0 ? Math.round(ua.reduce((x: number, a: any) => x + a.score, 0) / ua.length) : null
+    const hasStarted = done > 0 || up.some(p => p.status === 'em_andamento') || ua.length > 0
+    const isComplete = ts.length > 0 && done === ts.length
+    const myFirst = firstArr.filter((a: any) => a.user_id === u.id)
+    const failedFirst = myFirst.filter((a: any) => !a.passed).length
+    const passRate = myFirst.length > 0 ? Math.round((myFirst.filter((a: any) => a.passed).length / myFirst.length) * 100) : null
+    return { ...u, done, total: ts.length, pct, avg, attempts: ua.length, hasStarted, isComplete, failedFirst, passRate, quizAttempts: myFirst.length }
+  }), [filteredUsers, filteredProgress, filteredAttempts, steps, firstArr])
 
-  const stepErrorMap: Record<string,{title:string;total:number;failed:number}> = {}
-  firstArr.forEach((a:any) => {
-    const step = steps.find(s=>s.id===a.step_id)
+  // ── Visão geral — três grupos MUTUAMENTE EXCLUSIVOS que somam totalU.
+  // "Concluíram" agora exige 100% da trilha (o bug antigo contava qualquer
+  // etapa concluída, por isso aparecia gente que só fez uma etapa).
+  const completedU  = userCards.filter(u => u.isComplete).length
+  const activeU     = userCards.filter(u => u.hasStarted && !u.isComplete).length
+  const notStartedU = totalU - completedU - activeU
+  const completionRate = totalU > 0 ? Math.round((completedU / totalU) * 100) : 0
+
+  // ── Só pros KPIs "Participantes" e "Taxa de conclusão" do topo — tem
+  // muita gente cadastrada que nunca vai iniciar o onboarding (contas
+  // antigas, etc.), e contar ela no denominador diluía a taxa de conclusão
+  // artificialmente. Aqui a base é só quem já tocou no onboarding.
+  const startedCount = activeU + completedU
+  const completionRateStarted = startedCount > 0 ? Math.round((completedU / startedCount) * 100) : 0
+
+  const overviewData = [
+    { label: 'Concluíram (100%)', value: completedU,  color: '#22c55e' },
+    { label: 'Em andamento',      value: activeU,     color: '#f59e0b' },
+    { label: 'Não iniciaram',     value: notStartedU, color: '#94a3b8' },
+  ].filter(d => d.value > 0)
+
+  // ── Etapas com maior erro na 1ª tentativa — só entre quem já tentou.
+  const stepErrorMap: Record<string, { title: string; total: number; failed: number }> = {}
+  firstArr.forEach((a: any) => {
+    const step = steps.find(s => s.id === a.step_id)
     if (!step) return
-    if (!stepErrorMap[a.step_id]) stepErrorMap[a.step_id] = { title:step.title, total:0, failed:0 }
+    if (!stepErrorMap[a.step_id]) stepErrorMap[a.step_id] = { title: step.title, total: 0, failed: 0 }
     stepErrorMap[a.step_id].total++
     if (!a.passed) stepErrorMap[a.step_id].failed++
   })
   const errorRanking = Object.values(stepErrorMap)
-    .map(e => ({ ...e, rate: e.total>0 ? Math.round((e.failed/e.total)*100) : 0 }))
-    .filter(e => e.total>0).sort((a,b)=>b.rate-a.rate).slice(0,6)
+    .map(e => ({ ...e, rate: e.total > 0 ? Math.round((e.failed / e.total) * 100) : 0 }))
+    .filter(e => e.total > 0).sort((a, b) => b.rate - a.rate).slice(0, 8)
 
+  // ── Conclusão por etapa — corrigido pra dividir só pelas pessoas às
+  // quais aquela etapa se aplica (o time dela, ou "ambos"), não pelo total
+  // geral filtrado. Sem isso, etapa exclusiva de um time sempre parecia
+  // com % artificialmente baixa quando o filtro incluía os dois times.
   const stepProgressData = steps.map(s => {
-    const done = filteredProgress.filter(p=>p.step_id===s.id&&p.status==='concluido').length
-    const pct = totalU>0 ? Math.round((done/totalU)*100) : 0
-    return { title:s.title, pct, done, total:totalU }
-  }).sort((a,b)=>b.pct-a.pct)
+    const applicable = filteredUsers.filter(u => s.team === u.team || s.team === 'ambos')
+    const applicableIds = new Set(applicable.map(u => u.id))
+    const done = filteredProgress.filter(p => p.step_id === s.id && p.status === 'concluido' && applicableIds.has(p.user_id)).length
+    const total = applicable.length
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    return { title: s.title, pct, done, total }
+  }).filter(s => s.total > 0).sort((a, b) => b.pct - a.pct)
 
   const stepScores = steps.map(s => {
-    const sa = filteredAttempts.filter((a:any)=>a.step_id===s.id)
-    const avg = sa.length>0 ? Math.round(sa.reduce((x:number,a:any)=>x+a.score,0)/sa.length) : null
-    return { title:s.title, avg, attempts:sa.length }
-  }).filter(s=>s.avg!==null)
+    const sa = filteredAttempts.filter((a: any) => a.step_id === s.id)
+    const avg = sa.length > 0 ? Math.round(sa.reduce((x: number, a: any) => x + a.score, 0) / sa.length) : null
+    return { title: s.title, avg, attempts: sa.length }
+  }).filter(s => s.avg !== null).sort((a, b) => (b.avg as number) - (a.avg as number))
 
-  const userCards = filteredUsers.map(u => {
-    const up   = filteredProgress.filter(p=>p.user_id===u.id)
-    const ua   = filteredAttempts.filter((a:any)=>a.user_id===u.id)
-    const done = up.filter(p=>p.status==='concluido').length
-    const ts   = steps.filter(s=>s.team===u.team||s.team==='ambos')
-    const pct  = ts.length>0 ? Math.round((done/ts.length)*100) : 0
-    const avg  = ua.length>0 ? Math.round(ua.reduce((x:number,a:any)=>x+a.score,0)/ua.length) : null
-    return { ...u, done, total:ts.length, pct, avg, attempts:ua.length }
-  })
+  // ── Rankings de pessoas — só entre quem já respondeu pelo menos 1 quiz.
+  const withQuiz = userCards.filter(u => u.quizAttempts > 0)
+  const rankingApproval = [...withQuiz].filter(u => u.passRate !== null)
+    .sort((a, b) => (b.passRate as number) - (a.passRate as number)).slice(0, 8)
+  const rankingErrors = [...withQuiz].filter(u => u.failedFirst > 0)
+    .sort((a, b) => b.failedFirst - a.failedFirst).slice(0, 8)
 
-  const teamColor = (t:string) => t==='OAO'
-    ? { grad:'linear-gradient(135deg,#3b82f6,#4f46e5)', dot:'#3b82f6' }
-    : { grad:'linear-gradient(135deg,#8b5cf6,#a855f7)', dot:'#8b5cf6' }
+  // ── Desempenho individual — só quem já iniciou (sem poluir com gente
+  // antiga que nunca vai fazer o onboarding), dividido por time porque as
+  // trilhas de OAO e R1 são estruturalmente diferentes.
+  const startedCards = userCards.filter(u => u.hasStarted)
+  const oaoCards = startedCards.filter(u => u.team === 'OAO').sort((a, b) => b.pct - a.pct)
+  const r1Cards  = startedCards.filter(u => u.team === 'R1').sort((a, b) => b.pct - a.pct)
+
+  function PerformanceRow({ u, tc }: { u: any; tc: { grad: string; dot: string } }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        <Avatar name={u.name} url={u.avatar_url} size={32} grad={tc.grad} />
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)', minWidth: 130, flexShrink: 0 }}>{u.name}</span>
+        <div style={{ flex: 1, minWidth: 140, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1, height: 6, borderRadius: 999, background: 'var(--border)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', borderRadius: 999, background: u.pct === 100 ? '#22c55e' : tc.dot, width: `${u.pct}%`, transition: 'width .5s' }} />
+          </div>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: u.pct === 100 ? '#22c55e' : 'var(--foreground)', minWidth: 60, textAlign: 'right' }}>{u.done}/{u.total} · {u.pct}%</span>
+        </div>
+        {u.avg !== null && (
+          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 9px', borderRadius: 999, background: u.avg >= 70 ? 'rgba(34,197,94,.1)' : 'rgba(245,158,11,.1)', color: u.avg >= 70 ? '#16a34a' : '#d97706', flexShrink: 0 }}>
+            {u.avg}% score
+          </span>
+        )}
+        {u.pct === 100 && <CheckCircle2 size={15} style={{ color: '#22c55e', flexShrink: 0 }} />}
+      </div>
+    )
+  }
 
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1200, margin: '0 auto' }}>
@@ -168,12 +321,11 @@ export function DashboardView({ users, steps, progress, totalConversations, tota
         </div>
       )}
 
-      {/* Row 1: 5 KPI cards em grid uniforme */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:16 }}>
+      {/* Row 1: 4 KPI cards */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:16 }}>
         {[
-          { icon:Users,          label:'Participantes',       value:totalU,           sub:`${completedU} concluíram`, grad:'linear-gradient(135deg,#3b82f6,#4f46e5)', color:'#3b82f6' },
-          { icon:Trophy,         label:'Taxa de conclusão',   value:`${completionRate}%`, sub:`${completedU}/${totalU}`,   grad:'linear-gradient(135deg,#22c55e,#16a34a)', color:'#22c55e' },
-          { icon:Zap,            label:'Aprovação 1ª tent.',  value:`${firstPassRate}%`, sub:`${passedFirst}/${firstArr.length} quiz`, grad:'linear-gradient(135deg,#f59e0b,#ef4444)', color:'#f59e0b' },
+          { icon:Users,          label:'Participantes',       value:startedCount,     sub:`de ${totalU} cadastrados no time`, grad:'linear-gradient(135deg,#3b82f6,#4f46e5)', color:'#3b82f6' },
+          { icon:Trophy,         label:'Taxa de conclusão',   value:`${completionRateStarted}%`, sub:`${completedU}/${startedCount} de quem começou`,   grad:'linear-gradient(135deg,#22c55e,#16a34a)', color:'#22c55e' },
           { icon:Clock,          label:'Em andamento',        value:activeU,          sub:`${notStartedU} não iniciaram`, grad:'linear-gradient(135deg,#8b5cf6,#a855f7)', color:'#8b5cf6' },
           { icon:MessageSquare,  label:'Conversas Medy',    value:totalConversations, sub:`${totalMessages} mensagens`, grad:'linear-gradient(135deg,#ec4899,#8b5cf6)', color:'#ec4899' },
         ].map(s => {
@@ -194,29 +346,36 @@ export function DashboardView({ users, steps, progress, totalConversations, tota
         })}
       </div>
 
-      {/* Row 2: Visão geral + Erros (2 colunas iguais) */}
+      {/* Row 2: Visão Geral (donut) + Etapas com maior erro (barras) */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
-        <Card>
-          <CardTitle icon={Target} label="Visão Geral" color="#6366f1" />
-          <div style={{ display:'flex', alignItems:'center', gap:18 }}>
-            <div style={{ position:'relative', flexShrink:0 }}>
-              <DonutChart pct={completionRate} color="#22c55e" size={96} />
-              <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <span style={{ fontSize:17, fontWeight:900, color:'var(--foreground)' }}>{completionRate}%</span>
+        <Card style={{ display:'flex', flexDirection:'column' }}>
+          <CardTitle icon={Target} label="Visão Geral" sub="Conclusão = 100% da trilha do próprio time, não só 1 etapa" color="#6366f1" />
+          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:28 }}>
+            <div style={{ position:'relative', width:150, height:150, flexShrink:0 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={overviewData.length > 0 ? overviewData : [{ label:'Sem dados', value:1, color:'var(--border)' }]}
+                    dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={48} outerRadius={68} paddingAngle={3} strokeWidth={0}>
+                    {(overviewData.length > 0 ? overviewData : [{ color:'var(--border)' }]).map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${v} pessoa${v !== 1 ? 's' : ''}`, '']} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+                <span style={{ fontSize:22, fontWeight:900, color:'var(--foreground)', lineHeight:1 }}>{completionRate}%</span>
+                <span style={{ fontSize:9, color:'var(--muted-foreground)', fontWeight:700, marginTop:2 }}>completo</span>
               </div>
             </div>
-            <div style={{ flex:1 }}>
+            <div style={{ width:190, flexShrink:0 }}>
               {[
-                { label:'Concluíram',    value:completedU,  color:'#22c55e', pct:totalU>0?(completedU/totalU)*100:0 },
-                { label:'Em andamento',  value:activeU,     color:'#f59e0b', pct:totalU>0?(activeU/totalU)*100:0 },
-                { label:'Não iniciaram', value:notStartedU, color:'var(--border)', pct:totalU>0?(notStartedU/totalU)*100:0 },
+                { label:'Concluíram (100%)', value:completedU,  color:'#22c55e' },
+                { label:'Em andamento',      value:activeU,     color:'#f59e0b' },
+                { label:'Não iniciaram',     value:notStartedU, color:'#94a3b8' },
               ].map(item => (
-                <div key={item.label} style={{ marginBottom:9 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                    <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{item.label}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:'var(--foreground)' }}>{item.value}</span>
-                  </div>
-                  <MiniBar pct={item.pct} color={item.color} />
+                <div key={item.label} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 0' }}>
+                  <span style={{ width:9, height:9, borderRadius:'50%', background:item.color, flexShrink:0 }} />
+                  <span style={{ flex:1, fontSize:12, color:'var(--muted-foreground)' }}>{item.label}</span>
+                  <span style={{ fontSize:14, fontWeight:900, color:'var(--foreground)' }}>{item.value}</span>
                 </div>
               ))}
             </div>
@@ -224,103 +383,61 @@ export function DashboardView({ users, steps, progress, totalConversations, tota
         </Card>
 
         <Card>
-          <CardTitle icon={AlertTriangle} label="Etapas com maior erro (1ª tentativa)" color="#ef4444" />
-          {errorRanking.length === 0
-            ? <p style={{ fontSize:12, color:'var(--muted-foreground)', textAlign:'center', padding:'16px 0' }}>Nenhum quiz respondido ainda.</p>
-            : errorRanking.map((e, i) => (
-              <div key={i} style={{ marginBottom:10 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                  <span style={{ fontSize:11, fontWeight:600, color:'var(--foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'68%' }}>{e.title}</span>
-                  <span style={{ fontSize:11, fontWeight:800, color:e.rate>=60?'#ef4444':e.rate>=30?'#f59e0b':'#22c55e', flexShrink:0 }}>{e.rate}% erro</span>
-                </div>
-                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                  <MiniBar pct={e.rate} color={e.rate>=60?'#ef4444':e.rate>=30?'#f59e0b':'#22c55e'} />
-                  <span style={{ fontSize:9, color:'var(--muted-foreground)', flexShrink:0 }}>{e.failed}/{e.total}</span>
-                </div>
-              </div>
-            ))
-          }
+          <CardTitle icon={AlertTriangle} label="Etapas com maior erro" sub="% de quem errou o quiz na 1ª tentativa (reincidência não conta)" color="#ef4444" />
+          <HBarChart data={errorRanking} dataKey="rate" labelKey="title" colorFn={v => v >= 60 ? '#ef4444' : v >= 30 ? '#f59e0b' : '#22c55e'} />
         </Card>
       </div>
 
-      {/* Row 3: Conclusão por etapa + Score médio (2 colunas iguais) */}
+      {/* Row 3: Conclusão por etapa + Score médio */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
         <Card>
-          <CardTitle icon={BarChart3} label="Conclusão por etapa" color="#6366f1" />
-          {stepProgressData.slice(0, 8).map((s, i) => (
-            <div key={i} style={{ marginBottom:9 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                <span style={{ fontSize:11, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'75%' }}>{s.title}</span>
-                <span style={{ fontSize:11, fontWeight:700, color:s.pct===100?'#22c55e':'var(--foreground)' }}>{s.pct}%</span>
-              </div>
-              <MiniBar pct={s.pct} color={s.pct===100?'#22c55e':'#4f46e5'} />
-            </div>
-          ))}
+          <CardTitle icon={BarChart3} label="Conclusão por etapa" sub="% de quem tem essa etapa no próprio time e já concluiu" color="#4f46e5" />
+          <HBarChart data={stepProgressData.slice(0, 8)} dataKey="pct" labelKey="title" colorFn={v => v === 100 ? '#22c55e' : '#4f46e5'} />
         </Card>
 
         <Card>
-          <CardTitle icon={TrendingUp} label="Score médio no quiz por etapa" color="#22c55e" />
-          {stepScores.length === 0
-            ? <p style={{ fontSize:12, color:'var(--muted-foreground)', textAlign:'center', padding:'16px 0' }}>Nenhuma tentativa ainda.</p>
-            : stepScores.slice(0, 8).map((s, i) => (
-              <div key={i} style={{ marginBottom:9 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                  <span style={{ fontSize:11, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'68%' }}>{s.title}</span>
-                  <div style={{ display:'flex', gap:5, alignItems:'center', flexShrink:0 }}>
-                    <span style={{ fontSize:11, fontWeight:700, color:(s.avg??0)>=70?'#22c55e':'#f59e0b' }}>{s.avg}%</span>
-                    <span style={{ fontSize:9, color:'var(--muted-foreground)' }}>({s.attempts}x)</span>
-                  </div>
-                </div>
-                <MiniBar pct={s.avg??0} color={(s.avg??0)>=70?'#22c55e':'#f59e0b'} />
-              </div>
-            ))
-          }
+          <CardTitle icon={TrendingUp} label="Score médio no quiz por etapa" sub="Média de todas as tentativas, não só a 1ª" color="#22c55e" />
+          <HBarChart data={stepScores.slice(0, 8).map(s => ({ title: s.title, avg: s.avg ?? 0 }))} dataKey="avg" labelKey="title" colorFn={v => v >= 70 ? '#22c55e' : '#f59e0b'} />
         </Card>
       </div>
 
-      {/* Row 4: Tabela individual full-width */}
-      <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', boxShadow:'var(--shadow-sm)' }}>
-        <div style={{ padding:'12px 20px', borderBottom:'1px solid var(--border)', background:'color-mix(in srgb, var(--secondary) 60%, var(--card))', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <Users size={13} style={{ color:'#6366f1' }} />
-            <span style={{ fontSize:11, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Desempenho individual</span>
+      {/* Row 4: Rankings de pessoas */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+        <PeopleRanking icon={Award} label="Ranking de aprovação" sub="Maior % de acerto na 1ª tentativa dos quizzes" color="#22c55e"
+          items={rankingApproval.map(u => ({ id: u.id, name: u.name, team: u.team, avatarUrl: u.avatar_url, value: u.passRate as number, suffix: '%' }))}
+          metric={v => `${v}%`} />
+        <PeopleRanking icon={ThumbsDown} label="Ranking de erros" sub="Mais respostas erradas na 1ª tentativa dos quizzes" color="#ef4444"
+          items={rankingErrors.map(u => ({ id: u.id, name: u.name, team: u.team, avatarUrl: u.avatar_url, value: u.failedFirst, suffix: '' }))}
+          metric={v => `${v} erro${v !== 1 ? 's' : ''}`} />
+      </div>
+
+      {/* Row 5: Desempenho individual — dividido por time, só quem já iniciou */}
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', boxShadow:'var(--shadow-sm)' }}>
+          <div style={{ padding:'12px 20px', borderBottom:'1px solid var(--border)', background:'color-mix(in srgb, var(--secondary) 60%, var(--card))', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <Users size={13} style={{ color:'#3b82f6' }} />
+              <span style={{ fontSize:11, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Desempenho individual — Time OAO</span>
+            </div>
+            <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{oaoCards.length} já iniciaram</span>
           </div>
-          <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{userCards.length} usuários</span>
+          {oaoCards.length === 0
+            ? <div style={{ padding:'32px 24px' }}><Empty text="Ninguém do time OAO iniciou o onboarding ainda." /></div>
+            : oaoCards.map(u => <PerformanceRow key={u.id} u={u} tc={teamColor('OAO')} />)}
         </div>
-        {userCards.length===0
-          ? <div style={{ padding:'40px 24px', textAlign:'center' }}><p style={{ fontSize:13, color:'var(--muted-foreground)' }}>Nenhum usuário corresponde ao filtro.</p></div>
-          : userCards.map((u, idx) => {
-            const tc = u.team ? teamColor(u.team) : { grad:'linear-gradient(135deg,#6366f1,#8b5cf6)', dot:'#6366f1' }
-            return (
-              <div key={u.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 20px', borderBottom:idx<userCards.length-1?'1px solid var(--border)':'none', transition:'background 0.15s', flexWrap:'wrap' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background='color-mix(in srgb,var(--secondary) 50%,transparent)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background='transparent'}>
-                <div style={{ width:38, height:38, borderRadius:'50%', background:tc.grad, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff', flexShrink:0, boxShadow:`0 3px 10px ${tc.dot}30` }}>
-                  {u.name.charAt(0)}
-                </div>
-                <div style={{ minWidth:140 }}>
-                  <p style={{ fontSize:13, fontWeight:700, color:'var(--foreground)', margin:'0 0 2px' }}>{u.name}</p>
-                  <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                    {u.team && <span style={{ fontSize:9, fontWeight:700, padding:'1px 6px', borderRadius:999, background:u.team==='OAO'?'rgba(59,130,246,0.1)':'rgba(139,92,246,0.1)', color:u.team==='OAO'?'#2563eb':'#7c3aed' }}>Time {u.team}</span>}
-                    <span style={{ fontSize:9, color:'var(--muted-foreground)' }}>{u.email}</span>
-                  </div>
-                </div>
-                <div style={{ flex:1, minWidth:160 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                    <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{u.done}/{u.total} etapas</span>
-                    <span style={{ fontSize:11, fontWeight:800, color:u.pct===100?'#22c55e':'var(--foreground)' }}>{u.pct}%</span>
-                  </div>
-                  <MiniBar pct={u.pct} color={u.pct===100?'#22c55e':tc.dot} />
-                </div>
-                <div style={{ display:'flex', gap:12, flexShrink:0, flexWrap:'wrap' }}>
-                  {u.avg!==null && <div style={{ textAlign:'center' }}><p style={{ fontSize:13, fontWeight:800, color:u.avg>=70?'#22c55e':'#f59e0b', margin:0 }}>{u.avg}%</p><p style={{ fontSize:9, color:'var(--muted-foreground)', margin:0 }}>Score</p></div>}
-                  <div style={{ textAlign:'center' }}><p style={{ fontSize:13, fontWeight:800, color:'var(--foreground)', margin:0 }}>{u.attempts}</p><p style={{ fontSize:9, color:'var(--muted-foreground)', margin:0 }}>Tentativas</p></div>
-                  {u.pct===100 && <span style={{ fontSize:9, fontWeight:800, padding:'3px 8px', borderRadius:999, background:'rgba(34,197,94,0.1)', color:'#16a34a', border:'1px solid rgba(34,197,94,0.2)', alignSelf:'center' }}>✓ Concluído</span>}
-                </div>
-              </div>
-            )
-          })
-        }
+
+        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', boxShadow:'var(--shadow-sm)' }}>
+          <div style={{ padding:'12px 20px', borderBottom:'1px solid var(--border)', background:'color-mix(in srgb, var(--secondary) 60%, var(--card))', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <Users size={13} style={{ color:'#8b5cf6' }} />
+              <span style={{ fontSize:11, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'0.07em' }}>Desempenho individual — Time R1</span>
+            </div>
+            <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>{r1Cards.length} já iniciaram</span>
+          </div>
+          {r1Cards.length === 0
+            ? <div style={{ padding:'32px 24px' }}><Empty text="Ninguém do time R1 iniciou o onboarding ainda." /></div>
+            : r1Cards.map(u => <PerformanceRow key={u.id} u={u} tc={teamColor('R1')} />)}
+        </div>
       </div>
     </div>
   )

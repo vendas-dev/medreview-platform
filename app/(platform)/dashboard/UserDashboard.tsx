@@ -6,7 +6,7 @@ import {
   Play, CheckCircle2, Circle, Lock, Clock, ArrowRight,
   BookOpen, Video, HelpCircle, Trophy, Zap, Target,
   ChevronRight, TrendingUp, AlertCircle, Star, Flame,
-  DollarSign, AlertTriangle, Sparkles, Award, Stethoscope, ExternalLink
+  DollarSign, AlertTriangle, Sparkles, Award, Stethoscope, ExternalLink, Trash2, Timer
 } from 'lucide-react'
 
 // ── Helpers ────────────────────────────────────────────────
@@ -345,18 +345,101 @@ function fmtMoneyCompact(v: number): string {
   return fmtBRL(v)
 }
 
+// Formata o tempo decorrido desde a geração — minimalista, no máximo 2
+// unidades (ex: "10 min em aberto", "2h 15min em aberto", "1 dia e 5min
+// em aberto"). Passa a mostrar dias assim que completa 24h.
+function formatElapsed(generatedAt: string, now: number): string {
+  const ms = Math.max(0, now - new Date(generatedAt).getTime())
+  const totalMin = Math.floor(ms / 60000)
+  if (totalMin < 60) return `${totalMin} min em aberto`
+  const totalHours = Math.floor(totalMin / 60)
+  const remMin = totalMin % 60
+  if (totalHours < 24) return `${totalHours}h${remMin > 0 ? ` ${remMin}min` : ''} em aberto`
+  const days = Math.floor(totalHours / 24)
+  const remHours = totalHours % 24
+  const parts: string[] = []
+  if (remHours > 0) parts.push(`${remHours}h`)
+  if (remMin > 0) parts.push(`${remMin}min`)
+  const rest = parts.length > 0 ? ` e ${parts.join(' ')}` : ''
+  return `${days} dia${days > 1 ? 's' : ''}${rest} em aberto`
+}
+function formatGeneratedTime(generatedAt: string): string {
+  return new Date(generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
 function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
   const { expiringSoon, expired } = alerts
-  if (expiringSoon.length === 0 && expired.length === 0) return null
+  const pendingAll = alerts.pending ?? []
+
+  // Cadência de cobrança — lida das configurações (definida pelo
+  // superadmin). null enquanto carrega, pra não mostrar urgência errada
+  // antes da configuração real chegar.
+  const [cadenceMinutes, setCadenceMinutes] = useState<number | null>(null)
+  useEffect(() => {
+    fetch('/api/links/cadence-settings').then(r => r.json())
+      .then(d => setCadenceMinutes(Number(d.cadence_minutes) || 10))
+      .catch(() => setCadenceMinutes(10))
+  }, [])
+
+  // Atualiza o "tempo em aberto" sozinho a cada 30s, sem precisar de nova
+  // busca no banco — só um re-render local.
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => forceTick(t => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Excluir cupom/link — soft delete via API, removido da tela na hora.
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
+  const [dismissing, setDismissing] = useState<string | null>(null)
+  async function handleDismiss(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation()
+    if (!confirm('Excluir esse link/cupom? Ele deixa de aparecer em todas as telas (o lead foi pra perdido, por exemplo).')) return
+    setDismissing(id)
+    try {
+      const res = await fetch(`/api/links/${id}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Excluído pelo usuário' }) })
+      if (res.ok) setDismissedIds(prev => new Set(prev).add(id))
+    } finally {
+      setDismissing(null)
+    }
+  }
+
+  const expiringSoonV = expiringSoon.filter(l => !dismissedIds.has(l.id))
+  const expiredV      = expired.filter(l => !dismissedIds.has(l.id))
+  const pendingV       = pendingAll.filter(l => !dismissedIds.has(l.id))
+
+  if (expiringSoonV.length === 0 && expiredV.length === 0) return null
 
   const now = new Date()
+  const nowMs = now.getTime()
   const todayStr = spDateStr(now), tomorrowStr = spDateStr(new Date(now.getTime() + 86400000))
-  const hoje    = expiringSoon.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === todayStr)
-  const amanha  = expiringSoon.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === tomorrowStr)
-  const totalAguardando = [...expiringSoon, ...expired].reduce((s: number, l: any) => s + (Number(l.deal_value) || 0), 0)
+  const hoje    = expiringSoonV.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === todayStr)
+  const amanha  = expiringSoonV.filter((l: any) => l.expires_at && spDateStr(new Date(l.expires_at)) === tomorrowStr)
+  const totalAguardando = [...expiringSoonV, ...expiredV].reduce((s: number, l: any) => s + (Number(l.deal_value) || 0), 0)
 
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ hoje: true, amanha: true, vencidos: false })
+  // Urgência de cadência — links ainda válidos, gerados há mais tempo que a
+  // cadência configurada, e ainda sem pagamento. Ordenado do mais recente
+  // pro que está esperando há mais tempo.
+  const urgentCadence = cadenceMinutes !== null
+    ? pendingV
+        .filter((l: any) => l.generated_at && (nowMs - new Date(l.generated_at).getTime()) >= cadenceMinutes * 60000)
+        .sort((a: any, b: any) => new Date(b.generated_at).getTime() - new Date(a.generated_at).getTime())
+    : []
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ urgencia: true, hoje: true, amanha: true, vencidos: false })
   function toggle(key: string) { setOpenSections(s => ({ ...s, [key]: !s[key] })) }
+
+  function DismissBtn({ id, hovered }: { id: string; hovered: boolean }) {
+    const isBusy = dismissing === id
+    return (
+      <button onClick={e => handleDismiss(id, e)} disabled={isBusy} title="Excluir cupom/link"
+        style={{ width: 22, height: 22, borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--muted-foreground)', cursor: isBusy ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: hovered ? 1 : 0.3, transition: 'opacity .15s' }}
+        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#ef4444'}
+        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--muted-foreground)'}>
+        <Trash2 size={12} />
+      </button>
+    )
+  }
 
   function Row({ l }: { l: any }) {
     const { primary, secondary } = parseDealName(l.deal_name)
@@ -372,6 +455,7 @@ function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
         </div>
         <span style={{ fontSize:13, fontWeight:900, color:'var(--foreground)', flexShrink:0 }}>{fmtBRL(l.deal_value)}</span>
         <span style={{ fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:999, background:u.bg, color:u.color, flexShrink:0, whiteSpace:'nowrap' }}>{u.dot} {u.label}</span>
+        <DismissBtn id={l.id} hovered={hovered} />
         {l.deal_id && (
           <span style={{ fontSize:10, fontWeight:700, color:'#818cf8', opacity: hovered ? 1 : 0.3, transition:'opacity .15s', flexShrink:0, display:'flex', alignItems:'center', gap:2 }}>
             <ExternalLink size={11}/>
@@ -381,7 +465,38 @@ function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
     )
   }
 
-  function Section({ id, emoji, label, count, rows }: { id: string; emoji: string; label: string; count: number; rows: any[] }) {
+  // Linha da seção de urgência — sem o selo de vencimento (já não é o
+  // foco aqui), com o tempo em aberto em destaque e o horário de geração
+  // bem discreto, do lado do produto.
+  function CadenceRow({ l }: { l: any }) {
+    const { primary, secondary } = parseDealName(l.deal_name)
+    const [hovered, setHovered] = useState(false)
+    return (
+      <div onClick={() => l.deal_id && window.open(hubspotDealUrl(l.deal_id), '_blank')}
+        onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+        style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 14px', cursor: l.deal_id ? 'pointer' : 'default', transition:'background .1s', background: hovered ? 'var(--secondary)' : 'transparent' }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ fontSize:12, fontWeight:700, color:'var(--foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{primary}</p>
+          <p style={{ fontSize:9.5, color:'var(--muted-foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {l.product_name ?? secondary}
+            {l.generated_at && <span style={{ opacity:.55 }}> · gerado às {formatGeneratedTime(l.generated_at)}</span>}
+          </p>
+        </div>
+        <span style={{ fontSize:13, fontWeight:900, color:'var(--foreground)', flexShrink:0 }}>{fmtBRL(l.deal_value)}</span>
+        <span style={{ fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:999, background:'rgba(239,68,68,.12)', color:'#ef4444', flexShrink:0, whiteSpace:'nowrap' }}>
+          🚨 {l.generated_at ? formatElapsed(l.generated_at, nowMs) : '—'}
+        </span>
+        <DismissBtn id={l.id} hovered={hovered} />
+        {l.deal_id && (
+          <span style={{ fontSize:10, fontWeight:700, color:'#818cf8', opacity: hovered ? 1 : 0.3, transition:'opacity .15s', flexShrink:0, display:'flex', alignItems:'center', gap:2 }}>
+            <ExternalLink size={11}/>
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  function Section({ id, emoji, label, count, rows, cadence }: { id: string; emoji: string; label: string; count: number; rows: any[]; cadence?: boolean }) {
     if (count === 0) return null
     const open = openSections[id]
     return (
@@ -391,7 +506,7 @@ function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
           <span style={{ fontSize:10, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.05em' }}>{emoji} {label} — {count}</span>
           <span style={{ fontSize:11, fontWeight:700, color:'#6366f1' }}>{open ? '▲' : '▼'}</span>
         </button>
-        {open && rows.map((l: any) => <Row key={l.id} l={l} />)}
+        {open && rows.map((l: any) => cadence ? <CadenceRow key={l.id} l={l} /> : <Row key={l.id} l={l} />)}
       </div>
     )
   }
@@ -407,18 +522,24 @@ function LinkAlerts({ alerts }: { alerts: NonNullable<Props['linkAlerts']> }) {
           {fmtMoneyCompact(totalAguardando)} <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)' }}>em potencial aguardando ação</span>
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {urgentCadence.length > 0 && (
+            <span style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 12px', borderRadius:999, background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', color:'#ef4444', fontSize:11, fontWeight:800 }}>
+              <Timer size={11} /> {urgentCadence.length} ainda não pago{urgentCadence.length !== 1 ? 's' : ''}
+            </span>
+          )}
           <span style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 12px', borderRadius:999, background:'rgba(251,191,36,.1)', border:'1px solid rgba(251,191,36,.3)', color:'#d97706', fontSize:11, fontWeight:800 }}>
             🟡 {hoje.length + amanha.length} urgente{(hoje.length + amanha.length) !== 1 ? 's' : ''}
           </span>
           <span style={{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 12px', borderRadius:999, background:'rgba(248,113,113,.1)', border:'1px solid rgba(248,113,113,.3)', color:'#f87171', fontSize:11, fontWeight:800 }}>
-            🔴 {expired.length} vencido{expired.length !== 1 ? 's' : ''}
+            🔴 {expiredV.length} vencido{expiredV.length !== 1 ? 's' : ''}
           </span>
         </div>
       </div>
 
+      <Section id="urgencia" emoji="🚨" label="Ainda não pagou" count={urgentCadence.length} rows={urgentCadence} cadence />
       <Section id="hoje"     emoji="🟠" label="Vencem hoje"   count={hoje.length}    rows={hoje}/>
       <Section id="amanha"   emoji="🟡" label="Vencem amanhã" count={amanha.length}  rows={amanha}/>
-      <Section id="vencidos" emoji="🔴" label="Vencidos sem reemissão" count={expired.length} rows={expired}/>
+      <Section id="vencidos" emoji="🔴" label="Vencidos sem reemissão" count={expiredV.length} rows={expiredV}/>
     </div>
   )
 }
@@ -507,8 +628,9 @@ interface Props {
     insight: string
   }
   linkAlerts?: {
-    expiringSoon: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null }[]
-    expired: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null }[]
+    expiringSoon: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null; generated_at?: string }[]
+    expired: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null; generated_at?: string }[]
+    pending?: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null; generated_at: string }[]
   }
 }
 

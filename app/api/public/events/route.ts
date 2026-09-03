@@ -52,6 +52,23 @@ const SaleSchema = z.object({
   // que dá pra usar de verdade pra localizar a venda depois, porque existe
   // tanto na venda (nasce com ela) quanto no card do HubSpot integrado.
   transaction_id:       z.string().nullable().optional(),
+  // ── Dados do comprador — pra insights futuros (recompra, geografia,
+  // forma de pagamento). Tudo opcional e sem validação de formato: se a
+  // fonte não mandar, ou mandar "errado", o evento grava do mesmo jeito —
+  // essas colunas são só enriquecimento, nunca bloqueiam a venda de
+  // registrar. document aceita CPF ou CNPJ, como vier, sem distinguir.
+  document:             z.string().nullable().optional(),
+  email:                z.string().nullable().optional(),
+  phone:                z.string().nullable().optional(),
+  city:                 z.string().nullable().optional(),
+  state:                z.string().nullable().optional(),
+  payment_type:         z.string().nullable().optional(), // ex: pix, credit_card, boleto
+  // Em quantas vezes o cartão foi parcelado NESSA venda — independente de
+  // ser recorrente ou avulsa. Propositalmente separado de installment_number
+  // (que é só "parcela X de uma assinatura recorrente"). Misturar os dois
+  // quebraria o forecast de recorrência e o cálculo de ticket médio, que
+  // dependem de installment_number>1 significar "é recorrente".
+  payment_installments: z.number().int().positive().nullable().optional(),
 })
 
 const AmbassadorSchema = z.object({
@@ -113,18 +130,60 @@ export async function POST(req: NextRequest) {
     if (data.seller_type === 'self_checkout') { isSelfCO = true; matched = null }
     if (data.seller_type === 'ambassador')     { finalSellerType = 'ambassador' }
 
+    // ── Correção de bug conhecido da Hotmart ────────────────────────────
+    // Em assinaturas recorrentes, só a 1ª parcela vem com o cupom do closer
+    // — as parcelas seguintes chegam "limpas" (sem cupom, sem closer_name,
+    // sem closer_hubspot_id) e cairiam aqui como self-checkout por engano,
+    // mesmo tendo sido uma venda de verdade do closer.
+    //
+    // Se essa venda é recorrente, tem subscription_id, e caiu como
+    // self-checkout por falta de informação, busca no banco a parcela MAIS
+    // ANTIGA já gravada dessa mesma assinatura que tenha closer atribuído
+    // (normalmente a 1ª, que veio com o cupom) e reaproveita essa
+    // atribuição — inclusive se foi venda de embaixador, com ou sem
+    // co-closer. Se não achar nenhuma parcela anterior atribuída (ex: essa
+    // é mesmo a primeira, ou nenhuma delas nunca teve closer), mantém o
+    // comportamento padrão de self-checkout — sem regressão.
+    let fallbackAttribution: {
+      closer_name: string | null; closer_hubspot_id: string | null; closer_id: string | null
+      seller_type: string; sold_by_ambassador: boolean
+      co_closer_id: string | null; co_closer_hubspot_id: string | null
+    } | null = null
+
+    if (data.event_type === 'sale' && data.is_recurring && data.subscription_id && isSelfCO) {
+      const { data: firstInstallment } = await admin
+        .from('telao_events')
+        .select('closer_name, closer_hubspot_id, closer_id, seller_type, sold_by_ambassador, co_closer_id, co_closer_hubspot_id')
+        .eq('subscription_id', data.subscription_id)
+        .eq('is_self_checkout', false)
+        .order('occurred_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      if (firstInstallment) {
+        fallbackAttribution = firstInstallment as any
+        isSelfCO = false
+        finalSellerType = fallbackAttribution!.seller_type ?? 'closer'
+      }
+    }
+
     const occurredAt = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
 
     let insertData: Record<string, unknown> = {
       event_type:          data.event_type,
       vertical:            data.vertical,
-      closer_name:         isSelfCO ? null : (matched?.name ?? (rawName || null)),
-      closer_hubspot_id:   rawHubspotId || matched?.hubspot_id || null,
-      closer_id:           matched?.id ?? null,
+      closer_name:         fallbackAttribution ? fallbackAttribution.closer_name : (isSelfCO ? null : (matched?.name ?? (rawName || null))),
+      closer_hubspot_id:   fallbackAttribution ? fallbackAttribution.closer_hubspot_id : (rawHubspotId || matched?.hubspot_id || null),
+      closer_id:           fallbackAttribution ? fallbackAttribution.closer_id : (matched?.id ?? null),
       is_self_checkout:    isSelfCO,
       seller_type:         finalSellerType,
-      sold_by_ambassador:  ('sold_by_ambassador' in data ? data.sold_by_ambassador : false) || finalSellerType === 'ambassador',
+      sold_by_ambassador:  fallbackAttribution ? fallbackAttribution.sold_by_ambassador : (('sold_by_ambassador' in data ? data.sold_by_ambassador : false) || finalSellerType === 'ambassador'),
       occurred_at:         occurredAt,
+      // Se a parcela original tinha co-closer (venda dividida entre
+      // embaixador e closer), a parcela recorrente herda a mesma divisão.
+      ...(fallbackAttribution?.co_closer_id || fallbackAttribution?.co_closer_hubspot_id
+        ? { co_closer_id: fallbackAttribution.co_closer_id, co_closer_hubspot_id: fallbackAttribution.co_closer_hubspot_id }
+        : {}),
     }
 
     // Link que gerou essa venda (se achar por cupom) — usado abaixo pra
@@ -146,6 +205,16 @@ export async function POST(req: NextRequest) {
         coupon_code:         data.coupon_code || null,
         deal_id:             data.deal_id || null,
         transaction_id:      data.transaction_id || null,
+        // Dados do comprador — pra insights futuros (recompra, vendas por
+        // estado/cidade, forma de pagamento). Sempre null se não vier, nunca
+        // quebra a gravação da venda.
+        document:            data.document || null,
+        email:                data.email || null,
+        phone:                data.phone || null,
+        city:                 data.city || null,
+        state:                data.state || null,
+        payment_type:         data.payment_type || null,
+        payment_installments: data.payment_installments ?? null,
       }
 
       // Enriquece a venda com a condição de pagamento do link que a gerou —

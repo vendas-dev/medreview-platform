@@ -8,7 +8,7 @@ import {
 } from 'recharts'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { Link2, Users, BarChart2, Package, Calendar, List, ChevronDown,
-         DollarSign, RefreshCw, Clock, X, Search, TrendingUp, AlertTriangle, ExternalLink } from 'lucide-react'
+         DollarSign, RefreshCw, Clock, X, Search, TrendingUp, AlertTriangle, ExternalLink, Trash2, Timer, Settings } from 'lucide-react'
 
 // ── Tipos ─────────────────────────────────────────────────────
 interface GeracaoLink {
@@ -19,6 +19,7 @@ interface GeracaoLink {
   pipeline_name:string|null; stage_name:string|null; created_at:string; discount_pct?:number|null; coupon_code?:string|null
   payment_mode?:string|null; installments_no_interest?:number|null
   converted_at?:string|null; converted_transaction_id?:string|null; superseded_by_link_id?:string|null
+  dismissed_at?:string|null
 }
 
 // Rótulo legível da Condição — 'sem_juros' mostra o número real de parcelas
@@ -245,7 +246,74 @@ function fmtMoneyCompact(v: number): string {
   return fmtBRL(v)
 }
 
-function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: boolean }) {
+function formatElapsed(generatedAt: string, now: number): string {
+  const ms = Math.max(0, now - new Date(generatedAt).getTime())
+  const totalMin = Math.floor(ms / 60000)
+  if (totalMin < 60) return `${totalMin} min em aberto`
+  const totalHours = Math.floor(totalMin / 60)
+  const remMin = totalMin % 60
+  if (totalHours < 24) return `${totalHours}h${remMin > 0 ? ` ${remMin}min` : ''} em aberto`
+  const days = Math.floor(totalHours / 24)
+  const remHours = totalHours % 24
+  const parts: string[] = []
+  if (remHours > 0) parts.push(`${remHours}h`)
+  if (remMin > 0) parts.push(`${remMin}min`)
+  const rest = parts.length > 0 ? ` e ${parts.join(' ')}` : ''
+  return `${days} dia${days > 1 ? 's' : ''}${rest} em aberto`
+}
+function formatGeneratedTime(generatedAt: string): string {
+  return new Date(generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+// ── Painel de configuração da cadência — só o superadmin vê e edita.
+function CadenceSettingsPanel({ cadenceMinutes, onSaved }: { cadenceMinutes: number | null; onSaved: (v: number) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(String(cadenceMinutes ?? 10))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => { setValue(String(cadenceMinutes ?? 10)) }, [cadenceMinutes])
+
+  async function handleSave() {
+    const n = parseInt(value, 10)
+    if (!Number.isFinite(n) || n <= 0) { setError('Informe um número de minutos maior que zero'); return }
+    setSaving(true); setError('')
+    try {
+      const res = await fetch('/api/links/cadence-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cadence_minutes: n }) })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(d.error ?? 'Erro ao salvar'); return }
+      onSaved(n); setEditing(false)
+    } catch { setError('Erro de conexão') } finally { setSaving(false) }
+  }
+
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)}
+        style={{ display:'flex', alignItems:'center', gap:6, height:32, padding:'0 12px', borderRadius:9, border:'1px solid var(--border)', background:'var(--card)', color:'var(--muted-foreground)', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+        <Settings size={12}/> Cadência: {cadenceMinutes ?? '...'} min
+      </button>
+    )
+  }
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, background:'var(--card)', border:'1px solid var(--border)', borderRadius:9, padding:'4px 6px 4px 12px' }}>
+      <span style={{ fontSize:12, color:'var(--muted-foreground)', whiteSpace:'nowrap' }}>Avisar após</span>
+      <input type="number" min={1} value={value} onChange={e => setValue(e.target.value)} autoFocus
+        style={{ width:56, height:28, borderRadius:7, border:'1.5px solid var(--border)', background:'var(--background)', color:'var(--foreground)', fontSize:12, textAlign:'center', outline:'none', fontFamily:'inherit' }}/>
+      <span style={{ fontSize:12, color:'var(--muted-foreground)', whiteSpace:'nowrap' }}>min sem pagar</span>
+      <button onClick={handleSave} disabled={saving}
+        style={{ height:28, padding:'0 12px', borderRadius:7, border:'none', background:'linear-gradient(135deg,#4f46e5,#7c3aed)', color:'#fff', fontSize:11.5, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+        {saving ? '...' : 'Salvar'}
+      </button>
+      <button onClick={() => { setEditing(false); setError('') }}
+        style={{ width:28, height:28, borderRadius:7, border:'1px solid var(--border)', background:'transparent', color:'var(--muted-foreground)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <X size={12}/>
+      </button>
+      {error && <span style={{ fontSize:11, color:'#ef4444', whiteSpace:'nowrap' }}>{error}</span>}
+    </div>
+  )
+}
+
+function NaoConvertidosTab({ data, isAdmin, onDismiss }: { data: GeracaoLink[]; isAdmin: boolean; onDismiss: (id: string) => void }) {
   const naoConvertidos = useMemo(() => {
     const candidates = data.filter(d => !d.converted_at && !d.superseded_by_link_id && d.expires_at)
     const byDeal = new Map<string, GeracaoLink>()
@@ -258,6 +326,7 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
   }, [data])
 
   const now = new Date()
+  const nowMs = now.getTime()
   const todayStr = spDateStr(now), tomorrowStr = spDateStr(new Date(now.getTime() + 86400000))
 
   const vencidos = naoConvertidos.filter(d => d.expires_at && new Date(d.expires_at) < now)
@@ -268,8 +337,53 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
   const totalAguardando = naoConvertidos.reduce((s, d) => s + (Number(d.deal_value) || 0), 0)
   const urgentesCount = hoje.length + amanha.length
 
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ vencidos: false, hoje: true, amanha: true, proximos: false })
+  // Cadência de cobrança — todos os links ainda válidos (não vencidos),
+  // gerados há mais tempo que a cadência configurada. Ordenado do mais
+  // recente pro que está esperando há mais tempo.
+  const [cadenceMinutes, setCadenceMinutes] = useState<number | null>(null)
+  useEffect(() => {
+    fetch('/api/links/cadence-settings').then(r => r.json())
+      .then(d => setCadenceMinutes(Number(d.cadence_minutes) || 10))
+      .catch(() => setCadenceMinutes(10))
+  }, [])
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => forceTick(t => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [])
+  const aindaNaoPagou = useMemo(() => {
+    if (cadenceMinutes === null) return []
+    return naoConvertidos
+      .filter(d => d.expires_at && new Date(d.expires_at) >= now && (nowMs - new Date(d.generated_at).getTime()) >= cadenceMinutes * 60000)
+      .sort((a, b) => b.generated_at.localeCompare(a.generated_at))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [naoConvertidos, cadenceMinutes, nowMs])
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ urgencia: true, vencidos: false, hoje: true, amanha: true, proximos: false })
   function toggle(key: string) { setOpenSections(s => ({ ...s, [key]: !s[key] })) }
+
+  const [dismissing, setDismissing] = useState<string | null>(null)
+  async function handleDismissClick(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation()
+    if (!confirm('Excluir esse link/cupom? Ele deixa de aparecer em todas as telas (o lead foi pra perdido, por exemplo).')) return
+    setDismissing(id)
+    try {
+      const res = await fetch(`/api/links/${id}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Excluído pelo usuário' }) })
+      if (res.ok) onDismiss(id)
+    } finally { setDismissing(null) }
+  }
+
+  function DismissBtn({ id, hovered }: { id: string; hovered: boolean }) {
+    const isBusy = dismissing === id
+    return (
+      <button onClick={e => handleDismissClick(id, e)} disabled={isBusy} title="Excluir cupom/link"
+        style={{ width:24, height:24, borderRadius:6, border:'none', background:'transparent', color:'var(--muted-foreground)', cursor: isBusy ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, opacity: hovered ? 1 : 0.35, transition:'opacity .15s' }}
+        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#ef4444'}
+        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--muted-foreground)'}>
+        <Trash2 size={12}/>
+      </button>
+    )
+  }
 
   function Row({ r }: { r: GeracaoLink }) {
     const { primary, secondary } = parseDealName(r.deal_name)
@@ -278,7 +392,7 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
     return (
       <div onClick={() => r.deal_id && window.open(hubspotDealUrl(r.deal_id), '_blank')}
         onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
-        style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 90px' : '1fr 130px 90px 130px 90px', alignItems:'center', gap:10, padding:'7px 16px', cursor: r.deal_id ? 'pointer' : 'default', transition:'background .1s', borderBottom:'1px solid var(--border)', background: hovered ? 'var(--secondary)' : 'transparent' }}>
+        style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 60px' : '1fr 130px 90px 130px 60px', alignItems:'center', gap:10, padding:'7px 16px', cursor: r.deal_id ? 'pointer' : 'default', transition:'background .1s', borderBottom:'1px solid var(--border)', background: hovered ? 'var(--secondary)' : 'transparent' }}>
         {isAdmin && <span style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.owner_name}</span>}
         <div style={{ minWidth:0 }}>
           <p style={{ fontSize:12.5, fontWeight:700, color:'var(--foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{primary}</p>
@@ -287,18 +401,52 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
         <span style={{ fontSize:11, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name ?? '—'}</span>
         <span style={{ fontSize:13, fontWeight:900, color:'var(--foreground)', textAlign:'right' }}>{fmtBRL(r.deal_value)}</span>
         <span style={{ fontSize:10.5, fontWeight:800, padding:'3px 8px', borderRadius:999, background:u.bg, color:u.color, textAlign:'center', whiteSpace:'nowrap' }}>{u.dot} {u.label}</span>
-        <span style={{ textAlign:'right' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:6 }}>
+          <DismissBtn id={r.id} hovered={hovered} />
           {r.deal_id && (
             <span style={{ fontSize:10.5, fontWeight:700, color:'#818cf8', opacity: hovered ? 1 : 0.35, transition:'opacity .15s', display:'inline-flex', alignItems:'center', gap:3, whiteSpace:'nowrap' }}>
-              Abrir <ExternalLink size={11}/>
+              <ExternalLink size={11}/>
             </span>
           )}
-        </span>
+        </div>
       </div>
     )
   }
 
-  function Section({ id, emoji, label, count, rows }: { id: string; emoji: string; label: string; count: number; rows: GeracaoLink[] }) {
+  // Linha da seção de urgência de cadência — troca o selo de vencimento
+  // pelo tempo em aberto, e mostra o horário de geração bem discreto.
+  function CadenceRow({ r }: { r: GeracaoLink }) {
+    const { primary, secondary } = parseDealName(r.deal_name)
+    const [hovered, setHovered] = useState(false)
+    return (
+      <div onClick={() => r.deal_id && window.open(hubspotDealUrl(r.deal_id), '_blank')}
+        onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+        style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 150px 60px' : '1fr 130px 90px 150px 60px', alignItems:'center', gap:10, padding:'7px 16px', cursor: r.deal_id ? 'pointer' : 'default', transition:'background .1s', borderBottom:'1px solid var(--border)', background: hovered ? 'var(--secondary)' : 'transparent' }}>
+        {isAdmin && <span style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.owner_name}</span>}
+        <div style={{ minWidth:0 }}>
+          <p style={{ fontSize:12.5, fontWeight:700, color:'var(--foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{primary}</p>
+          <p style={{ fontSize:9.5, color:'var(--muted-foreground)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {r.product_name ?? secondary}{r.generated_at && <span style={{ opacity:.55 }}> · gerado às {formatGeneratedTime(r.generated_at)}</span>}
+          </p>
+        </div>
+        <span style={{ fontSize:11, color:'var(--muted-foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name ?? '—'}</span>
+        <span style={{ fontSize:13, fontWeight:900, color:'var(--foreground)', textAlign:'right' }}>{fmtBRL(r.deal_value)}</span>
+        <span style={{ fontSize:10.5, fontWeight:800, padding:'3px 8px', borderRadius:999, background:'rgba(239,68,68,.12)', color:'#ef4444', textAlign:'center', whiteSpace:'nowrap' }}>
+          🚨 {formatElapsed(r.generated_at, nowMs)}
+        </span>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:6 }}>
+          <DismissBtn id={r.id} hovered={hovered} />
+          {r.deal_id && (
+            <span style={{ fontSize:10.5, fontWeight:700, color:'#818cf8', opacity: hovered ? 1 : 0.35, transition:'opacity .15s', display:'inline-flex', alignItems:'center', gap:3, whiteSpace:'nowrap' }}>
+              <ExternalLink size={11}/>
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  function Section({ id, emoji, label, count, rows, cadence }: { id: string; emoji: string; label: string; count: number; rows: GeracaoLink[]; cadence?: boolean }) {
     if (count === 0) return null
     const open = openSections[id]
     return (
@@ -308,13 +456,19 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
           <span style={{ fontSize:10.5, fontWeight:800, color:'var(--foreground)', textTransform:'uppercase', letterSpacing:'.05em' }}>{emoji} {label} — {count}</span>
           <span style={{ fontSize:11, fontWeight:700, color:'#6366f1' }}>{open ? '▲' : '▼'}</span>
         </button>
-        {open && rows.map(r => <Row key={r.id} r={r} />)}
+        {open && rows.map(r => cadence ? <CadenceRow key={r.id} r={r} /> : <Row key={r.id} r={r} />)}
       </div>
     )
   }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      {isAdmin && (
+        <div style={{ display:'flex', justifyContent:'flex-end' }}>
+          <CadenceSettingsPanel cadenceMinutes={cadenceMinutes} onSaved={setCadenceMinutes} />
+        </div>
+      )}
+
       {/* Painel de cobrança */}
       <div style={{ background:'var(--card)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:16, overflow:'hidden', boxShadow:'0 1px 8px rgba(0,0,0,.06)' }}>
         <div style={{ padding:'18px 20px' }}>
@@ -326,6 +480,12 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
             {fmtMoneyCompact(totalAguardando)} <span style={{ fontSize:13, fontWeight:700, color:'var(--muted-foreground)' }}>em potencial aguardando ação</span>
           </p>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {aindaNaoPagou.length > 0 && (
+              <button onClick={() => { setOpenSections(s => ({ ...s, urgencia: true })); document.getElementById('sec-urgencia')?.scrollIntoView({ behavior:'smooth' }) }}
+                style={{ display:'flex', alignItems:'center', gap:6, height:32, padding:'0 14px', borderRadius:999, border:'1px solid rgba(239,68,68,.35)', background:'rgba(239,68,68,.1)', color:'#ef4444', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit' }}>
+                <Timer size={12}/> {aindaNaoPagou.length} ainda não pago{aindaNaoPagou.length !== 1 ? 's' : ''}
+              </button>
+            )}
             <button onClick={() => { setOpenSections(s => ({ ...s, hoje: true, amanha: true })); document.getElementById('sec-hoje')?.scrollIntoView({ behavior:'smooth' }) }}
               style={{ display:'flex', alignItems:'center', gap:6, height:32, padding:'0 14px', borderRadius:999, border:'1px solid rgba(251,191,36,.35)', background:'rgba(251,191,36,.1)', color:'#d97706', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit' }}>
               🟡 {urgentesCount} urgente{urgentesCount!==1?'s':''}
@@ -337,12 +497,13 @@ function NaoConvertidosTab({ data, isAdmin }: { data: GeracaoLink[]; isAdmin: bo
           </div>
         </div>
 
-        <div style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 90px' : '1fr 130px 90px 130px 90px', gap:10, padding:'6px 16px', background:'var(--secondary)', borderTop:'1px solid var(--border)' }}>
+        <div style={{ display:'grid', gridTemplateColumns: isAdmin ? '130px 1fr 130px 90px 130px 60px' : '1fr 130px 90px 130px 60px', gap:10, padding:'6px 16px', background:'var(--secondary)', borderTop:'1px solid var(--border)' }}>
           {(isAdmin ? ['Proprietário','Lead','Produto','Valor','Vencimento','Ação'] : ['Lead','Produto','Valor','Vencimento','Ação']).map((h, i, arr) => (
             <span key={h} style={{ fontSize:9, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.06em', textAlign: i >= arr.length - 3 && i !== arr.length - 3 ? 'right' : 'left' }}>{h}</span>
           ))}
         </div>
 
+        <div id="sec-urgencia"><Section id="urgencia" emoji="🚨" label="Ainda não pagou" count={aindaNaoPagou.length} rows={aindaNaoPagou} cadence/></div>
         <div id="sec-hoje"><Section id="hoje"     emoji="🟠" label="Vencem hoje"    count={hoje.length}     rows={hoje}/></div>
         <Section id="amanha"   emoji="🟡" label="Vencem amanhã"  count={amanha.length}   rows={amanha}/>
         <Section id="proximos" emoji="⚪" label="Próximos"        count={proximos.length} rows={proximos}/>
@@ -380,7 +541,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
     const myRequestId = ++requestIdRef.current
     setLoading(true);let all:GeracaoLink[]=[],from=0
     while(true){
-      let q = supabase.from('geracoes_links').select('*')
+      let q = supabase.from('geracoes_links').select('*').is('dismissed_at', null)
       if (fFrom) q = q.gte('generated_at', dayBoundsSaoPaulo(fFrom).start)
       if (fTo)   q = q.lte('generated_at', dayBoundsSaoPaulo(fTo).end)
       const{data:b}=await q.order('generated_at',{ascending:false}).range(from,from+999)
@@ -413,6 +574,9 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
       setData(prev=>prev.some(d=>d.id===row.id)?prev:[row,...prev])
     }).on('postgres_changes',{event:'UPDATE',schema:'public',table:'geracoes_links'},(payload:any)=>{
       const row=payload.new as GeracaoLink
+      // Se acabou de ser descartado (soft-delete), remove da lista em vez
+      // de atualizar — some da tela na hora, sem precisar recarregar.
+      if (row.dismissed_at) { setData(prev=>prev.filter(d=>d.id!==row.id)); return }
       setData(prev=>prev.map(d=>d.id===row.id?row:d))
     }).subscribe()
     channelRef.current=ch; return()=>{supabase.removeChannel(ch)}
@@ -556,7 +720,7 @@ export function LinksClient({ isAdmin, ownerName, ownerHubspotId }:{ isAdmin:boo
         </div>
       ):(
         <>
-          {tab==='naoconvertidos' && <NaoConvertidosTab data={filtered} isAdmin={isAdmin} />}
+          {tab==='naoconvertidos' && <NaoConvertidosTab data={filtered} isAdmin={isAdmin} onDismiss={id => setData(prev => prev.filter(d => d.id !== id))} />}
 
           {tab==='geral'&&(
             <div style={{display:'flex',flexDirection:'column',gap:16}}>

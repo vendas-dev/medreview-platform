@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     admin.from('telao_events')
       .select('closer_id, closer_hubspot_id')
       .eq('event_type', 'ambassador_certified').gte('occurred_at', start).lte('occurred_at', end).limit(999999),
-    admin.from('profiles').select('id, name, hubspot_id, avatar_url').neq('role', 'superadmin'),
+    admin.from('profiles').select('id, name, team, hubspot_id, avatar_url').neq('role', 'superadmin'),
     admin.from('hubspot_leads').select('owner_id').gte('created_at_hs', start).lte('created_at_hs', end).limit(999999),
   ])
 
@@ -76,9 +76,13 @@ export async function GET(req: NextRequest) {
   // esperado e correto: mostra o quanto daquele período já contribuiu pra
   // meta do mês inteiro, não uma "meta do dia" que não existe no sistema.
   const monthKey = today.slice(0, 7)
-  const { data: closerGoals } = await admin.from('closer_goals').select('user_id, goal_sales').eq('month', monthKey)
+  const { data: closerGoals } = await admin.from('closer_goals').select('user_id, goal_sales, goals_by_vertical').eq('month', monthKey)
   const goalsMap: Record<string, number> = {}
-  ;(closerGoals ?? []).forEach((g: any) => { goalsMap[g.user_id] = Number(g.goal_sales) || 0 })
+  const goalsByVerticalMap: Record<string, Record<string, number>> = {}
+  ;(closerGoals ?? []).forEach((g: any) => {
+    goalsMap[g.user_id] = Number(g.goal_sales) || 0
+    goalsByVerticalMap[g.user_id] = g.goals_by_vertical ?? {}
+  })
 
   // ── KPIs do período (mesma regra de sempre: ticket médio só 1ª parcela) ──
   const totalRevenue = salesList.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
@@ -202,9 +206,17 @@ export async function GET(req: NextRequest) {
     const withDiscount = mySales.filter((e: any) => !e.is_self_checkout)
       .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
     const avgDiscountPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
+    // Receita desse closer, separada por vertical — mesma lógica do page.tsx,
+    // usada pra "% de atingimento por vertical" na tabela do time OAO.
+    const revenueByVertical: Record<string, number> = {}
+    mySales.forEach((e: any) => {
+      const v = vLabel(e.vertical ?? 'outros')
+      revenueByVertical[v] = (revenueByVertical[v] ?? 0) + (Number(e.value) || 0)
+    })
     return {
-      id: c.id, name: c.name, avatarUrl: c.avatar_url, revenue, salesCount, avgTicket, convRate, moneyLeft: moneyLeftCloser, avgDiscountPct,
+      id: c.id, name: c.name, avatarUrl: c.avatar_url, team: c.team, revenue, salesCount, avgTicket, convRate, moneyLeft: moneyLeftCloser, avgDiscountPct,
       goalSales: goalsMap[c.id] ?? 0,
+      revenueByVertical, goalsByVertical: goalsByVerticalMap[c.id] ?? {},
     }
   }).filter(c => c.salesCount > 0 || c.revenue > 0).sort((a, b) => b.revenue - a.revenue)
 
