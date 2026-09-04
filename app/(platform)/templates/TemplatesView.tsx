@@ -3,7 +3,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Plus, X, Copy, Check, Pencil, Trash2, Filter,
   Upload, Download, Search, ChevronDown, Sparkles, FileText,
-  LayoutGrid, List as ListIcon, ArrowUpDown
+  LayoutGrid, List as ListIcon, ArrowUpDown, Star
 } from 'lucide-react'
 import { MedyTemplateCoach } from './MedyTemplateCoach'
 
@@ -168,6 +168,19 @@ function FilterDropdown({ value, onChange, options, placeholder, minW = 160 }: {
         </div>
       )}
     </div>
+  )
+}
+
+// ── Botão de favoritar — estrelinha usada tanto no card quanto na linha.
+// Preenchida e dourada quando favoritado, contorno neutro quando não.
+function FavoriteButton({ isFavorite, onToggle, size = 15 }: { isFavorite: boolean; onToggle: (e: React.MouseEvent) => void; size?: number }) {
+  return (
+    <button onClick={onToggle} title={isFavorite ? 'Remover dos favoritos' : 'Favoritar'}
+      style={{ width: 28, height: 28, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isFavorite ? '#f59e0b' : 'var(--muted-foreground)', transition: 'all 0.15s', flexShrink: 0 }}
+      onMouseEnter={e => { if (!isFavorite) { e.currentTarget.style.background = 'rgba(245,158,11,0.08)'; e.currentTarget.style.color = '#f59e0b' } }}
+      onMouseLeave={e => { if (!isFavorite) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' } }}>
+      <Star size={size} style={{ fill: isFavorite ? '#f59e0b' : 'none' }} />
+    </button>
   )
 }
 
@@ -355,7 +368,7 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
 }
 
 // ── Card de template ──────────────────────────────────────────
-function TemplateCard({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boolean; onEdit: () => void; onDelete: () => void }) {
+function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void }) {
   const [copied,   setCopied]   = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [showUtilidade, setShowUtilidade] = useState(false)
@@ -387,9 +400,9 @@ function TemplateCard({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boole
   const CARD_HEIGHT = 296 // altura fixa no estado padrão — grid sempre simétrico
 
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, transition: 'border-color 0.15s', padding: '16px 18px', display: 'flex', flexDirection: 'column', height: expanded || showUtilidade ? 'auto' : CARD_HEIGHT }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-strong)' }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}>
+    <div style={{ background: 'var(--card)', border: isFavorite ? '1.5px solid rgba(245,158,11,0.35)' : '1px solid var(--border)', borderRadius: 16, transition: 'border-color 0.15s', padding: '16px 18px', display: 'flex', flexDirection: 'column', height: expanded || showUtilidade ? 'auto' : CARD_HEIGHT, position: 'relative' }}
+      onMouseEnter={e => { if (!isFavorite) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-strong)' }}
+      onMouseLeave={e => { if (!isFavorite) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}>
 
       {/* Badges — verticais e validade */}
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -401,20 +414,23 @@ function TemplateCard({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boole
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
         <p style={{ flex: 1, fontSize: 15, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{t.name}</p>
-        {isAdmin && (
-          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-            <button onClick={onEdit} style={{ width: 24, height: 24, borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--foreground)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
-              <Pencil size={11} />
-            </button>
-            <button onClick={() => setDeleting(true)} style={{ width: 24, height: 24, borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = '#ef4444' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
-              <Trash2 size={11} />
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+          <FavoriteButton isFavorite={isFavorite} onToggle={e => { e.stopPropagation(); onToggleFavorite() }} />
+          {isAdmin && (
+            <>
+              <button onClick={onEdit} style={{ width: 24, height: 24, borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--foreground)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+                <Pencil size={11} />
+              </button>
+              <button onClick={() => setDeleting(true)} style={{ width: 24, height: 24, borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = '#ef4444' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+                <Trash2 size={11} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Quando utilizar — expansível, opcional */}
@@ -459,7 +475,7 @@ function TemplateCard({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boole
 
 // ── Modal de importação CSV ───────────────────────────────────
 // ── Linha de template — visualização em lista, compacta pra escanear ──
-function TemplateRow({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boolean; onEdit: () => void; onDelete: () => void }) {
+function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void }) {
   const [copied,   setCopied]   = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [expanded,   setExpanded]   = useState(false)
@@ -484,11 +500,11 @@ function TemplateRow({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boolea
   )
 
   return (
-    <div style={{ borderBottom: '1px solid var(--border)' }}>
+    <div style={{ borderBottom: '1px solid var(--border)', background: isFavorite ? 'rgba(245,158,11,0.03)' : 'transparent' }}>
       <div onClick={() => setExpanded(v => !v)}
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.12s' }}
         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--secondary)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = isFavorite ? 'rgba(245,158,11,0.03)' : 'transparent'}>
         <ChevronDown size={13} style={{ color: 'var(--muted-foreground)', flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
         <p style={{ flex: '1 1 220px', minWidth: 0, fontSize: 13, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</p>
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: '1 1 260px' }}>
@@ -496,6 +512,7 @@ function TemplateRow({ t, isAdmin, onEdit, onDelete }: { t: any; isAdmin: boolea
           {t.validade && <Badge label={t.validade} color={VALIDADE_BADGE.color} bg={VALIDADE_BADGE.bg} />}
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          <FavoriteButton isFavorite={isFavorite} onToggle={onToggleFavorite} size={14} />
           <button onClick={handleCopy}
             style={{ width: 30, height: 30, borderRadius: 8, border: `1.5px solid ${copied ? '#22c55e' : 'var(--border)'}`, background: copied ? 'rgba(34,197,94,0.08)' : 'transparent', color: copied ? '#16a34a' : 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s' }}
             title="Copiar">
@@ -740,9 +757,10 @@ Template Geral,"Olá \${nome}! Mensagem para todos os times.",Ambos,,Follow-up,U
 // ── TemplatesView principal ───────────────────────────────────
 interface Props {
   templates: any[]; isAdmin: boolean; userTeam?: string
+  favoriteIds?: string[]
 }
 
-export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) {
+export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteIds: initialFavoriteIds = [] }: Props) {
   const [templates,  setTemplates]  = useState(initial)
   const [search,     setSearch]     = useState('')
   const [filterTeam, setFilterTeam] = useState('todos')
@@ -753,6 +771,34 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
   const [sortBy,   setSortBy]   = useState<'recentes' | 'nome'>('recentes')
   const [modal,      setModal]      = useState<null | 'create' | 'edit' | 'csv'>(null)
   const [editTarget, setEditTarget] = useState<any>(null)
+
+  // ── Favoritos — Set local, atualizado de forma otimista. A chamada pra
+  // API roda em paralelo; se falhar, desfaz a mudança visual sozinho.
+  const [favIds, setFavIds] = useState<Set<string>>(() => new Set(initialFavoriteIds))
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+
+  function toggleFavorite(id: string) {
+    const wasFav = favIds.has(id)
+    setFavIds(prev => {
+      const next = new Set(prev)
+      if (wasFav) next.delete(id); else next.add(id)
+      return next
+    })
+    fetch('/api/templates/favorites', {
+      method: wasFav ? 'DELETE' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id: id }),
+    }).catch(() => {}).then(async (res) => {
+      if (res && !res.ok) {
+        // Reverte se o servidor recusou (ex: sessão expirou)
+        setFavIds(prev => {
+          const next = new Set(prev)
+          if (wasFav) next.add(id); else next.delete(id)
+          return next
+        })
+      }
+    })
+  }
 
   // Opções de Validade — só as que realmente existem nos templates carregados,
   // nunca uma lista fixa. "Atemporal" sempre primeiro quando presente, resto
@@ -785,14 +831,23 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
       if (filterVert     !== 'todos' && !(t.vertical ?? []).includes(filterVert)) return false
       if (filterCategoria !== 'todos' && t.categoria !== filterCategoria) return false
       if (filterValidade  !== 'todos' && t.validade  !== filterValidade)  return false
+      if (showFavoritesOnly && !favIds.has(t.id)) return false
       return true
     })
-    if (sortBy === 'nome') {
-      return [...result].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-    }
-    // 'recentes' — created_at mais novo primeiro
-    return [...result].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
-  }, [templates, search, filterTeam, filterVert, filterCategoria, filterValidade, sortBy])
+    const sorted = sortBy === 'nome'
+      ? [...result].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      // 'recentes' — created_at mais novo primeiro
+      : [...result].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+
+    // Favoritos sempre primeiro, independente do critério de ordenação
+    // escolhido acima (que continua valendo como critério secundário,
+    // tanto entre os favoritos quanto entre os não-favoritos).
+    return [...sorted].sort((a, b) => {
+      const aFav = favIds.has(a.id) ? 0 : 1
+      const bFav = favIds.has(b.id) ? 0 : 1
+      return aFav - bFav
+    })
+  }, [templates, search, filterTeam, filterVert, filterCategoria, filterValidade, sortBy, showFavoritesOnly, favIds])
 
   function handleCreated(t: any)  { setTemplates(prev => [t, ...prev]) }
   function handleUpdated(t: any)  { setTemplates(prev => prev.map(x => x.id === t.id ? t : x)) }
@@ -800,7 +855,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
 
   // Agrupamento por categoria — na ordem fixa das categorias, com um grupo
   // "Sem categoria" no fim pra não esconder nada. Só entram grupos com pelo
-  // menos 1 resultado após os filtros.
+  // menos 1 resultado após os filtros. Dentro de cada grupo, os favoritos já
+  // vêm primeiro (herdado da ordenação de "filtered" acima).
   const groups = useMemo(() => {
     const byCategoria = new Map<string, any[]>()
     filtered.forEach(t => {
@@ -816,6 +872,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   function toggleGroup(cat: string) { setCollapsed(prev => ({ ...prev, [cat]: !prev[cat] })) }
+
+  const favoritesCount = favIds.size
 
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1200, margin: '0 auto' }}>
@@ -864,6 +922,17 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
             style={{ ...inp, height: 36, paddingLeft: 32, fontSize: 13 }}
             onFocus={foc} onBlur={blr} />
         </div>
+
+        {/* Favoritos — toggle. Só aparece se o usuário já tiver pelo menos
+            1 favorito, pra não poluir a barra de filtros à toa. */}
+        {favoritesCount > 0 && (
+          <button onClick={() => setShowFavoritesOnly(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, height: 38, padding: '0 14px', borderRadius: 10, border: `1.5px solid ${showFavoritesOnly ? '#f59e0b' : 'var(--border)'}`, background: showFavoritesOnly ? 'rgba(245,158,11,0.1)' : 'var(--background)', color: showFavoritesOnly ? '#d97706' : 'var(--muted-foreground)', fontSize: 13, fontWeight: showFavoritesOnly ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s', whiteSpace: 'nowrap' }}>
+            <Star size={14} style={{ fill: showFavoritesOnly ? '#f59e0b' : 'none' }} />
+            Favoritos
+            <span style={{ fontSize: 10.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: showFavoritesOnly ? '#f59e0b' : 'var(--secondary)', color: showFavoritesOnly ? '#fff' : 'var(--muted-foreground)' }}>{favoritesCount}</span>
+          </button>
+        )}
 
         {/* Filtro time (só admin) */}
         {isAdmin && (
@@ -915,8 +984,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
           </button>
         </div>
 
-        {(search || filterTeam !== 'todos' || filterVert !== 'todos' || filterCategoria !== 'todos' || filterValidade !== 'todos') && (
-          <button onClick={() => { setSearch(''); setFilterTeam('todos'); setFilterVert('todos'); setFilterCategoria('todos'); setFilterValidade('todos') }}
+        {(search || filterTeam !== 'todos' || filterVert !== 'todos' || filterCategoria !== 'todos' || filterValidade !== 'todos' || showFavoritesOnly) && (
+          <button onClick={() => { setSearch(''); setFilterTeam('todos'); setFilterVert('todos'); setFilterCategoria('todos'); setFilterValidade('todos'); setShowFavoritesOnly(false) }}
             style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
             <X size={11} /> Limpar
           </button>
@@ -926,9 +995,13 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
       {/* Grid */}
       {filtered.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, boxShadow: 'var(--shadow-xs)' }}>
-          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--foreground)', marginBottom: 6 }}>Nenhum template encontrado</p>
+          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--foreground)', marginBottom: 6 }}>
+            {showFavoritesOnly ? 'Nenhum favorito por aqui ainda' : 'Nenhum template encontrado'}
+          </p>
           <p style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>
-            {isAdmin ? 'Crie o primeiro template ou importe via CSV.' : 'Nenhum template disponível para o seu time ainda.'}
+            {showFavoritesOnly
+              ? 'Clique na estrelinha de um template pra favoritá-lo.'
+              : isAdmin ? 'Crie o primeiro template ou importe via CSV.' : 'Nenhum template disponível para o seu time ainda.'}
           </p>
         </div>
       ) : (
@@ -951,6 +1024,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(320px,100%),1fr))', gap: 14, padding: '18px 0 8px' }}>
                       {items.map(t => (
                         <TemplateCard key={t.id} t={t} isAdmin={isAdmin}
+                          isFavorite={favIds.has(t.id)}
+                          onToggleFavorite={() => toggleFavorite(t.id)}
                           onEdit={() => { setEditTarget(t); setModal('edit') }}
                           onDelete={() => handleDeleted(t.id)}
                         />
@@ -960,6 +1035,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam }: Props) 
                     <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', margin: '10px 0 8px' }}>
                       {items.map(t => (
                         <TemplateRow key={t.id} t={t} isAdmin={isAdmin}
+                          isFavorite={favIds.has(t.id)}
+                          onToggleFavorite={() => toggleFavorite(t.id)}
                           onEdit={() => { setEditTarget(t); setModal('edit') }}
                           onDelete={() => handleDeleted(t.id)}
                         />

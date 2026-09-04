@@ -22,13 +22,21 @@ export default async function TemplatesPage() {
     query = query.in('team', [userTeam, 'ambos'])
   }
 
-  const { data: templates } = await query
+  // Favoritos do usuário logado — pra saber quais templates já vêm
+  // marcados com estrela e priorizados na ordem de exibição.
+  const [{ data: templates }, { data: favRows }] = await Promise.all([
+    query,
+    supabase.from('template_favorites').select('template_id').eq('user_id', user.id),
+  ])
+
+  const favoriteIds = (favRows ?? []).map((r: any) => r.template_id)
 
   return (
     <TemplatesView
       templates={templates ?? []}
       isAdmin={isAdmin}
       userTeam={userTeam}
+      favoriteIds={favoriteIds}
     />
   )
 }

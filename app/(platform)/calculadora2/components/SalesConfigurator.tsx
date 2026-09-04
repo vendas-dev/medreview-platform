@@ -1,9 +1,10 @@
 'use client'
+import { useState } from 'react'
 import { useMemo } from 'react'
 import { PriceRow } from '../lib/types'
 import { fmt } from '../lib/pricing'
 import { AppSettings } from '../lib/types'
-import { Plus, X, Eraser } from 'lucide-react'
+import { Plus, X, Eraser, Copy, Check } from 'lucide-react'
 import { CustomSelect } from './CustomSelect'
 
 // ── Design tokens inline ──────────────────────────────────────
@@ -29,6 +30,58 @@ const sectionHeader = (emoji: string, title: string, subtitle?: string, action?:
 
 function unique(arr: string[]) { return [...new Set(arr.filter(Boolean))].sort() }
 function toOpts(arr: string[]) { return arr.map(v => ({ value: v, label: v })) }
+
+// ── Botão de copiar individual ──────────────────────────────────
+// Copia o valor atual do campo pra área de transferência. Se o campo
+// estiver vazio, não tenta copiar nada — só mostra um alertinha suave
+// (esmaece sozinho) avisando que não tem o que copiar ainda.
+function CopyFieldButton({ value }: { value: string }) {
+  const [toast, setToast] = useState<'empty' | 'copied' | null>(null)
+
+  function handleClick() {
+    if (!value) {
+      setToast('empty')
+      setTimeout(() => setToast(null), 1400)
+      return
+    }
+    navigator.clipboard?.writeText(value)
+      .then(() => { setToast('copied'); setTimeout(() => setToast(null), 1100) })
+      .catch(() => { setToast('empty'); setTimeout(() => setToast(null), 1400) })
+  }
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button type="button" onClick={handleClick} title={value ? 'Copiar' : 'Nada pra copiar ainda'}
+        style={{ width: 38, height: 38, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--secondary)', color: 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', fontFamily: 'inherit' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--border)'; e.currentTarget.style.color = 'var(--foreground)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+        {toast === 'copied' ? <Check size={14} style={{ color: '#22c55e' }} /> : <Copy size={13} />}
+      </button>
+      {toast === 'empty' && (
+        <div style={{
+          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 7,
+          padding: '5px 10px', borderRadius: 6, background: 'var(--foreground)', color: 'var(--background)',
+          fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 30,
+          animation: 'calc2CopyToastFade 1.4s ease forwards',
+        }}>
+          Campo vazio
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Campo + botão de copiar lado a lado — alinhado ao rodapé do campo
+// (não ao topo), já que o CustomSelect tem um rótulo acima do próprio
+// input e o botão precisa acompanhar a altura do input, não do rótulo.
+function FieldWithCopy({ value, children }: { value: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <CopyFieldButton value={value} />
+    </div>
+  )
+}
 
 interface Props {
   rows:         PriceRow[]
@@ -82,6 +135,14 @@ export function SalesConfigurator(props: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <style>{`
+        @keyframes calc2CopyToastFade {
+          0%   { opacity: 0; transform: translateX(-50%) translateY(4px); }
+          15%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          78%  { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      `}</style>
 
       {/* ── Produto ──────────────────────────────────────── */}
       <div style={card}>
@@ -96,20 +157,30 @@ export function SalesConfigurator(props: Props) {
           )
         )}
         <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 11 }}>
-          <CustomSelect label="Vertical" value={vertical}
-            onChange={v => { setVertical(v); setProduto(''); setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto('') }}
-            options={verticals} placeholder="Selecionar vertical..." />
-          <CustomSelect label="Produto" value={produto}
-            onChange={v => { setProduto(v); setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto('') }}
-            options={produtos} disabled={!vertical} placeholder="Selecionar produto..." />
-          <CustomSelect label="Tempo de acesso" value={tempo}
-            onChange={v => { setTempo(v); setTipoAluno(''); setCanal('') }}
-            options={tempos} disabled={!produto} placeholder="Selecionar período..." />
-          <CustomSelect label="Tipo de aluno" value={tipoAluno}
-            onChange={v => { setTipoAluno(v); setCanal('') }}
-            options={tipos} disabled={!tempo} placeholder="Selecionar tipo..." />
-          <CustomSelect label="Canal de venda" value={canal}
-            onChange={setCanal} options={canais} disabled={!tipoAluno} placeholder="Selecionar canal..." />
+          <FieldWithCopy value={vertical}>
+            <CustomSelect label="Vertical" value={vertical}
+              onChange={v => { setVertical(v); setProduto(''); setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto('') }}
+              options={verticals} placeholder="Selecionar vertical..." />
+          </FieldWithCopy>
+          <FieldWithCopy value={produto}>
+            <CustomSelect label="Produto" value={produto}
+              onChange={v => { setProduto(v); setTempo(''); setTipoAluno(''); setCanal(''); setUpsellOn(false); setUpsellProduto('') }}
+              options={produtos} disabled={!vertical} placeholder="Selecionar produto..." />
+          </FieldWithCopy>
+          <FieldWithCopy value={tempo}>
+            <CustomSelect label="Tempo de acesso" value={tempo}
+              onChange={v => { setTempo(v); setTipoAluno(''); setCanal('') }}
+              options={tempos} disabled={!produto} placeholder="Selecionar período..." />
+          </FieldWithCopy>
+          <FieldWithCopy value={tipoAluno}>
+            <CustomSelect label="Tipo de aluno" value={tipoAluno}
+              onChange={v => { setTipoAluno(v); setCanal('') }}
+              options={tipos} disabled={!tempo} placeholder="Selecionar tipo..." />
+          </FieldWithCopy>
+          <FieldWithCopy value={canal}>
+            <CustomSelect label="Canal de venda" value={canal}
+              onChange={setCanal} options={canais} disabled={!tipoAluno} placeholder="Selecionar canal..." />
+          </FieldWithCopy>
         </div>
 
         {/* Resumo do produto */}

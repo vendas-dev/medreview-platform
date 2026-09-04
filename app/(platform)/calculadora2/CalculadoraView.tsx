@@ -64,10 +64,19 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
 
   // Trocar pra "à vista" pula automaticamente pro desconto configurado —
   // mas o closer ainda pode arrastar a barra livremente depois disso.
+  // FIX: ao SAIR do "à vista" de volta pra qualquer outro método
+  // (parcelado, manual, etc), zera a barra em vez de deixar o desconto
+  // de à vista "grudado" — antes disso, quem alternava entre os dois
+  // métodos várias vezes acabava aplicando o desconto de à vista sem
+  // querer no parcelamento.
   function setPaymentMode(mode: PaymentMode) {
+    const previousMode = paymentMode
     setPaymentModeRaw(mode)
     if (mode === 'avista') {
       setDiscountPct(settings.cashDiscountPercent)
+      setTargetValue('')
+    } else if (previousMode === 'avista') {
+      setDiscountPct(0)
       setTargetValue('')
     }
   }
