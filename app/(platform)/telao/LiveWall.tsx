@@ -1058,7 +1058,7 @@ function TopDayHourPanel({ analysis, accent, isDark=true }: {
 interface Props { isAdmin: boolean; userCloserId: string | null; userHubspotId: string | null; userTeam: string | null }
 
 function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props) {
-  const { events, closers, goals, monthRevenue, latest, clearLatest, loading, refetch, debugRaw } = useLiveData()
+  const { events, closers, goals, monthRevenue, latest, clearLatest, loading, refetch } = useLiveData()
   const [vf,    setVf]    = useState<VerticalId|null>(null)
   const [filter,setFilter]= useState<FilterState>(EMPTY_FILTER)
   const [audioOn,setAudio]= useState(false)
@@ -1575,7 +1575,6 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     return () => clearTimeout(t)
   }, [latest])
 
-  // ── DEBUG TEMPORÁRIO — agora vem de useLiveData (debugRaw), mais completo.
 
   const moneyLeftTotal = useMemo(() =>
     viewEvents.reduce((s,e) => s + eventMoneyLeftOnTable(e), 0)
@@ -1835,16 +1834,6 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
             <Canais self={canais.self} ambassador={canais.ambassador} accent={accent} isDark={isDark}/>
           </div>
         </div>}
-      </div>
-
-      {/* DEBUG TEMPORÁRIO — remover depois. Mostra em tempo real cada etapa
-          que o realtime passa, incluindo status da conexão e por que um
-          evento foi ou não aceito. */}
-      <div style={{ position:'fixed', bottom:12, left:12, zIndex:9999, maxWidth:520, background:'rgba(0,0,0,.94)', border:'2px solid #f59e0b', borderRadius:12, padding:'10px 14px', fontFamily:"'JetBrains Mono',monospace", fontSize:10, color:'#fbbf24', boxShadow:'0 0 30px rgba(245,158,11,.4)', maxHeight:260, overflowY:'auto' }}>
-        <p style={{ margin:'0 0 6px', fontWeight:900, color:'#fff' }}>🐞 DEBUG — realtime bruto</p>
-        {debugRaw.length===0
-          ? <p style={{ margin:0, opacity:.6 }}>Nada ainda nessa sessão (nem status de conexão).</p>
-          : debugRaw.map((l,i) => <p key={i} style={{ margin:'2px 0', opacity: i===0?1:.55, wordBreak:'break-all' }}>{l}</p>)}
       </div>
 
       <AnimatePresence mode="wait">

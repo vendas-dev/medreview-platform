@@ -14,21 +14,19 @@ interface LiveDataContext {
   clearLatest:  () => void
   loading:      boolean
   refetch:      () => void
-  debugRaw:     string[]
 }
 
 const Ctx = createContext<LiveDataContext>({
   events: [], closers: [], goals: [], monthRevenue: { overall: 0, byVertical: {} as any },
   latest: null, clearLatest: () => {}, loading: true, refetch: () => {},
-  debugRaw: [],
 })
 
 // A cada quantos ms o telão busca os dados de novo, além do realtime e do
-// foco/visibilidade da aba. Isso é uma REDE DE SEGURANÇA: garante que um
-// telão deixado aberto numa TV/monitor da sala (sem ninguém trocando de
-// aba) continue atualizando sozinho, mesmo que o realtime tenha algum
-// problema de entrega (como o que investigamos e não conseguimos resolver
-// só do lado do código) ou que a aba nunca perca/ganhe foco de verdade.
+// foco/visibilidade da aba. Rede de segurança: garante que um telão
+// deixado aberto numa TV/monitor da sala (sem ninguém trocar de aba)
+// continue atualizando sozinho, mesmo que o realtime tenha algum problema
+// de entrega — é esse polling que alimenta a celebração de venda hoje,
+// já que o realtime não estava entregando os eventos de INSERT.
 const POLL_MS = 15_000
 
 export function LiveDataProvider({ children }: { children: React.ReactNode }) {
@@ -42,13 +40,6 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
   // Primeira carga não deve "celebrar" nada — senão, ao abrir a página,
   // toda venda do dia (já antiga) dispararia a celebração de uma vez.
   const isInitialLoad = useRef(true)
-
-  // ── DEBUG TEMPORÁRIO — log bruto, pra confirmar que o polling está
-  // realmente cobrindo o buraco do realtime. Remover depois de confirmado.
-  const [debugRaw, setDebugRaw] = useState<string[]>([])
-  const pushDebug = useCallback((line: string) => {
-    setDebugRaw(prev => [`${new Date().toLocaleTimeString('pt-BR')} — ${line}`, ...prev].slice(0, 8))
-  }, [])
 
   // ── Fetch ──────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -136,18 +127,17 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
     const evs = (eventsData ?? []) as TelaoEvent[]
 
     // ── Detecção de eventos novos via diff ──────────────────────────
-    // Rede de segurança pro caso do realtime não entregar (foi o que
-    // aconteceu aqui): compara o que acabou de chegar com o que já tinha
-    // sido visto antes (seenIds, o MESMO conjunto que o realtime usa) —
-    // se achar algo novo, alimenta 'latest' exatamente como o realtime
-    // faria, disparando a celebração de venda pelo mesmo caminho.
-    // Nunca roda na primeira carga (isInitialLoad), senão toda venda já
-    // existente do dia dispararia celebração de uma vez ao abrir a página.
+    // Rede de segurança pro caso do realtime não entregar: compara o que
+    // acabou de chegar com o que já tinha sido visto antes (seenIds, o
+    // MESMO conjunto que o realtime usa) — se achar algo novo, alimenta
+    // 'latest' exatamente como o realtime faria, disparando a celebração
+    // de venda pelo mesmo caminho. Nunca roda na primeira carga
+    // (isInitialLoad), senão toda venda já existente do dia dispararia
+    // celebração de uma vez ao abrir a página.
     if (!isInitialLoad.current) {
       const newOnes = evs.filter(e => !seenIds.current.has(e.id))
       if (newOnes.length > 0) {
         const mostRecent = [...newOnes].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0]
-        pushDebug(`🆕 evento novo detectado via polling — id=${mostRecent.id.slice(0,8)} vertical=${mostRecent.vertical} value=${mostRecent.value}`)
         setLatest(mostRecent)
       }
     } else {
@@ -161,7 +151,7 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
     setGoals(synthGoals)
     setMonthRevenue(mr)
     setLoading(false)
-  }, [pushDebug])
+  }, [])
 
   // Fetch inicial + refetch em focus/visibility + POLLING periódico
   // (rede de segurança pra telão deixado aberto sem ninguém trocar de aba)
@@ -173,14 +163,14 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVis)
-    const pollId = setInterval(() => { pushDebug('⏱️ polling de segurança (15s)'); fetchAll() }, POLL_MS)
+    const pollId = setInterval(fetchAll, POLL_MS)
 
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVis)
       clearInterval(pollId)
     }
-  }, [fetchAll, pushDebug])
+  }, [fetchAll])
 
   // ── Realtime ───────────────────────────────────────────────
   // Mantido rodando em paralelo — se algum dia voltar a entregar eventos
@@ -194,12 +184,10 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
       .channel(`telao-realtime-${Math.random()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telao_events' }, (payload) => {
         const ev = payload.new as TelaoEvent
-
-        pushDebug(`📥 INSERT via realtime — id=${ev.id.slice(0,8)}`)
-
         if (seenIds.current.has(ev.id)) return
         seenIds.current.add(ev.id)
 
+        // Só adiciona ao feed se for do dia atual
         const evDate = new Date(ev.occurred_at)
         const today  = new Date(); today.setHours(0,0,0,0)
         if (evDate >= today) {
@@ -207,6 +195,7 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
           setLatest(ev)
         }
 
+        // Sempre incrementa receita mensal se for sale do mês corrente
         if (ev.event_type === 'sale' && ev.value) {
           const evMonth = new Date(ev.occurred_at)
           const now     = new Date()
@@ -222,19 +211,20 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'company_goals' }, () => {
+        // Metas mudaram em /intel/goals — refaz a busca completa (ela já
+        // recalcula a meta do dia com base no realizado mais atual).
         fetchAll()
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [fetchAll, pushDebug])
+  }, [fetchAll])
 
   return (
     <Ctx.Provider value={{
       events, closers, goals, monthRevenue,
       latest, clearLatest: () => setLatest(null),
       loading, refetch: fetchAll,
-      debugRaw,
     }}>
       {children}
     </Ctx.Provider>
