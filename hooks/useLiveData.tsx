@@ -14,11 +14,13 @@ interface LiveDataContext {
   clearLatest:  () => void
   loading:      boolean
   refetch:      () => void
+  debugRaw:     string[]
 }
 
 const Ctx = createContext<LiveDataContext>({
   events: [], closers: [], goals: [], monthRevenue: { overall: 0, byVertical: {} as any },
   latest: null, clearLatest: () => {}, loading: true, refetch: () => {},
+  debugRaw: [],
 })
 
 export function LiveDataProvider({ children }: { children: React.ReactNode }) {
@@ -29,6 +31,13 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
   const [latest,       setLatest]       = useState<TelaoEvent | null>(null)
   const [loading,      setLoading]      = useState(true)
   const seenIds = useRef(new Set<string>())
+
+  // ── DEBUG TEMPORÁRIO — log bruto de tudo que o realtime entrega, ANTES
+  // de qualquer filtro (seenIds, "é hoje?" etc). Remover depois.
+  const [debugRaw, setDebugRaw] = useState<string[]>([])
+  const pushDebug = useCallback((line: string) => {
+    setDebugRaw(prev => [`${new Date().toLocaleTimeString('pt-BR')} — ${line}`, ...prev].slice(0, 8))
+  }, [])
 
   // ── Fetch ──────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -127,8 +136,8 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetchAll()
 
-    const onFocus = () => fetchAll()
-    const onVis   = () => { if (document.visibilityState === 'visible') fetchAll() }
+    const onFocus = () => { pushDebug('🔵 refetch por FOCUS da janela'); fetchAll() }
+    const onVis   = () => { if (document.visibilityState === 'visible') { pushDebug('🔵 refetch por VISIBILITYCHANGE'); fetchAll() } }
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVis)
@@ -136,25 +145,32 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [fetchAll])
+  }, [fetchAll, pushDebug])
 
   // ── Realtime ───────────────────────────────────────────────
   useEffect(() => {
     const supabase = createClient()
 
     const channel = supabase
-      .channel('telao-realtime')
+      .channel(`telao-realtime-${Math.random()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telao_events' }, (payload) => {
         const ev = payload.new as TelaoEvent
-        if (seenIds.current.has(ev.id)) return
+
+        // DEBUG: loga TUDO que chegou, antes de qualquer filtro
+        pushDebug(`📥 INSERT recebido — id=${ev.id.slice(0,8)} occurred_at=${ev.occurred_at} vertical=${ev.vertical} value=${ev.value}`)
+
+        if (seenIds.current.has(ev.id)) { pushDebug(`⛔ ignorado — id já visto antes (seenIds)`); return }
         seenIds.current.add(ev.id)
 
         // Só adiciona ao feed se for do dia atual
         const evDate = new Date(ev.occurred_at)
         const today  = new Date(); today.setHours(0,0,0,0)
         if (evDate >= today) {
+          pushDebug(`✅ passou no filtro "é hoje" — chamando setEvents + setLatest`)
           setEvents(prev => [ev, ...prev])
           setLatest(ev)
+        } else {
+          pushDebug(`⛔ NÃO passou no filtro "é hoje" — evDate=${evDate.toISOString()} today(local midnight)=${today.toISOString()}`)
         }
 
         // Sempre incrementa receita mensal se for sale do mês corrente
@@ -162,6 +178,7 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
           const evMonth = new Date(ev.occurred_at)
           const now     = new Date()
           if (evMonth.getFullYear() === now.getFullYear() && evMonth.getMonth() === now.getMonth()) {
+            pushDebug(`💰 incrementou monthRevenue (independente do filtro de hoje)`)
             setMonthRevenue(prev => ({
               overall:    prev.overall + (ev.value ?? 0),
               byVertical: {
@@ -177,16 +194,19 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
         // recalcula a meta do dia com base no realizado mais atual).
         fetchAll()
       })
-      .subscribe()
+      .subscribe((status) => {
+        pushDebug(`📡 status do canal realtime: ${status}`)
+      })
 
     return () => { supabase.removeChannel(channel) }
-  }, [fetchAll])
+  }, [fetchAll, pushDebug])
 
   return (
     <Ctx.Provider value={{
       events, closers, goals, monthRevenue,
       latest, clearLatest: () => setLatest(null),
       loading, refetch: fetchAll,
+      debugRaw,
     }}>
       {children}
     </Ctx.Provider>
