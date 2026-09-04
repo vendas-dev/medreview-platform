@@ -105,6 +105,17 @@ export async function POST(req: NextRequest) {
         ? (parseInt(r.installments_no_interest ?? r.parcelas_sem_juros ?? '', 10) || 3)
         : null
 
+      // Nome/categoria do evento — só relevante pra links de cupom de
+      // evento (EV_), mas aceito sempre (sem exigir nada) pra não travar
+      // links comuns. Usado depois como fallback na venda, quando o cupom
+      // for pré-pronto e a venda chegar sem esses dados. IMPORTANTE: chama-se
+      // "event_category" (não "event_type") porque a tabela telao_events já
+      // tem uma coluna "event_type" com outro significado — pra manter os
+      // nomes iguais nas duas pontas (link e venda), usamos event_category
+      // aqui também, mesmo geracoes_links não tendo esse conflito.
+      const event_name     = r.event_name ?? r.nome_evento ?? null
+      const event_category = r.event_category ?? r.tipo_evento ?? r.categoria_evento ?? null
+
       if (!owner_name || !generated_at) {
         errors.push({ item: raw, reason: 'owner_name e generated_at são obrigatórios' })
         continue
@@ -130,6 +141,8 @@ export async function POST(req: NextRequest) {
         coupon_code,
         payment_mode,
         installments_no_interest,
+        event_name,
+        event_category,
       }).select().single()
 
       if (error) errors.push({ item: raw, reason: error.message })

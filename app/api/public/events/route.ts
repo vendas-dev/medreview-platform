@@ -69,6 +69,14 @@ const SaleSchema = z.object({
   // quebraria o forecast de recorrência e o cálculo de ticket médio, que
   // dependem de installment_number>1 significar "é recorrente".
   payment_installments: z.number().int().positive().nullable().optional(),
+  // Nome e categoria do evento (ex: "SP Junho 2026", "Presencial") — só
+  // relevante pra vendas com cupom começando em EV_. IMPORTANTE: o campo
+  // chama-se "event_category" (não "event_type") de propósito — "event_type"
+  // já existe neste mesmo schema como o discriminador sale/ambassador_certified,
+  // não pode ser reaproveitado. Se não vier, o sistema tenta puxar da
+  // geração do link (mesmo cupom) como fallback — ver mais abaixo.
+  event_name:     z.string().nullable().optional(),
+  event_category: z.string().nullable().optional(),
 })
 
 const AmbassadorSchema = z.object({
@@ -109,6 +117,27 @@ export async function POST(req: NextRequest) {
 
     const { data: closers } = await admin.from('closers').select('*') as { data: Closer[] | null }
     const closerList = closers ?? []
+
+    // ── Lookup do cupom, feito cedo — usado por TRÊS coisas: fallback de
+    // closer pra cupom pré-pronto de evento, fallback de nome/categoria de
+    // evento, e o enriquecimento de payment_mode que já existia antes (mais
+    // abaixo, reaproveita esse mesmo resultado em vez de buscar de novo).
+    let couponLinkRow: {
+      id: string; payment_mode: string | null; installments_no_interest: number | null; deal_id: string | null
+      owner_hubspot_id: string | null; owner_name: string | null
+      event_name: string | null; event_category: string | null
+    } | null = null
+
+    if (data.event_type === 'sale' && data.coupon_code) {
+      const { data: linkRow } = await admin
+        .from('geracoes_links')
+        .select('id, payment_mode, installments_no_interest, deal_id, owner_hubspot_id, owner_name, event_name, event_category')
+        .eq('coupon_code', data.coupon_code)
+        .order('generated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      couponLinkRow = linkRow as any
+    }
 
     let matched: Closer | null = null
     let isSelfCO = false
@@ -167,6 +196,33 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Fallback de closer pra cupom PRÉ-PRONTO de evento ───────────────
+    // Cupons de evento gerados em lote (não pela tela normal de cada
+    // closer) às vezes chegam na venda sem proprietário identificado. Se
+    // o fallback de recorrência acima não resolveu (ou nem se aplicava) e
+    // o cupom começa com "EV_", busca no link que gerou esse mesmo cupom
+    // quem era o proprietário dele, e reaproveita essa atribuição — mesma
+    // lógica de "não achou nada, mantém self-checkout" como rede de
+    // segurança se o link nunca existiu ou não tinha proprietário.
+    if (!fallbackAttribution && data.event_type === 'sale' && isSelfCO
+        && (data.coupon_code ?? '').toUpperCase().startsWith('EV_') && couponLinkRow
+        && (couponLinkRow.owner_hubspot_id || couponLinkRow.owner_name)) {
+      const linkMatched = couponLinkRow.owner_hubspot_id
+        ? (closerList.find(c => c.hubspot_id === couponLinkRow!.owner_hubspot_id) ?? null)
+        : matchCloser(couponLinkRow.owner_name ?? '', closerList)
+      fallbackAttribution = {
+        closer_name:          linkMatched?.name ?? couponLinkRow.owner_name ?? null,
+        closer_hubspot_id:    couponLinkRow.owner_hubspot_id ?? linkMatched?.hubspot_id ?? null,
+        closer_id:            linkMatched?.id ?? null,
+        seller_type:          'closer',
+        sold_by_ambassador:   false,
+        co_closer_id:         null,
+        co_closer_hubspot_id: null,
+      }
+      isSelfCO = false
+      finalSellerType = 'closer'
+    }
+
     const occurredAt = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString()
 
     let insertData: Record<string, unknown> = {
@@ -188,10 +244,11 @@ export async function POST(req: NextRequest) {
 
     // Link que gerou essa venda (se achar por cupom) — usado abaixo pra
     // enriquecer a venda e, depois do insert, marcar o link como convertido.
-    let matchedLink: { id: string; payment_mode: string | null; installments_no_interest: number | null; deal_id: string | null } | null = null
+    let matchedLink: typeof couponLinkRow = null
 
     if (data.event_type === 'sale') {
       const saleType = deriveSaleType(data)
+      const isEventCoupon = (data.coupon_code ?? '').toUpperCase().startsWith('EV_')
       insertData = {
         ...insertData,
         lead_name:           data.lead_name,
@@ -215,27 +272,25 @@ export async function POST(req: NextRequest) {
         state:                data.state || null,
         payment_type:         data.payment_type || null,
         payment_installments: data.payment_installments ?? null,
+        // Nome/categoria do evento — usa o que veio na venda; se faltar e
+        // for cupom de evento (EV_), tenta puxar do link que gerou o
+        // cupom (cobre o caso de cupom pré-pronto, onde quem dispara a
+        // venda pode não ter esse dado à mão na hora).
+        event_name:     data.event_name || (isEventCoupon ? (couponLinkRow?.event_name ?? null) : null),
+        event_category: data.event_category || (isEventCoupon ? (couponLinkRow?.event_category ?? null) : null),
       }
 
       // Enriquece a venda com a condição de pagamento do link que a gerou —
-      // localizado pelo mesmo coupon_code. Cupom de embaixador (ou qualquer
-      // cupom que nunca passou pela geração de link) simplesmente não acha
-      // nada aqui, e os campos ficam null — comportamento esperado, não erro.
-      // Se houver mais de um link com o mesmo cupom (reemissão), usa o mais
-      // recente, que é o palpite mais provável de qual gerou essa venda.
-      if (data.coupon_code) {
-        const { data: linkRow } = await admin
-          .from('geracoes_links')
-          .select('id, payment_mode, installments_no_interest, deal_id')
-          .eq('coupon_code', data.coupon_code)
-          .order('generated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        if (linkRow) {
-          matchedLink = linkRow as any
-          insertData.payment_mode = matchedLink!.payment_mode
-          insertData.installments_no_interest = matchedLink!.installments_no_interest
-        }
+      // reaproveita o couponLinkRow já buscado no início da função (antes
+      // só existia essa busca aqui, feita de novo; agora usa o mesmo
+      // resultado, sem consultar o banco duas vezes pelo mesmo cupom).
+      // Cupom de embaixador (ou qualquer cupom que nunca passou pela
+      // geração de link) simplesmente não acha nada aqui, e os campos
+      // ficam null — comportamento esperado, não erro.
+      if (couponLinkRow) {
+        matchedLink = couponLinkRow
+        insertData.payment_mode = couponLinkRow.payment_mode
+        insertData.installments_no_interest = couponLinkRow.installments_no_interest
       }
 
       // Se essa venda pertence a uma assinatura que já tem uma transferência

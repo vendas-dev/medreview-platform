@@ -24,7 +24,15 @@ export function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => 
   const { profile, modules } = useCurrentUser()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const visible = NAV.filter(i => i.always || canAccessModule(profile?.role ?? 'consultor', modules, i.key as ModuleKey))
+  const isAdmin = profile?.role === 'superadmin'
+  // 'Administração' explicitamente restrita a admin aqui — não depende só
+  // de canAccessModule (cuja regra pra essa key não foi conferida), pra
+  // garantir que o usuário comum nunca veja essa opção no menu mobile,
+  // igual já garantimos no Sidebar.tsx (desktop).
+  const visible = NAV.filter(i => {
+    if (i.key === 'admin') return isAdmin
+    return i.always || canAccessModule(profile?.role ?? 'consultor', modules, i.key as ModuleKey)
+  })
 
   return (
     <AnimatePresence>

@@ -59,18 +59,18 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
   },
   // ── Administração — unifica o que antes era "Inteligência Comercial"
   // (Visão Geral / Metas / Meu Painel) e "Administração" (Usuários / Módulos)
-  // numa seção só. Sempre visível — o conteúdo é que muda por role.
-  {
+  // numa seção só. AGORA só aparece pra admin — o usuário comum não usa
+  // mais essa seção (o "Meu Painel" que existia aqui pra ele foi
+  // descontinuado), então o item inteiro nem entra no array pro usuário.
+  ...(isAdmin ? [{
     key: 'administracao', label: 'Administração', icon: Users, href: '/administracao', always: true,
-    children: isAdmin ? [
+    children: [
       { label: 'Visão Geral',      icon: BarChart2, href: '/intel' },
       { label: 'Meta dos Closers', icon: Target,    href: '/intel/goals' },
       { label: 'Módulos',          icon: Package,   href: '/admin/modules' },
       { label: 'Usuários',         icon: Users,     href: '/admin' },
-    ] : [
-      { label: 'Meu Painel', icon: BarChart2, href: '/intel' },
     ],
-  },
+  } as NavItem] : []),
 ]
 
 function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; depth?: number; collapsed: boolean; activeModules: any[] | null }) {

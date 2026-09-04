@@ -348,7 +348,7 @@ function HeroMetrics({ events, accent, vf, yesterdayRev, yesterdaySameHourRev, t
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               <div style={{width:32,height:32,borderRadius:10,background:'rgba(59,130,246,.15)',border:'1px solid rgba(59,130,246,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>⚡</div>
               <div><p style={{fontSize:20,fontWeight:900,color:isDark?'#60a5fa':'#2563eb',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{salesPerHour.toFixed(1)}</p><p style={{fontSize:9,color:labelMuted,margin:0,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>Vendas/h</p></div>
-            </div>
+          </div>
           )}
         </div>
       </div>
@@ -858,38 +858,51 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical,
     return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name))
   },[closers,events,activeVertical])
 
-  const DI: React.CSSProperties = {
-    height: 32, padding: '0 10px', borderRadius: 8,
-    border: isDark ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(109,40,217,.2)',
-    background: isDark ? 'rgba(255,255,255,.06)' : 'rgba(109,40,217,.06)',
-    color: isDark ? 'rgba(255,255,255,.85)' : 'rgba(60,0,100,.85)',
-    fontSize: 12, fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
-    colorScheme: isDark ? 'dark' as any : 'light' as any, transition: 'border-color .15s, background .15s',
-  }
+
 
   if(!isAdmin) return (
-    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-      <span style={{fontSize:10,fontWeight:500,letterSpacing:'.04em',whiteSpace:'nowrap',userSelect:'none',color: isDark ? 'rgba(255,255,255,.4)' : 'rgba(80,20,120,.5)'}}>Período</span>
-      <select value="" onChange={e=>{ const p=datePresets().find(x=>x.label===e.target.value); if(!p) return; const nd={...draft,start:p.start,end:p.end}; setDraft(nd); onChange(nd) }}
-        style={{...DI, cursor:'pointer'}}>
-        <option value="" disabled>Atalho rápido…</option>
-        {datePresets().map(p=><option key={p.label} value={p.label}>{p.label}</option>)}
-      </select>
-      <input type="date" value={draft.start??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,start:v}; setDraft(nd); onChange(nd) }} style={DI}
-        onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
-        onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
-      <span style={{ fontSize:12, fontWeight:300, color: isDark?'rgba(255,255,255,.2)':'rgba(80,20,120,.25)' }}>—</span>
-      <input type="date" value={draft.end??''} onChange={e=>{ const v=e.target.value||null; const nd={...draft,end:v}; setDraft(nd); onChange(nd) }} style={DI}
-        onFocus={e=>{ e.target.style.borderColor='rgba(168,85,247,.6)'; e.target.style.background='rgba(168,85,247,.1)' }}
-        onBlur={e=>{ e.target.style.borderColor=isDark?'rgba(255,255,255,.12)':'rgba(109,40,217,.2)'; e.target.style.background=isDark?'rgba(255,255,255,.06)':'rgba(109,40,217,.06)' }}/>
-      {(draft.start||draft.end) && (
-        <button onClick={()=>{ const nd={...draft,start:null,end:null}; setDraft(nd); onChange(nd) }}
-          style={{display:'flex',alignItems:'center',justifyContent:'center',width:28,height:28,borderRadius:8,border: isDark?'1px solid rgba(255,255,255,.1)':'1px solid rgba(109,40,217,.15)',background: isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)',color: isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)',cursor:'pointer',fontSize:12,lineHeight:1,transition:'all .15s'}}
-          onMouseEnter={e=>{ e.currentTarget.style.background='rgba(239,68,68,.15)'; e.currentTarget.style.color='#ef4444'; e.currentTarget.style.borderColor='rgba(239,68,68,.3)' }}
-          onMouseLeave={e=>{ e.currentTarget.style.background=isDark?'rgba(255,255,255,.05)':'rgba(109,40,217,.05)'; e.currentTarget.style.color=isDark?'rgba(255,255,255,.45)':'rgba(80,20,120,.5)'; e.currentTarget.style.borderColor=isDark?'rgba(255,255,255,.1)':'rgba(109,40,217,.15)' }}>
-          ✕
-        </button>
-      )}
+    <div style={{position:'relative'}}>
+      <motion.button whileTap={{scale:.97}} onClick={()=>{ setDraft(filter); setOpen(o=>!o) }}
+        style={{display:'flex',alignItems:'center',gap:6,height:34,padding:'0 14px',borderRadius:10,border:`1px solid ${count>0?'rgba(168,85,247,.5)':'rgba(255,255,255,.08)'}`,background:count>0?'rgba(168,85,247,.12)':'rgba(255,255,255,.03)',color:count>0?'#c4b5fd':'#a898c9',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:"'Space Grotesk',sans-serif",backdropFilter:'blur(4px)'}}>
+        <SlidersHorizontal size={13}/> Período
+        {count>0&&<span style={{background:'#7c3aed',color:'#fff',fontSize:9,borderRadius:999,padding:'1px 6px',fontWeight:900}}>{count}</span>}
+      </motion.button>
+      <AnimatePresence>
+        {open&&(
+          <>
+            <div style={{position:'fixed',inset:0,zIndex:50}} onClick={()=>setOpen(false)}/>
+            <motion.div initial={{opacity:0,y:-6,scale:.97}} animate={{opacity:1,y:0,scale:1}} exit={{opacity:0,y:-6}}
+              style={{position:'absolute',top:40,right:0,zIndex:100,width:280,background:'var(--card)',border:'1px solid var(--border)',borderRadius:18,padding:20,boxShadow:'0 24px 60px rgba(0,0,0,.25)',backdropFilter:'blur(20px)'}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}>
+                <span style={{fontSize:13,fontWeight:800,color:'var(--foreground)'}}>Período</span>
+                <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',color:'var(--muted-foreground)',cursor:'pointer'}}><X size={14}/></button>
+              </div>
+
+              <p style={{fontSize:9,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8,fontFamily:"'JetBrains Mono',monospace"}}>Atalhos rápidos</p>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:14}}>
+                {datePresets().map(p=>{
+                  const active = draft.start===p.start && draft.end===p.end
+                  return (
+                    <button key={p.label} onClick={()=>{ const nd={...draft,start:p.start,end:p.end}; setDraft(nd); onChange(nd) }}
+                      style={{height:26,padding:'0 10px',borderRadius:7,border:`1px solid ${active?'#a855f7':'var(--border)'}`,background:active?'rgba(168,85,247,.15)':'transparent',color:active?'#a855f7':'var(--muted-foreground)',fontSize:10.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <p style={{fontSize:9,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:8,fontFamily:"'JetBrains Mono',monospace"}}>Personalizado</p>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}}>
+                {(['start','end'] as const).map(k=>(
+                  <div key={k}><label style={{fontSize:9,color:'var(--muted-foreground)',display:'block',marginBottom:4,fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.08em'}}>{k==='start'?'De':'Até'}</label><input type="date" value={draft[k]??''} onChange={e=>{ const nd={...draft,[k]:e.target.value||null}; setDraft(nd); onChange(nd) }} style={{width:'100%',height:34,padding:'0 8px',borderRadius:9,border:'1px solid var(--border)',background:'var(--background)',color:'var(--foreground)',fontSize:11,fontFamily:"'JetBrains Mono',monospace",outline:'none'}}/></div>
+                ))}
+              </div>
+
+              <button onClick={()=>{ const e={...EMPTY_FILTER}; setDraft(e); onChange(e); setOpen(false) }} style={{width:'100%',height:32,borderRadius:9,border:'1px solid var(--border)',background:'transparent',color:'var(--muted-foreground)',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>× Limpar período</button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   )
 
@@ -957,6 +970,86 @@ function FilterBar({ filter, onChange, closers, events, isAdmin, activeVertical,
           </>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ── TopDayHourPanel ─── "Meu dia e horário mais fortes" — olha TODO o
+// histórico de vendas do consultor e destaca em qual dia da semana e qual
+// horário ele mais vende, na média. Visual moderno: duas faixas de barras
+// compactas, com o campeão em destaque (cor sólida + glow), o resto em
+// tom apagado — sem competir visualmente com o resto do telão.
+function TopDayHourPanel({ analysis, accent, isDark=true }: {
+  analysis: { weekdayStats:{weekday:number;label:string;avgRevenue:number;occurrences:number}[]; hourStats:{hour:number;avgRevenue:number;occurrences:number}[]; topWeekday:{weekday:number;label:string;avgRevenue:number;occurrences:number}|null; topHour:{hour:number;avgRevenue:number;occurrences:number}|null; hasData:boolean } | null
+  accent: string; isDark?: boolean
+}) {
+  if (!analysis || !analysis.hasData) return null
+  const { weekdayStats, hourStats, topWeekday, topHour } = analysis
+  const labelMuted = isDark ? '#a898c9' : '#6d28d9'
+  // Reordena os dias pra exibição em ordem cronológica (Dom→Sáb), mas o
+  // "campeão" pra destaque continua sendo o de maior média, não o 1º da
+  // semana — a ordem de exibição é só estética.
+  const weekdayChrono = [...weekdayStats].sort((a,b) => a.weekday - b.weekday)
+  const maxWeekday = Math.max(...weekdayStats.map(w => w.avgRevenue), 1)
+  const maxHour = Math.max(...hourStats.map(h => h.avgRevenue), 1)
+  const shortLabels = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+
+  return (
+    <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:22,padding:'20px 22px',backdropFilter:'blur(8px)'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,marginBottom:18}}>
+        <p style={{fontSize:11,fontWeight:900,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.12em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>📊 Meu Melhor Momento · Mês Atual</p>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          {topWeekday && (
+            <span style={{fontSize:11,fontWeight:800,color:'#f97316',fontFamily:"'JetBrains Mono',monospace",display:'flex',alignItems:'center',gap:5}}>
+              🔥 Top dia: {topWeekday.label} — {fmtBRL(topWeekday.avgRevenue)}/dia
+            </span>
+          )}
+          {topHour && (
+            <span style={{fontSize:11,fontWeight:800,color:accent,fontFamily:"'JetBrains Mono',monospace",display:'flex',alignItems:'center',gap:5}}>
+              🚀 Top horário: {String(topHour.hour).padStart(2,'0')}h — {fmtBRL(topHour.avgRevenue)}/dia
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Faixa de dias da semana — 7 barras, Dom→Sáb */}
+      <p style={{fontSize:9,fontWeight:800,color:labelMuted,textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace"}}>Por dia da semana (média)</p>
+      <div style={{display:'flex',gap:6,marginBottom:22}}>
+        {weekdayChrono.map(w => {
+          const isTop = topWeekday && w.weekday === topWeekday.weekday
+          const h = Math.max((w.avgRevenue/maxWeekday)*70, w.avgRevenue>0?6:2)
+          return (
+            <div key={w.weekday} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+              <div style={{width:'100%',height:78,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+                <motion.div initial={{height:0}} animate={{height:h}} transition={{duration:.5,ease:'easeOut'}}
+                  style={{width:'100%',borderRadius:'8px 8px 3px 3px',background:isTop?`linear-gradient(180deg,${GOLD},#f59e0b)`:(w.avgRevenue>0?`${accent}45`:'rgba(255,255,255,.05)'),boxShadow:isTop?`0 0 14px ${GOLD}66`:'none',position:'relative'}}>
+                  {isTop && <span style={{position:'absolute',top:-18,left:'50%',transform:'translateX(-50%)',fontSize:12}}>🔥</span>}
+                </motion.div>
+              </div>
+              <span style={{fontSize:9,fontWeight:isTop?900:600,color:isTop?GOLD:labelMuted,fontFamily:"'JetBrains Mono',monospace"}}>{shortLabels[w.weekday]}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Faixa de horários — 24 barrinhas finas, compacto */}
+      <p style={{fontSize:9,fontWeight:800,color:labelMuted,textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace"}}>Por horário do dia (média)</p>
+      <div style={{display:'flex',gap:3}}>
+        {hourStats.slice().sort((a,b)=>a.hour-b.hour).map(hh => {
+          const isTop = topHour && hh.hour === topHour.hour
+          const h = Math.max((hh.avgRevenue/maxHour)*46, hh.avgRevenue>0?4:1)
+          return (
+            <div key={hh.hour} title={`${String(hh.hour).padStart(2,'0')}h — ${fmtBRL(hh.avgRevenue)}/dia em média`}
+              style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+              <div style={{width:'100%',height:50,display:'flex',alignItems:'flex-end'}}>
+                <motion.div initial={{height:0}} animate={{height:h}} transition={{duration:.4,delay:hh.hour*0.01,ease:'easeOut'}}
+                  style={{width:'100%',borderRadius:'2px 2px 1px 1px',background:isTop?accent:(hh.avgRevenue>0?`${accent}35`:'rgba(255,255,255,.05)'),boxShadow:isTop?`0 0 8px ${accent}77`:'none'}}/>
+              </div>
+              {(hh.hour%3===0)&&<span style={{fontSize:7,color:isTop?accent:labelMuted,fontFamily:"'JetBrains Mono',monospace",fontWeight:isTop?800:500}}>{hh.hour}h</span>}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1034,6 +1127,21 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     })
     return map
   }, [monthSalesRaw, byId, byHubId])
+
+  // ── Meta individual do usuário logado (mensal, de /intel/goals) ──────
+  // Só pra consultor — usada pro "Feito no mês / meta" e pro termômetro
+  // de ritmo pessoal dele. Busca pelo próprio user_id da sessão (não
+  // precisa de hubspot_id/ponte com closers, é direto em closer_goals).
+  const [myMonthGoal, setMyMonthGoal] = useState<number>(0)
+  useEffect(() => {
+    if (isAdmin) return
+    const supabase = createBrowserClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from('closer_goals').select('goal_sales').eq('user_id', user.id).eq('month', monthKey()).maybeSingle()
+        .then(({ data }) => setMyMonthGoal(Number((data as any)?.goal_sales) || 0))
+    })
+  }, [isAdmin])
 
   const [isDark, setIsDark] = useState(true)
   // Os novos cálculos (termômetro, meta do dia, ritmo por hora) dependem de
@@ -1178,6 +1286,19 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
   const accRev   = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).reduce((s,e)=>s+(e.value??0),0),[allUserEvs,vf])
   const accCount = useMemo(()=>allUserEvs.filter(e=>e.event_type==='sale'&&(!vf||e.vertical===vf)).length,[allUserEvs,vf])
+
+  // ── "Feito no mês" — só o mês vigente, diferente do accRev acima (que é
+  // o total histórico, usado noutro contexto). Essa é a métrica que o
+  // painel do consultor passa a mostrar no lugar do antigo "Acumulado".
+  const monthRevUser = useMemo(() => {
+    const start = monthStart()
+    return allUserEvs.filter(e => e.event_type==='sale' && (!vf || e.vertical===vf) && e.occurred_at >= start)
+      .reduce((s,e)=>s+(e.value??0),0)
+  }, [allUserEvs, vf])
+  const monthCountUser = useMemo(() => {
+    const start = monthStart()
+    return allUserEvs.filter(e => e.event_type==='sale' && (!vf || e.vertical===vf) && e.occurred_at >= start).length
+  }, [allUserEvs, vf])
 
   const yesterdayBounds = dayBoundsSaoPaulo(addDaysToDateStr(todayInSaoPaulo(), -1))
 
@@ -1338,6 +1459,104 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     return metaDiaAtual * historicalHourlyPace[nowHourSP]
   }, [isAdmin, historicalHourlyPace, metaDiaAtual, nowHourSP])
 
+  // ── Termômetro de ritmo PESSOAL (consultor) — mesma metodologia do
+  // admin (curva histórica normalizada por dia, últimos 7 dias, hoje fora
+  // do histórico), só que a fonte é allUserEvs (só as vendas dele) em vez
+  // de recentSalesAdmin (vendas de todo mundo).
+  const historicalHourlyPaceUser = useMemo(() => {
+    if (isAdmin) return null
+    const today = todayInSaoPaulo()
+    const sevenDaysAgo = addDaysToDateStr(today, -7)
+    const byDay: Record<string, { value: number; hour: number }[]> = {}
+    allUserEvs.forEach(e => {
+      if (e.event_type !== 'sale') return
+      if (vf && e.vertical !== vf) return
+      const day = dateInSaoPaulo(e.occurred_at)
+      if (day === today || day < sevenDaysAgo) return
+      if (!byDay[day]) byDay[day] = []
+      byDay[day].push({ value: e.value || 0, hour: hourInSaoPaulo(e.occurred_at) })
+    })
+    const curvasPorDia: number[][] = []
+    Object.values(byDay).forEach(dia => {
+      const total = dia.reduce((s, e) => s + e.value, 0)
+      if (total <= 0) return
+      const curva = Array.from({ length: 24 }, (_, h) =>
+        dia.filter(e => e.hour <= h).reduce((s, e) => s + e.value, 0) / total
+      )
+      curvasPorDia.push(curva)
+    })
+    if (curvasPorDia.length === 0) return null
+    return Array.from({ length: 24 }, (_, h) =>
+      curvasPorDia.reduce((s, curva) => s + curva[h], 0) / curvasPorDia.length
+    )
+  }, [allUserEvs, vf, isAdmin])
+
+  const endOfDayHourUser = useMemo(() => {
+    if (!historicalHourlyPaceUser) return 23
+    for (let h = 23; h >= 0; h--) { if (historicalHourlyPaceUser[h] < 0.98) return Math.min(h + 1, 23) }
+    return 23
+  }, [historicalHourlyPaceUser])
+  const horasRestantesHojeUser = Math.max(endOfDayHourUser - nowHourSP, 1)
+
+  // Meta do dia pessoal = (meta mensal individual − já feito no mês) ÷ dias
+  // restantes — mesma fórmula "que respira" que o useLiveData usa pra meta
+  // da empresa, só que aplicada à meta individual do closer.
+  const metaDiaUser = useMemo(() => {
+    if (isAdmin || myMonthGoal <= 0) return 0
+    const todaySP = todayInSaoPaulo()
+    const [anoSP, mesSP] = todaySP.split('-').map(Number)
+    const diasNoMes = new Date(anoSP, mesSP, 0).getDate()
+    const diaAtual = Number(todaySP.slice(8, 10))
+    const diasRestantes = Math.max(diasNoMes - diaAtual + 1, 1)
+    return Math.max(myMonthGoal - monthRevUser, 0) / diasRestantes
+  }, [isAdmin, myMonthGoal, monthRevUser])
+
+  const expectedRevenueNowUser = useMemo(() => {
+    if (isAdmin || !historicalHourlyPaceUser || metaDiaUser <= 0) return null
+    return metaDiaUser * historicalHourlyPaceUser[nowHourSP]
+  }, [isAdmin, historicalHourlyPaceUser, metaDiaUser, nowHourSP])
+
+  // ── Top dia da semana e top horário — olha as vendas do MÊS VIGENTE do
+  // usuário (não o histórico todo — isso inflava a média acima do que a
+  // pessoa realmente fez no mês) e calcula a receita média por ocorrência
+  // de cada dia da semana / cada hora do dia. Uma "ocorrência" é uma data
+  // distinta em que aquele dia da semana (ou hora) teve pelo menos 1
+  // venda — assim um único dia excepcional não distorce a média tanto
+  // quanto olhar só a soma bruta.
+  const dayHourAnalysis = useMemo(() => {
+    if (isAdmin) return null
+    const monthStartIso = monthStart()
+    const sales = allUserEvs.filter(e => e.event_type === 'sale' && (!vf || e.vertical === vf) && e.occurred_at >= monthStartIso)
+    const byWeekday: Record<number, { revenue: number; dates: Set<string> }> = {}
+    const byHour: Record<number, { revenue: number; dates: Set<string> }> = {}
+    sales.forEach(e => {
+      const date = dateInSaoPaulo(e.occurred_at)
+      const wd = weekdayInSaoPaulo(new Date(e.occurred_at))
+      const h = hourInSaoPaulo(e.occurred_at)
+      if (!byWeekday[wd]) byWeekday[wd] = { revenue: 0, dates: new Set() }
+      byWeekday[wd].revenue += e.value ?? 0
+      byWeekday[wd].dates.add(date)
+      if (!byHour[h]) byHour[h] = { revenue: 0, dates: new Set() }
+      byHour[h].revenue += e.value ?? 0
+      byHour[h].dates.add(date)
+    })
+    const weekdayLabels = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']
+    const weekdayStats = weekdayLabels.map((label, wd) => {
+      const d = byWeekday[wd]
+      return { weekday: wd, label, avgRevenue: d && d.dates.size>0 ? d.revenue/d.dates.size : 0, occurrences: d?.dates.size ?? 0 }
+    }).sort((a,b) => b.avgRevenue - a.avgRevenue)
+    const hourStats = Array.from({ length: 24 }, (_, h) => {
+      const d = byHour[h]
+      return { hour: h, avgRevenue: d && d.dates.size>0 ? d.revenue/d.dates.size : 0, occurrences: d?.dates.size ?? 0 }
+    }).sort((a,b) => b.avgRevenue - a.avgRevenue)
+    return {
+      weekdayStats, hourStats,
+      topWeekday: weekdayStats.find(w => w.occurrences > 0) ?? null,
+      topHour: hourStats.find(h => h.occurrences > 0) ?? null,
+      hasData: sales.length > 0,
+    }
+  }, [allUserEvs, vf, isAdmin])
+
   // Consultor já tem allUserEvs (todo o histórico) — calcula "mesma hora ontem" a partir dele
   const yesterdaySameHourRevUser = useMemo(() => allUserEvs.filter(e => {
     if (e.event_type!=='sale') return false
@@ -1377,8 +1596,17 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   useEffect(()=>{
     if(!latest) return
     if(vf&&latest.vertical!==vf){ clearLatest(); return }
+    // Usuário comum só celebra a PRÓPRIA venda — antes, qualquer venda do
+    // sistema inteiro disparava a animação no telão pessoal dele também
+    // (só filtrava por vertical, nunca por dono da venda). Admin continua
+    // vendo qualquer venda comemorar, sem mudança nenhuma.
+    if(!isAdmin){
+      const isMine = (userCloserId && latest.closer_id === userCloserId)
+        || (userHubspotId && (latest as any).closer_hubspot_id === userHubspotId)
+      if(!isMine){ clearLatest(); return }
+    }
     setCeleb(latest); clearLatest()
-  },[latest])
+  },[latest, isAdmin, userCloserId, userHubspotId])
 
   // Receita de hoje por escopo (geral + cada vertical), calculada direto dos
   // eventos "ao vivo" de hoje (não afetada pela aba selecionada nem por um
@@ -1515,8 +1743,12 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
             yesterdayRev={isAdmin?yesterdayRevAdmin:yesterdayRev}
             yesterdaySameHourRev={isAdmin?yesterdaySameHourRevAdmin:yesterdaySameHourRevUser}
             trend={isAdmin?trendAdmin:trendUser}
-            showGoals={isAdmin && mounted} metaDiaAtual={metaDiaAtual} metaMesAtual={metaMesAtual} mesAcumulado={monthRev}
-            expectedRevenueNow={expectedRevenueNow} horasRestantesHoje={horasRestantesHoje}/>
+            showGoals={mounted && (isAdmin || myMonthGoal>0)}
+            metaDiaAtual={isAdmin?metaDiaAtual:metaDiaUser}
+            metaMesAtual={isAdmin?metaMesAtual:myMonthGoal}
+            mesAcumulado={isAdmin?monthRev:monthRevUser}
+            expectedRevenueNow={isAdmin?expectedRevenueNow:expectedRevenueNowUser}
+            horasRestantesHoje={isAdmin?horasRestantesHoje:horasRestantesHojeUser}/>
 
           {/* Painel acumulado — apenas consultor */}
           {!isAdmin && (
@@ -1532,32 +1764,27 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
                   <p style={{margin:0,fontSize:22,fontWeight:900,color:'rgba(196,181,253,.7)',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(yesterdayRev)}</p>
                 </div>
                 <div style={{background:'rgba(168,85,247,.06)',border:'1px solid rgba(168,85,247,.25)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
-                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📊 Acumulado</p>
-                  <p style={{margin:0,fontSize:22,fontWeight:900,color:'#e9d5ff',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(accRev)}</p>
-                  <p style={{margin:'3px 0 0',fontSize:8,color:'#7c3aed',fontFamily:"'JetBrains Mono',monospace"}}>{accCount}v total</p>
+                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📊 Feito no mês</p>
+                  <p style={{margin:0,fontSize:22,fontWeight:900,color:'#e9d5ff',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(monthRevUser)}</p>
+                  <p style={{margin:'3px 0 0',fontSize:8,color:'#7c3aed',fontFamily:"'JetBrains Mono',monospace"}}>{monthCountUser}v no mês</p>
                 </div>
               </div>
-              {last7Days.some(d=>d.rev>0)&&(
+              {myMonthGoal>0 && (
                 <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.12)',borderRadius:16,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
-                  <p style={{margin:'0 0 12px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📈 Últimos 7 dias</p>
-                  <div style={{display:'flex',gap:5,alignItems:'flex-end',height:90}}>
-                    {last7Days.map((d,i)=>{
-                      const maxRev=Math.max(...last7Days.map(x=>x.rev),1), pct=(d.rev/maxRev)*100, isToday=i===6
-                      return (
-                        <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
-                          <div style={{height:22,display:'flex',alignItems:'flex-end',justifyContent:'center',marginBottom:2}}>
-                            {d.rev>0&&<span style={{fontSize:d.rev>=1000?7:8,fontWeight:isToday?900:600,color:isToday?accent:'rgba(168,85,247,.7)',fontFamily:"'JetBrains Mono',monospace",whiteSpace:'nowrap',lineHeight:1}}>
-                              {d.rev>=1000?`R$${(d.rev/1000).toFixed(0)}k`:`R$${d.rev.toFixed(0)}`}
-                            </span>}
-                          </div>
-                          <div style={{width:'100%',height:56,display:'flex',alignItems:'flex-end'}}>
-                            <div style={{width:'100%',height:`${Math.max(pct,d.rev>0?10:2)}%`,borderRadius:'5px 5px 0 0',background:isToday?accent:d.rev>0?'rgba(168,85,247,.45)':'rgba(168,85,247,.12)',transition:'height .5s cubic-bezier(.4,0,.2,1)',minHeight:d.rev>0?5:1,boxShadow:isToday?`0 0 10px ${accent}50`:'none'}}/>
-                          </div>
-                          <span style={{fontSize:8,marginTop:4,color:isToday?accent:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",fontWeight:isToday?900:400}}>{d.label}</span>
-                        </div>
-                      )
-                    })}
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+                    <p style={{margin:0,fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>🎯 Meta do mês</p>
+                    <p style={{margin:0,fontSize:12,fontWeight:800,fontFamily:"'JetBrains Mono',monospace"}}>
+                      <span style={{color:accent}}>{fmtBRL(monthRevUser)}</span>
+                      <span style={{color:isDark?'#a898c9':'#6d28d9',fontWeight:600}}> / {fmtBRL(myMonthGoal)}</span>
+                    </p>
                   </div>
+                  <div style={{height:12,background:isDark?'rgba(168,85,247,.12)':'rgba(139,92,246,.18)',borderRadius:999,overflow:'hidden',marginBottom:6}}>
+                    <motion.div initial={{width:0}} animate={{width:`${Math.min((monthRevUser/myMonthGoal)*100,100)}%`}} transition={{duration:.9,ease:'easeOut'}}
+                      style={{height:'100%',borderRadius:999,background:monthRevUser>=myMonthGoal?'linear-gradient(90deg,#22c55e,#16a34a)':`linear-gradient(90deg,${accent}77,${accent})`,boxShadow:`0 0 10px ${monthRevUser>=myMonthGoal?'#22c55e66':accent+'55'}`}}/>
+                  </div>
+                  <p style={{margin:0,fontSize:11,fontWeight:700,color:monthRevUser>=myMonthGoal?'#16a34a':(isDark?'#a898c9':'#6d28d9'),fontFamily:"'JetBrains Mono',monospace"}}>
+                    {monthRevUser>=myMonthGoal ? '✅ META BATIDA!' : (<>Estamos em <span style={{color:accent,fontWeight:900}}>{Math.round((monthRevUser/myMonthGoal)*100)}%</span> · Faltam <span style={{color:accent,fontWeight:900}}>{fmtBRL(Math.max(myMonthGoal-monthRevUser,0))}</span></>)}
+                  </p>
                 </div>
               )}
             </div>
@@ -1565,7 +1792,9 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
           <div className="tw-vert"><VerticalCards events={isAdmin?events:baseEvents} selected={vf} onSelect={v=>setVf(v)} isDark={isDark} verticals={visibleVerticals}/></div>
 
-          {isAdmin && <MoneyLeftOnTable value={moneyLeftTotal} totalRevenue={todayRev} isDark={isDark}/>}
+          <MoneyLeftOnTable value={moneyLeftTotal} totalRevenue={todayRev} isDark={isDark}/>
+
+          {!isAdmin && <TopDayHourPanel analysis={dayHourAnalysis} accent={accent} isDark={isDark}/>}
 
           {isAdmin && (
             <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:22,padding:'20px 22px',backdropFilter:'blur(8px)'}}>
