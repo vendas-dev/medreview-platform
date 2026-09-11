@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { CommercialAnalysis } from './CommercialAnalysis'
+import { EventsSection } from './EventsSection'
 import {
   Users, Target, TrendingUp,
   ArrowRight, X, Sparkles, Stethoscope, HeartPulse, ClipboardList, ChevronDown
@@ -94,7 +95,7 @@ function ParticleField() {
 function HeartbeatLine() {
   const pathD = 'M0,20 L100,20 L115,20 L125,4 L135,36 L145,20 L160,20 L500,20'
   return (
-    <svg width="100%" height="34" viewBox="0 0 500 34" preserveAspectRatio="none"
+    <svg width="100%" height="34" viewBox="0 0 500 34" preserveAspectRatio="xMidYMid meet"
       style={{ position: 'absolute', bottom: 2, left: 0, opacity: 0.16, pointerEvents: 'none' }}>
       <path d={pathD} fill="none" stroke="rgba(255,255,255,.45)" strokeWidth="1.5" />
       <circle r="4" fill="#4ade80">
@@ -817,6 +818,7 @@ interface Props {
   users: any[]
   progressByDay: { day: string; completions: number; quizzes: number }[]
   commercialAnalysisInitial: any
+  eventsAnalysisInitial: any
   commercial: {
     totalRevMonth: number; totalSalesMonth: number; totalSalesToday: number; totalRevToday: number
     avgTicketAll: number; totalMoneyLeft: number; totalCertsMonth: number
@@ -840,7 +842,7 @@ interface Props {
   }
 }
 
-export function SuperDashboard({ userName, stats, users, progressByDay, commercial, commercialAnalysisInitial }: Props) {
+export function SuperDashboard({ userName, stats, users, progressByDay, commercial, commercialAnalysisInitial, eventsAnalysisInitial }: Props) {
   const [activities, setActivities] = useState<any[]>([])
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [loadingActivity, setLoadingActivity] = useState(true)
@@ -1028,6 +1030,10 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
       </div>
 
       {openCard && <CardModal c={openCard} onClose={() => setOpenCard(null)} />}
+
+      <PulseDivider />
+
+      <EventsSection initialData={eventsAnalysisInitial} />
 
       <div className="sd-row3" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 16 }}>
 

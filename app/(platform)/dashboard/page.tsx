@@ -7,6 +7,7 @@ import { SuperDashboard } from './SuperDashboard'
 import { UserDashboard } from './UserDashboard'
 import { ensureDailyInsights } from '@/lib/dashboard/closerInsights'
 import { ensureCompanyInsights } from '@/lib/dashboard/companyInsights'
+import { computeEventsAnalysis } from '@/lib/dashboard/eventsAnalysis'
 import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, weekdayInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
 import { eventMoneyLeftOnTable, extractCouponDiscountPct } from '@/lib/telao/format'
 import { computeForecast, computeRemainingMonthRecurring, computeCurrentMonthRecurringStats, RecurringSale } from '@/lib/telao/forecast'
@@ -140,7 +141,7 @@ export default async function DashboardPage() {
         .limit(999999),
       admin2.from('telao_events')
         .select('value, vertical, coupon_code, is_self_checkout, sale_type, product')
-        .eq('event_type', 'sale').gte('occurred_at', prevMStart).lte('occurred_at', prevMEnd)
+        .gte('occurred_at', prevMStart).lte('occurred_at', prevMEnd)
         .limit(999999),
     ])
 
@@ -586,6 +587,11 @@ export default async function DashboardPage() {
       byWeekday, byHour, topDay, topHour, label: 'Este mês',
     }
 
+    // ── Seção de Eventos — mesmo cálculo compartilhado usado pela API de
+    // filtro (lib/dashboard/eventsAnalysis.ts), já pronto pro estado padrão
+    // (mês, sem filtro nenhum) — evita um fetch extra no primeiro carregamento.
+    const eventsAnalysisInitial = await computeEventsAnalysis(admin2, { period: 'mes' })
+
     return (
       <SuperDashboard
         userName={userName}
@@ -593,6 +599,7 @@ export default async function DashboardPage() {
         users={userProgress}
         progressByDay={progressByDay}
         commercialAnalysisInitial={commercialAnalysisInitial}
+        eventsAnalysisInitial={eventsAnalysisInitial}
         commercial={{
           totalRevMonth, totalSalesMonth, totalSalesToday, totalRevToday, avgTicketAll, totalMoneyLeft, totalCertsMonth,
           forecast: forecastUntilYearEnd, monthlyForecast, forecastDetail, revenueByDay, closerCards: closerCardsWithInsight,
