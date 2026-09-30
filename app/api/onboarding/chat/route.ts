@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { ensureCloserStyleProfile } from '@/lib/ai/closerStyleProfile'
 
 // ── Acervo (Labs) — ferramentas que a Medy pode acionar sozinha ────────
 // Credencial de SERVIDOR (nunca no navegador) — lida de MRV_TOKEN, uma
@@ -8,122 +9,76 @@ import { NextRequest, NextResponse } from 'next/server'
 const MRV_BASE = 'https://api.grupomedreview.com.br'
 const ALLOWED_VERTICALS = ['oft_review', 'anestreview', 'ortopreview', 'medreview'] as const
 
+// ── Verticais permitidas por time — regra dura, não sugestão de prompt.
+// Time OAO vende Anest/Oft/Ortop-Review; time R1 vende só Med-Review R1.
+// Sem time definido (ou superadmin conversando) não trava nada, tem acesso
+// a todas — só closer com time certo entra na restrição.
+function allowedVerticalsForTeam(team: string | null | undefined): string[] {
+  if (team === 'R1')  return ['medreview']
+  if (team === 'OAO') return ['oft_review', 'anestreview', 'ortopreview']
+  return [...ALLOWED_VERTICALS]
+}
+
 // Só os endpoints úteis pra responder pergunta de closer/lead sobre o
 // conteúdo dos cursos. Deixados de fora, de propósito:
 // - /aulas/rascunhos — conteúdo não publicado, só pra quem cataloga
 // - /me e /health — diagnóstico da credencial, não é conteúdo do acervo
-const LABS_TOOLS = [
-  {
-    name: 'labs_buscar_cursos',
-    description: 'Lista o catálogo de cursos publicados no acervo da Med-Review, filtrado por vertical.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS }, description: 'Uma ou mais verticais — sempre obrigatório.' },
-      },
-      required: ['vertical'],
+//
+// Recebe as verticais permitidas do closer e já restringe o ENUM do
+// schema — o Claude nem consegue tentar pedir uma vertical fora do time
+// dele, porque ela não existe como opção válida na ferramenta.
+function buildLabsTools(allowedVerticals: string[]) {
+  const vEnum = allowedVerticals.length > 0 ? allowedVerticals : [...ALLOWED_VERTICALS]
+  const verticalProp = { type: 'array', items: { type: 'string', enum: vEnum }, description: 'Uma ou mais verticais — sempre obrigatório. Só as do seu próprio time estão disponíveis aqui.' }
+
+  return [
+    {
+      name: 'labs_buscar_cursos',
+      description: 'Lista o catálogo de cursos publicados no acervo da Med-Review, filtrado por vertical.',
+      input_schema: { type: 'object', properties: { vertical: verticalProp }, required: ['vertical'] },
     },
-  },
-  {
-    name: 'labs_buscar_modulos',
-    description: 'Lista os módulos de curso(s) publicado(s). Use curso_id pra restringir a um curso específico (pegue o id em labs_buscar_cursos).',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        curso_id: { type: 'string', description: 'Opcional — id do curso pra filtrar os módulos.' },
-      },
-      required: ['vertical'],
+    {
+      name: 'labs_buscar_modulos',
+      description: 'Lista os módulos de curso(s) publicado(s). Use curso_id pra restringir a um curso específico (pegue o id em labs_buscar_cursos).',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, curso_id: { type: 'string', description: 'Opcional — id do curso pra filtrar os módulos.' } }, required: ['vertical'] },
     },
-  },
-  {
-    name: 'labs_buscar_aulas',
-    description: 'Lista aulas PUBLICADAS do acervo — vertical, curso, módulo, ordem, duração, id do vídeo e data de publicação. Use curso_id e/ou modulo_id pra restringir a busca.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        curso_id: { type: 'string' },
-        modulo_id: { type: 'string' },
-      },
-      required: ['vertical'],
+    {
+      name: 'labs_buscar_aulas',
+      description: 'Lista aulas PUBLICADAS do acervo — vertical, curso, módulo, ordem, duração, id do vídeo e data de publicação. Use curso_id e/ou modulo_id pra restringir a busca.',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, curso_id: { type: 'string' }, modulo_id: { type: 'string' } }, required: ['vertical'] },
     },
-  },
-  {
-    name: 'labs_detalhe_aula',
-    description: 'Detalhe completo de UMA aula publicada específica, pelo id (pegue o id em labs_buscar_aulas).',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        aula_id: { type: 'string' },
-      },
-      required: ['vertical', 'aula_id'],
+    {
+      name: 'labs_detalhe_aula',
+      description: 'Detalhe completo de UMA aula publicada específica, pelo id (pegue o id em labs_buscar_aulas).',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, aula_id: { type: 'string' } }, required: ['vertical', 'aula_id'] },
     },
-  },
-  {
-    name: 'labs_transcricao_aula',
-    description: 'Texto integral (transcrição) de uma aula publicada, em trechos com marcação de tempo — use quando precisar saber se um assunto específico é falado dentro da aula.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        aula_id: { type: 'string' },
-      },
-      required: ['vertical', 'aula_id'],
+    {
+      name: 'labs_transcricao_aula',
+      description: 'Texto integral (transcrição) de uma aula publicada, em trechos com marcação de tempo — use quando precisar saber se um assunto específico é falado dentro da aula.',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, aula_id: { type: 'string' } }, required: ['vertical', 'aula_id'] },
     },
-  },
-  {
-    name: 'labs_buscar_materiais',
-    description: 'Apostilas e PDFs anexados a aulas publicadas, com link de download.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        aula_id: { type: 'string', description: 'Opcional — filtra materiais de uma aula específica.' },
-      },
-      required: ['vertical'],
+    {
+      name: 'labs_buscar_materiais',
+      description: 'Apostilas e PDFs anexados a aulas publicadas, com link de download.',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, aula_id: { type: 'string', description: 'Opcional — filtra materiais de uma aula específica.' } }, required: ['vertical'] },
     },
-  },
-  {
-    name: 'labs_buscar_filtros',
-    description: 'Lista os filtros disponíveis (tema, subtema, prova, tipo) pra montar uma busca refinada em labs_buscar_questoes. Use antes de buscar questões se não souber os valores válidos.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-      },
-      required: ['vertical'],
+    {
+      name: 'labs_buscar_filtros',
+      description: 'Lista os filtros disponíveis (tema, subtema, prova, tipo) pra montar uma busca refinada em labs_buscar_questoes. Use antes de buscar questões se não souber os valores válidos.',
+      input_schema: { type: 'object', properties: { vertical: verticalProp }, required: ['vertical'] },
     },
-  },
-  {
-    name: 'labs_buscar_questoes',
-    description: 'Banco de questões comentadas — enunciado, alternativas, gabarito e comentário do professor, com tema, subtema, prova e tipo.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        tema: { type: 'string' },
-        subtema: { type: 'string' },
-        prova: { type: 'string' },
-        tipo: { type: 'string' },
-      },
-      required: ['vertical'],
+    {
+      name: 'labs_buscar_questoes',
+      description: 'Banco de questões comentadas — enunciado, alternativas, gabarito e comentário do professor, com tema, subtema, prova e tipo.',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, tema: { type: 'string' }, subtema: { type: 'string' }, prova: { type: 'string' }, tipo: { type: 'string' } }, required: ['vertical'] },
     },
-  },
-  {
-    name: 'labs_detalhe_questao',
-    description: 'Detalhe completo de UMA questão específica do banco, pelo id (pegue o id em labs_buscar_questoes).',
-    input_schema: {
-      type: 'object',
-      properties: {
-        vertical: { type: 'array', items: { type: 'string', enum: ALLOWED_VERTICALS } },
-        questao_id: { type: 'string' },
-      },
-      required: ['vertical', 'questao_id'],
+    {
+      name: 'labs_detalhe_questao',
+      description: 'Detalhe completo de UMA questão específica do banco, pelo id (pegue o id em labs_buscar_questoes).',
+      input_schema: { type: 'object', properties: { vertical: verticalProp, questao_id: { type: 'string' } }, required: ['vertical', 'questao_id'] },
     },
-  },
-] as const
+  ]
+}
 
 // Traduz o nome da ferramenta + input pro path/params reais da API
 function labsToolRequest(name: string, input: any): { path: string; params: Record<string, any> } | null {
@@ -146,12 +101,22 @@ function labsToolRequest(name: string, input: any): { path: string; params: Reco
 // como o guia do TI orienta: 401 e 403 nunca se resolvem tentando de novo
 // (avisa e para); 429 espera uma vez, sem laço apertado, e desiste com
 // uma mensagem clara se persistir.
-async function callLabsApi(path: string, params: Record<string, any>): Promise<any> {
+async function callLabsApi(path: string, params: Record<string, any>, allowedVerticals: string[]): Promise<any> {
   const token = process.env.MRV_TOKEN
   if (!token) return { erro: 'A integração com o Acervo ainda não foi configurada neste servidor (falta a credencial). Avise o administrador do sistema.' }
 
-  const vertical: string[] = Array.isArray(params.vertical) ? params.vertical.filter(Boolean) : []
+  let vertical: string[] = Array.isArray(params.vertical) ? params.vertical.filter(Boolean) : []
   if (vertical.length === 0) return { erro: 'Não foi informada nenhuma vertical válida — é obrigatório pra consultar o Acervo. Pergunte ao usuário qual vertical antes de tentar de novo.' }
+
+  // Trava de verdade — mesmo que o schema já restrinja o enum, confere de
+  // novo aqui antes de sair pro Acervo. Fora do escopo do time do closer
+  // nunca sai daqui, não é um erro de tentar de outro jeito.
+  const foraDoEscopo = vertical.filter(v => !allowedVerticals.includes(v))
+  vertical = vertical.filter(v => allowedVerticals.includes(v))
+  if (vertical.length === 0) {
+    return { erro: `A vertical pedida (${foraDoEscopo.join(', ')}) não faz parte do time deste closer. Ele só tem acesso a: ${allowedVerticals.join(', ')}. Explique isso e não tente de novo com essa vertical.` }
+  }
+  params = { ...params, vertical }
 
   const url = new URL(`${MRV_BASE}${path}`)
   vertical.forEach(v => url.searchParams.append('vertical[]', v))
@@ -200,6 +165,8 @@ export async function POST(req: NextRequest) {
     const { data: profile } = await supabase.from('profiles').select('name, team').eq('id', user.id).single()
     const userTeam = (profile as any)?.team
     const userName = (profile as any)?.name ?? 'colaborador'
+    const allowedVerticals = allowedVerticalsForTeam(userTeam)
+    const styleSummary = await ensureCloserStyleProfile(supabase, user.id)
 
     const { data: settings } = await supabase
       .from('onboarding_settings').select('*').eq('id', '00000000-0000-0000-0000-000000000001').single()
@@ -269,6 +236,7 @@ ${docs.map((d: any) => `📎 **${d.title}** (${d.type})${d.description ? ` — $
 Está conversando com ${userName}${userTeam ? ` do time ${userTeam}` : ''}.
 ${tone}
 ${extra ? `\nInstruções da empresa:\n${extra}` : ''}
+${styleSummary ? `\nCOMO ESSE CLOSER SE COMUNICA (aprendido de conversas anteriores dele — adapte seu tom e nível de detalhe a isso, sem mencionar explicitamente que está seguindo esse perfil):\n${styleSummary}` : ''}
 
 REGRAS IMPORTANTES:
 - Responda SEMPRE em português brasileiro
@@ -279,6 +247,8 @@ REGRAS IMPORTANTES:
 - Se não souber, diga: "Ainda não tenho essa informação. Recomendo perguntar ao seu supervisor."
 - Nunca invente informações
 - Seja sempre útil e encorajador
+- Ao consultar o Acervo (ferramentas labs_*), esse closer só tem acesso às verticais: ${allowedVerticals.join(', ')} — nunca tente outra, e se ele pedir algo de uma vertical fora dessa lista, explique que não está no escopo do time dele
+- Ao buscar se um ASSUNTO existe no acervo (ex: "tem aula sobre X?"), comece pelo caminho mais barato: confira primeiro os NOMES de curso/módulo/aula (labs_buscar_cursos, labs_buscar_modulos, labs_buscar_aulas) — muitas vezes o nome já responde. Só abra labs_transcricao_aula quando o nome não for suficiente pra confirmar (ex: assunto que pode estar mencionado dentro de uma aula com outro título). Isso evita gastar muitas rodadas de busca numa pergunta simples.
 
 BASE DE CONHECIMENTO COMPLETA:
 ${knowledgeBase}
@@ -295,16 +265,26 @@ ${avulsosText}`
     // (uma ou várias vezes seguidas, ex: achar o curso → achar a aula
     // dentro dele) antes de dar a resposta final em texto. Um teto de
     // rodadas evita loop infinito se algo sair muito fora do esperado.
+    // Perguntas tipo "tem X em algum curso da vertical Y" podem precisar
+    // checar vários cursos/módulos em sequência — por isso o teto é
+    // generoso (10), e mesmo assim, se estourar, a última rodada força uma
+    // resposta de texto (sem tools) em vez de simplesmente desistir com
+    // uma mensagem genérica — o Claude sempre tem ALGO útil já apurado
+    // até ali, mesmo que não tenha varrido 100% dos cursos.
     let assistantMessage = 'Não consegui processar sua pergunta.'
-    const MAX_TOOL_ROUNDS = 6
+    const MAX_TOOL_ROUNDS = 10
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const isLastRound = round === MAX_TOOL_ROUNDS - 1
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-5', max_tokens: 1800, system: systemPrompt, messages,
-          tools: LABS_TOOLS,
+          // Na última rodada permitida, tira as ferramentas de propósito —
+          // isso força o Claude a responder em texto com o que já tem,
+          // em vez de pedir mais uma consulta e nunca fechar a resposta.
+          ...(isLastRound ? {} : { tools: buildLabsTools(allowedVerticals) }),
         }),
       })
 
@@ -320,10 +300,12 @@ ${avulsosText}`
         break
       }
 
+      if (isLastRound) break // não deveria ter tool_use aqui (sem tools disponíveis), mas por segurança
+
       // Executa cada ferramenta pedida (em paralelo, já que são só leituras)
       const toolResults = await Promise.all(toolUseBlocks.map(async (block: any) => {
         const req = labsToolRequest(block.name, block.input)
-        const result = req ? await callLabsApi(req.path, req.params) : { erro: `Ferramenta desconhecida: ${block.name}` }
+        const result = req ? await callLabsApi(req.path, req.params, allowedVerticals) : { erro: `Ferramenta desconhecida: ${block.name}` }
         return { type: 'tool_result' as const, tool_use_id: block.id, content: JSON.stringify(result) }
       }))
 

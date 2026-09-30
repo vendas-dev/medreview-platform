@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { ensureCloserStyleProfile } from '@/lib/ai/closerStyleProfile'
 
 // Contexto fixo sobre as verticais — a Medy precisa saber quem é o público
 // de cada uma pra interpretar a situação que o closer descrever (ex: "lead
@@ -16,6 +17,11 @@ export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase.from('profiles').select('name, team').eq('id', user.id).single()
+  const userName = (profile as any)?.name ?? 'o closer'
+  const userTeam = (profile as any)?.team
+  const styleSummary = await ensureCloserStyleProfile(supabase, user.id)
 
   const { message, history, templates } = await req.json()
   if (!message || typeof message !== 'string') {
@@ -36,6 +42,9 @@ export async function POST(req: NextRequest) {
     'Aqui, seu papel é ser uma COACH DE VENDAS experiente para o time comercial: o closer descreve uma situação com um lead ou cliente, e você recomenda',
     'qual copy (template) da biblioteca abaixo faz mais sentido enviar — e explica o porquê em poucas frases, como alguém que realmente entende de vendas',
     'consultivas para médicos.',
+    '',
+    `Está conversando com ${userName}${userTeam ? ` do time ${userTeam}` : ''}.`,
+    styleSummary ? `\nCOMO ESSE CLOSER SE COMUNICA (aprendido de conversas anteriores dele — adapte seu tom e a explicação a isso, sem mencionar explicitamente que está seguindo um perfil):\n${styleSummary}\n` : '',
     '',
     'Contexto sobre o público-alvo de cada vertical (use isso pra interpretar a situação descrita):',
     VERTICAL_CONTEXT,
