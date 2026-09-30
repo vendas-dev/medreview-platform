@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Settings, RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 import { useSettings }       from './hooks/useSettings'
 import { useSheetData }      from './hooks/useSheetData'
@@ -159,6 +159,27 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     if (!selectedRow || effectivePV <= 0) return null
     return simulate(effectivePV, paymentMode, settings, vertical, manualN, manualRate, eventoSub)
   }, [selectedRow, effectivePV, paymentMode, settings, vertical, manualN, manualRate, eventoSub])
+
+  // FIX: hoveredParcela guardava o VALOR calculado no momento do hover
+  // (ex: {n:6, valor:450}) — mas nada atualizava esse valor quando o
+  // cálculo mudava depois (produto trocado, desconto ajustado, forma de
+  // pagamento alterada). Resultado: a mensagem mostrava um parcelamento
+  // "grudado" de um produto/negociação anterior, mesmo com o valor à
+  // vista já certo (esse é recalculado direto, sem passar por estado).
+  // Em vez de tentar limpar isso em cada lugar que muda produto/desconto/
+  // modo (frágil, fácil esquecer um caso), sempre que o resultado do
+  // cálculo mudar de verdade, refaz o hover: se o mesmo número de
+  // parcelas (n) ainda existir no novo resultado, atualiza pro valor
+  // novo; se não existir mais (ex: mudou de 12x pra 3x), limpa o hover.
+  useEffect(() => {
+    setHoveredParcela(prev => {
+      if (!prev) return prev
+      const fresh = simResult?.parcelas?.find(p => p.n === prev.n)
+      if (!fresh) return null
+      if (fresh.valor === prev.valor) return prev
+      return fresh
+    })
+  }, [simResult])
 
   const hasUrl = !!settings.spreadsheetUrl
   const currentRate    = rateForVertical(vertical || '', settings)

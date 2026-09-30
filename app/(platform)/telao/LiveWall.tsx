@@ -510,24 +510,27 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
                 style={{position:'absolute',inset:0,background:`${v.accent}35`,pointerEvents:'none'}}/>
               <Avatar closer={closer} name={name} size={30}/>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:4,flexWrap:'wrap'}}>
-                  <span style={{fontSize:9,fontWeight:800,padding:'2px 7px',borderRadius:5,background:v.accent+'25',color:v.accent,fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.06em'}}>{v.short}</span>
-                  <span style={{fontSize:9,color:isSale?'#7c3aed':GOLD,fontFamily:"'JetBrains Mono',monospace"}}>{isSale?'💰 VENDA':'🎓 EMBAIXADOR'}</span>
-                  {isAmb&&<span style={{fontSize:9,color:'#22c55e',fontFamily:"'JetBrains Mono',monospace"}}>🌟 AMB</span>}
+                <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:4,flexWrap:'nowrap'}}>
+                  <span style={{fontSize:9,fontWeight:800,padding:'2px 7px',borderRadius:5,background:v.accent+'25',color:v.accent,fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.06em',flexShrink:0}}>{v.short}</span>
+                  <span style={{fontSize:9,color:isSale?'#7c3aed':GOLD,fontFamily:"'JetBrains Mono',monospace",flexShrink:0,whiteSpace:'nowrap'}}>{isSale?'💰 VENDA':'🎓 EMBAIXADOR'}</span>
+                  {isAmb&&<span style={{fontSize:9,color:'#22c55e',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🌟 AMB</span>}
                   {(ev as any).is_recurring && (ev as any).installment_number > 1 && (
-                    <span style={{fontSize:9,color:'#0d9488',background:'rgba(13,148,136,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace"}}>
+                    <span style={{fontSize:9,color:'#0d9488',background:'rgba(13,148,136,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace",flexShrink:0,whiteSpace:'nowrap'}}>
                       🔄 {(ev as any).installment_number}/{(ev as any).total_installments}
                     </span>
                   )}
                   {(ev as any).transferred_at && (
-                    <span title={(ev as any).transfer_reason ?? 'Venda transferida/co-atribuída'} style={{fontSize:9,color:'#f97316',background:'rgba(249,115,22,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace"}}>
+                    <span title={(ev as any).transfer_reason ?? 'Venda transferida/co-atribuída'} style={{fontSize:9,color:'#f97316',background:'rgba(249,115,22,.15)',padding:'2px 6px',borderRadius:5,fontFamily:"'JetBrains Mono',monospace",flexShrink:0,whiteSpace:'nowrap'}}>
                       🔁 {coCloser?.name ? `+ ${coCloser.name.split(' ')[0]}` : 'transferida'}
                     </span>
                   )}
+                  {/* Closer + tempo — junto na mesma linha das badges, empurrado
+                      pra direita, poupando uma linha inteira do card (era uma
+                      linha própria embaixo antes). */}
+                  <span style={{fontSize:9,color:'var(--tw-muted)',margin:'0 0 0 auto',fontFamily:"'JetBrains Mono',monospace",flexShrink:0,whiteSpace:'nowrap',paddingLeft:6,overflow:'hidden',textOverflow:'ellipsis'}}>{name.split(' ')[0]} · {timeAgo(ev.occurred_at)}</span>
                 </div>
                 <p style={{fontSize:12,fontWeight:700,color:'var(--tw-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isSale?ev.lead_name:ev.ambassador_name}</p>
-                {isSale&&ev.product&&<p style={{fontSize:10,color:'var(--tw-muted-text)',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:"'JetBrains Mono',monospace"}}>{ev.product}</p>}
-                <p style={{fontSize:9,color:'var(--tw-muted)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{name.split(' ')[0]} · {timeAgo(ev.occurred_at)}</p>
+                {isSale&&ev.product&&<p style={{fontSize:10,color:'var(--tw-muted-text)',margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:"'JetBrains Mono',monospace"}}>{ev.product}</p>}
               </div>
               {isSale&&ev.value&&(
                 <div style={{textAlign:'right',flexShrink:0}}>
@@ -545,28 +548,30 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
 }
 
 // ── Ranking ─── CORRIGIDO: enriquece closer via hubspot_id ────
-// ── Canais ─── Self Checkout e Embaixadores, separados do ranking do
-// time — não é justo comparar uma pessoa com um canal automatizado.
-function Canais({ self, ambassador, accent, isDark=true }: { self:{revenue:number;count:number}; ambassador:{revenue:number;count:number}; accent:string; isDark?:boolean }) {
+// ── Canais ─── Self Checkout, Embaixadores e Imparáveis (soma geral dos
+// closers, sem separar por time), separados do ranking do time — não é
+// justo comparar uma pessoa com um canal automatizado.
+function Canais({ self, ambassador, imparaveis, accent, isDark=true }: { self:{revenue:number;count:number}; ambassador:{revenue:number;count:number}; imparaveis:{revenue:number;count:number}; accent:string; isDark?:boolean }) {
   const items = [
+    { label: 'Imparáveis',    emoji: '🚀', data: imparaveis },
     { label: 'Self Checkout', emoji: '↻', data: self },
     { label: 'Embaixadores',  emoji: '🌟', data: ambassador },
   ].filter(it => it.data.revenue > 0 || it.data.count > 0)
 
   if (items.length === 0) return (
-    <p style={{textAlign:'center',padding:'16px 0',color:'var(--muted-foreground)',fontSize:11,fontFamily:"'JetBrains Mono',monospace"}}>Sem vendas por canal ainda.</p>
+    <p style={{textAlign:'center',padding:'12px 0',color:'var(--muted-foreground)',fontSize:11,fontFamily:"'JetBrains Mono',monospace"}}>Sem vendas por canal ainda.</p>
   )
 
   return (
-    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+    <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {items.map(it => (
-        <div key={it.label} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:10,background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)'}}>
-          <span style={{fontSize:16,flexShrink:0}}>{it.emoji}</span>
+        <div key={it.label} style={{display:'flex',alignItems:'center',gap:9,padding:'6px 10px',borderRadius:9,background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)'}}>
+          <span style={{fontSize:14,flexShrink:0}}>{it.emoji}</span>
           <div style={{flex:1,minWidth:0}}>
-            <p style={{fontSize:11,fontWeight:800,color:'var(--foreground)',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{it.label}</p>
+            <p style={{fontSize:10.5,fontWeight:800,color:'var(--foreground)',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{it.label}</p>
             <p style={{fontSize:8,color:'var(--muted-foreground)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{it.data.count}v</p>
           </div>
-          <span style={{fontSize:13,fontWeight:900,color:accent,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",flexShrink:0}}>{fmtBRL(it.data.revenue)}</span>
+          <span style={{fontSize:12,fontWeight:900,color:accent,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",flexShrink:0}}>{fmtBRL(it.data.revenue)}</span>
         </div>
       ))}
     </div>
@@ -1218,31 +1223,55 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     })
   }, [viewEvents, closers, byHubId])
 
-  // ── Ranking do time — só pessoas de verdade ────────────────
-  // O ranking geral misturava Self Checkout, Embaixador (sem closer
-  // atribuído) e pessoas de verdade na mesma lista — o que é uma leitura
-  // estranha ("Self Checkout" competindo com o Sabrina, por exemplo). Filtra
-  // pra fora tudo que não é uma pessoa; esses canais têm seu próprio bloco.
-  const teamStats = useMemo(() =>
-    stats.filter(s =>
+  // ── Ranking do time — separado por time (OAO/R1) ────────────
+  // Times têm tickets de produto muito diferentes (OAO vende Anest/Oft/
+  // Ortop-Review, R1 só Med-Review R1) — misturar os dois no mesmo ranking
+  // deixava o time OAO sempre à frente, o que é injusto. Não existe campo
+  // "time" no closer/evento aqui — a separação é feita pela VERTICAL da
+  // venda: só o R1 vende Med-Review R1, então isso já basta pra dividir.
+  // Ambos os rankings continuam filtrando fora Self Checkout/Embaixador,
+  // igual o ranking único fazia antes.
+  function enrichAndFilterStats(evs: TelaoEvent[]) {
+    const raw = computeCloserStats(evs, closers)
+    const enriched = raw.map(s => {
+      if (s.closer?.avatar_url) return s
+      const ev  = evs.find(e => e.closer_name === s.name && (e as any).closer_hubspot_id)
+      const hub = ev ? String((ev as any).closer_hubspot_id) : null
+      const hit = hub ? byHubId[hub] : null
+      return hit ? { ...s, closer: hit } : s
+    })
+    return enriched.filter(s =>
       !s.isSelf &&
       !(s as any).isAmbassador &&
       s.name !== '?' &&
       s.name !== 'Self Checkout' &&
       s.name.trim().toLowerCase() !== 'embaixador'
     )
-  , [stats])
+  }
 
-  // ── Canais — Self Checkout e Embaixadores, calculados direto dos
-  // eventos brutos (independente do computeCloserStats), pra não depender
-  // de como aquela função rotula internamente cada balde.
+  const teamStatsOAO = useMemo(
+    () => enrichAndFilterStats(viewEvents.filter(e => e.vertical !== 'medreview')),
+    [viewEvents, closers, byHubId]
+  )
+  const teamStatsR1 = useMemo(
+    () => enrichAndFilterStats(viewEvents.filter(e => e.vertical === 'medreview')),
+    [viewEvents, closers, byHubId]
+  )
+
+  // ── Canais — Self Checkout, Embaixadores e Imparáveis, calculados
+  // direto dos eventos brutos (independente do computeCloserStats), pra
+  // não depender de como aquela função rotula internamente cada balde.
+  // "Imparáveis" = soma de TODAS as vendas de closer de verdade, sem
+  // separar por time — a força total do time comercial junto.
   const canais = useMemo(() => {
     const sales = viewEvents.filter(e => e.event_type === 'sale')
     const self = sales.filter(e => e.is_self_checkout)
     const ambassador = sales.filter(e => !e.is_self_checkout && (e.sold_by_ambassador || e.seller_type === 'ambassador'))
+    const imparaveis = sales.filter(e => !e.is_self_checkout && !(e.sold_by_ambassador || e.seller_type === 'ambassador'))
     return {
       self:       { revenue: self.reduce((s,e)=>s+(e.value??0),0),       count: self.length },
       ambassador: { revenue: ambassador.reduce((s,e)=>s+(e.value??0),0), count: ambassador.length },
+      imparaveis: { revenue: imparaveis.reduce((s,e)=>s+(e.value??0),0), count: imparaveis.length },
     }
   }, [viewEvents])
 
@@ -1819,19 +1848,40 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
           )}
         </div>
 
-        {/* Direita — Feed + Ranking do Time + Canais */}
+        {/* Direita — Feed + Ranking do Time (OAO/R1 separados) + Canais */}
         {isAdmin && <div style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)'}}>
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'0 0 44%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
+          {/* Feed agora é flexível (flex:'1 1 26%') em vez de altura fixa —
+              se o espaço apertar (Canais com 3 itens agora, por exemplo),
+              é o Feed que cede primeiro, nunca os rankings. minHeight
+              garante que ele nunca desaparece de vez. */}
+          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'1 1 26%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:110}}>
             <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>⚡ Feed ao vivo — {viewEvents.length} eventos</p>
             <EventFeed events={viewEvents} byId={byId} byHubId={byHubId}/>
           </div>
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:20,padding:'16px 18px',flex:1,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:0}}>
-            <p style={{fontSize:11,fontWeight:900,color:'#c084fc',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 12px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time{vf?` ${VERTICALS[vf].short}`:''}</p>
-            <Ranking stats={teamStats} accent={accent}/>
+
+          {/* Dois rankings separados — OAO e R1 nunca competem entre si,
+              já que vendem produtos com tickets muito diferentes. O
+              wrapper ganha um minHeight explícito (2× o piso de cada
+              painel + o gap entre eles) — isso avisa o flexbox que esse
+              bloco NUNCA pode ser espremido abaixo do necessário pro top 3
+              de cada time aparecer; quem cede espaço primeiro é o Feed
+              (que já é flexível) ou o Canais (mais compacto agora),
+              nunca o ranking em si — resolve o vazamento visual do Canais
+              por cima do R1 que acontecia antes. */}
+          <div style={{display:'flex',flexDirection:'column',gap:12,flex:'0 0 auto',minHeight:372}}>
+            <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(59,130,246,.18)',borderRadius:20,padding:'14px 16px',flex:1,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:180}}>
+              <p style={{fontSize:10,fontWeight:900,color:'#60a5fa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time OAO{vf?` ${VERTICALS[vf].short}`:''}</p>
+              <Ranking stats={teamStatsOAO} accent={accent}/>
+            </div>
+            <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(139,92,246,.18)',borderRadius:20,padding:'14px 16px',flex:1,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:180}}>
+              <p style={{fontSize:10,fontWeight:900,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time R1{vf?` ${VERTICALS[vf].short}`:''}</p>
+              <Ranking stats={teamStatsR1} accent={accent}/>
+            </div>
           </div>
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flexShrink:0,backdropFilter:'blur(8px)'}}>
-            <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace"}}>📡 Canais</p>
-            <Canais self={canais.self} ambassador={canais.ambassador} accent={accent} isDark={isDark}/>
+
+          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'12px 16px',flexShrink:0,backdropFilter:'blur(8px)'}}>
+            <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 8px',fontFamily:"'JetBrains Mono',monospace"}}>📡 Canais</p>
+            <Canais self={canais.self} ambassador={canais.ambassador} imparaveis={canais.imparaveis} accent={accent} isDark={isDark}/>
           </div>
         </div>}
       </div>

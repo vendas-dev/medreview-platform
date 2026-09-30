@@ -30,6 +30,25 @@ function Badge({ label, color, bg }: { label: string; color: string; bg: string 
   )
 }
 
+// ── Estatísticas de disparo/resposta — pílula com fundo sutil, cor muda
+// com a performance (verde/âmbar/neutro), pra dar leitura rápida e um
+// pouco de destaque visual, sem virar um banner chamativo.
+function StatsBadge({ stats }: { stats?: { disparos: number; respostas: number } }) {
+  const disparos = stats?.disparos ?? 0
+  const respostas = stats?.respostas ?? 0
+  const pct = disparos > 0 ? Math.round((respostas / disparos) * 100) : 0
+  const color = disparos === 0 ? 'var(--muted-foreground)' : pct >= 25 ? '#16a34a' : pct >= 10 ? '#d97706' : 'var(--muted-foreground)'
+  const bg    = disparos === 0 ? 'var(--secondary)' : pct >= 25 ? 'rgba(22,163,74,0.08)' : pct >= 10 ? 'rgba(217,119,6,0.08)' : 'var(--secondary)'
+  return (
+    <span title={`${disparos} disparo${disparos !== 1 ? 's' : ''} · ${respostas} resposta${respostas !== 1 ? 's' : ''} (${pct}%)`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, whiteSpace: 'nowrap', padding: '4px 10px', borderRadius: 999, background: bg, border: `1px solid ${color}22` }}>
+      <span style={{ color: 'var(--muted-foreground)', fontWeight: 600 }}>🚀 {disparos}</span>
+      <span style={{ opacity: 0.35 }}>·</span>
+      <span style={{ fontWeight: 800, color }}>📊 {pct}%</span>
+    </span>
+  )
+}
+
 const VERTICALS_OAO   = ['Anest-Review', 'Oft-Review', 'Ortop-Review']
 const VERTICALS_R1    = ['Med-Review R1']
 const VERTICALS_AMBOS = ['Med-Review R1', 'Anest-Review', 'Oft-Review', 'Ortop-Review']
@@ -191,6 +210,7 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
 }) {
   const [name,       setName]       = useState(template?.name ?? '')
   const [hubspot,    setHubspot]    = useState(template?.hubspot_name ?? '')
+  const [botmaker,   setBotmaker]   = useState(template?.internal_platform_id ?? '')
   const [content,    setContent]    = useState(template?.content ?? '')
   const [team,       setTeam]       = useState(template?.team ?? 'ambos')
   const [categoria,  setCategoria]  = useState(template?.categoria ?? '')
@@ -220,7 +240,7 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
     if (!name.trim() || !content.trim()) { setError('Nome e conteúdo são obrigatórios'); return }
     if (!categoria) { setError('Selecione uma categoria'); return }
     setLoading(true); setError('')
-    const body = { id: template?.id, name, hubspot_name: hubspot, content, team, vertical: verticals, categoria, validade, utilidade }
+    const body = { id: template?.id, name, hubspot_name: hubspot, internal_platform_id: botmaker, content, team, vertical: verticals, categoria, validade, utilidade }
     const res  = await fetch('/api/templates', {
       method: mode === 'create' ? 'POST' : 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -259,7 +279,7 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
         <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ padding: '10px 14px', borderRadius: 9, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}><p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>⚠ {error}</p></div>}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label style={lbl}>Nome do template *</label>
               <input value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Boas-vindas R1" style={inp} onFocus={foc} onBlur={blr} />
@@ -267,6 +287,10 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
             <div>
               <label style={lbl}>Nome no HubSpot</label>
               <input value={hubspot} onChange={e => setHubspot(e.target.value)} placeholder="Nome exato no HubSpot" style={inp} onFocus={foc} onBlur={blr} />
+            </div>
+            <div>
+              <label style={lbl}>Nome na Botmaker</label>
+              <input value={botmaker} onChange={e => setBotmaker(e.target.value)} placeholder="ID/nome interno na Botmaker" style={inp} onFocus={foc} onBlur={blr} />
             </div>
           </div>
 
@@ -368,16 +392,39 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
 }
 
 // ── Card de template ──────────────────────────────────────────
-function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void }) {
+function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete, stats }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void; stats?: { disparos: number; respostas: number } }) {
   const [copied,   setCopied]   = useState(false)
+  const [copiedName, setCopiedName] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [showUtilidade, setShowUtilidade] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [saving,   setSaving]   = useState(false)
+  // Detecta se o conteúdo REALMENTE passa do limite visual (60px), medindo
+  // o DOM de verdade — em vez de "content.length > 180", que às vezes
+  // deixava o texto cortado sem mostrar "Ver mais" (uma copy com poucas
+  // palavras mas com quebras de linha já passa do limite visual antes de
+  // 180 caracteres) ou mostrava o botão sem necessidade.
+  const contentRef = useRef<HTMLParagraphElement>(null)
+  const [needsExpand, setNeedsExpand] = useState(false)
+  useEffect(() => {
+    if (contentRef.current) {
+      setNeedsExpand(contentRef.current.scrollHeight > contentRef.current.clientHeight + 1)
+    }
+    // Só precisa medir 1x, com o card ainda fechado (clientHeight travado
+    // em 60px nesse momento) — reagir de novo só se o texto do template
+    // mudar de verdade.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t.content])
 
   async function handleCopy() {
     await navigator.clipboard.writeText(t.content)
     setCopied(true); setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleCopyName(e: React.MouseEvent) {
+    e.stopPropagation()
+    await navigator.clipboard.writeText(t.name)
+    setCopiedName(true); setTimeout(() => setCopiedName(false), 1500)
   }
 
   async function handleDelete() {
@@ -397,7 +444,7 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
     </div>
   )
 
-  const CARD_HEIGHT = 296 // altura fixa no estado padrão — grid sempre simétrico
+  const CARD_HEIGHT = 326 // altura fixa no estado padrão — grid sempre simétrico (inclui a linha de disparos/resposta, mesmo quando vazia, com espaço de respiro)
 
   return (
     <div style={{ background: 'var(--card)', border: isFavorite ? '1.5px solid rgba(245,158,11,0.35)' : '1px solid var(--border)', borderRadius: 16, transition: 'border-color 0.15s', padding: '16px 18px', display: 'flex', flexDirection: 'column', height: expanded || showUtilidade ? 'auto' : CARD_HEIGHT, position: 'relative' }}
@@ -414,6 +461,10 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
         <p style={{ flex: 1, fontSize: 15, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{t.name}</p>
+        <button onClick={handleCopyName} title="Copiar nome" className="tpl-copy-name-btn"
+          style={{ width: 20, height: 20, borderRadius: 5, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+          {copiedName ? <Check size={12} /> : <Copy size={12} />}
+        </button>
         <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
           <FavoriteButton isFavorite={isFavorite} onToggle={e => { e.stopPropagation(); onToggleFavorite() }} />
           {isAdmin && (
@@ -433,9 +484,17 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
         </div>
       </div>
 
+      {/* Disparos e taxa de resposta — altura sempre reservada (mesmo sem
+          dado nenhum ainda) pra todos os cards do grid ficarem com a
+          mesma altura. Margem generosa embaixo pra não colar no botão
+          "Quando utilizar" que vem depois. */}
+      <div style={{ height: 22, marginBottom: 12 }}>
+        <StatsBadge stats={stats} />
+      </div>
+
       {/* Quando utilizar — expansível, opcional */}
       {t.utilidade && (
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 10 }}>
           <button onClick={() => setShowUtilidade(v => !v)}
             style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#6366f1' }}>Quando utilizar</span>
@@ -449,13 +508,13 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
 
       {/* Conteúdo — altura mínima garantida, nunca encolhe abaixo do necessário */}
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 10, flexShrink: 0, minHeight: expanded ? 'auto' : 92 }}>
-        <p style={{
+        <p ref={contentRef} style={{
           fontSize: 12.5, color: 'var(--foreground)', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap',
           maxHeight: expanded ? 'none' : 60, overflow: 'hidden',
         }}>
           {renderContent(t.content)}
         </p>
-        {t.content.length > 180 && (
+        {needsExpand && (
           <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0 0', fontFamily: 'inherit' }}>
             {expanded ? 'Ver menos' : 'Ver mais'}
           </button>
@@ -475,8 +534,9 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
 
 // ── Modal de importação CSV ───────────────────────────────────
 // ── Linha de template — visualização em lista, compacta pra escanear ──
-function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void }) {
+function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete, stats }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void; stats?: { disparos: number; respostas: number } }) {
   const [copied,   setCopied]   = useState(false)
+  const [copiedName, setCopiedName] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [expanded,   setExpanded]   = useState(false)
 
@@ -484,6 +544,12 @@ function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelet
     e.stopPropagation()
     await navigator.clipboard.writeText(t.content)
     setCopied(true); setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleCopyName(e: React.MouseEvent) {
+    e.stopPropagation()
+    await navigator.clipboard.writeText(t.name)
+    setCopiedName(true); setTimeout(() => setCopiedName(false), 1500)
   }
 
   async function handleDelete() {
@@ -502,16 +568,26 @@ function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelet
   return (
     <div style={{ borderBottom: '1px solid var(--border)', background: isFavorite ? 'rgba(245,158,11,0.03)' : 'transparent' }}>
       <div onClick={() => setExpanded(v => !v)}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.12s' }}
+        style={{ display: 'grid', gridTemplateColumns: '18px minmax(120px,1fr) 20px 130px minmax(160px,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.12s' }}
         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--secondary)'}
         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = isFavorite ? 'rgba(245,158,11,0.03)' : 'transparent'}>
         <ChevronDown size={13} style={{ color: 'var(--muted-foreground)', flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
-        <p style={{ flex: '1 1 220px', minWidth: 0, fontSize: 13, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</p>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: '1 1 260px' }}>
+        <p style={{ minWidth: 0, fontSize: 13, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</p>
+        <button onClick={handleCopyName} title="Copiar nome" className="tpl-copy-name-btn"
+          style={{ width: 18, height: 18, borderRadius: 5, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {copiedName ? <Check size={11} /> : <Copy size={11} />}
+        </button>
+        {/* Disparos/taxa de resposta — coluna própria de largura fixa (130px),
+            pra alinhar sempre no mesmo lugar independente do tamanho dos
+            números */}
+        <div>
+          <StatsBadge stats={stats} />
+        </div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
           {(t.vertical ?? []).slice(0, 4).map((v: string) => <VerticalTag key={v} vertical={v} />)}
           {t.validade && <Badge label={t.validade} color={VALIDADE_BADGE.color} bg={VALIDADE_BADGE.bg} />}
         </div>
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
           <FavoriteButton isFavorite={isFavorite} onToggle={onToggleFavorite} size={14} />
           <button onClick={handleCopy}
             style={{ width: 30, height: 30, borderRadius: 8, border: `1.5px solid ${copied ? '#22c55e' : 'var(--border)'}`, background: copied ? 'rgba(34,197,94,0.08)' : 'transparent', color: copied ? '#16a34a' : 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s' }}
@@ -754,13 +830,175 @@ Template Geral,"Olá \${nome}! Mensagem para todos os times.",Ambos,,Follow-up,U
   )
 }
 
+// ── Modal de atualização em massa dos IDs internos ────────────
+// Nome bonito (o que já cadastramos aqui) → ID interno da plataforma de
+// conversação (o que a integração de resposta precisa pra saber qual
+// template foi respondido). CSV com 2 colunas: Nome da Copy, ID Interno.
+function BulkInternalIdModal({ onClose, onUpdated }: { onClose: () => void; onUpdated: () => void }) {
+  const [preview, setPreview] = useState<{ name: string; internal_id: string }[]>([])
+  const [error,   setError]   = useState('')
+  const [loading, setLoading] = useState(false)
+  const [result,  setResult]  = useState<{ updated: number; notFound: string[] } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const CSV_TEMPLATE = `Nome da Copy,ID Interno\nAbordagem - Lead Frio,multi_sales_disp_mkt_leadfrio_abordagem\nRetomada - Reabertura genérica de conversa,multi_sales_disp_mkt_retomada_generica`
+
+  // Mesmo parser "cru" já usado no CSV de criação — lida com aspas e
+  // quebra de linha dentro de campo, embora aqui os valores sejam bem mais
+  // simples (nome + um código).
+  function parseCSVFull(text: string): string[][] {
+    const rows: string[][] = []
+    let row: string[] = []
+    let cur = ''
+    let inQ = false
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1)
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]
+      if (inQ) {
+        if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++ } else inQ = false }
+        else cur += ch
+      } else {
+        if (ch === '"') inQ = true
+        else if (ch === ',') { row.push(cur); cur = '' }
+        else if (ch === '\r') { /* ignora */ }
+        else if (ch === '\n') { row.push(cur); cur = ''; if (row.some(c => c.trim())) rows.push(row); row = [] }
+        else cur += ch
+      }
+    }
+    if (cur || row.length) { row.push(cur); if (row.some(c => c.trim())) rows.push(row) }
+    return rows
+  }
+
+  function parseCSV(text: string) {
+    const allRows = parseCSVFull(text)
+    if (allRows.length < 2) { setError('CSV deve ter cabeçalho e pelo menos uma linha de dados'); return }
+    const rows = allRows.slice(1).map(cols => ({
+      name: (cols[0] ?? '').trim(),
+      internal_id: (cols[1] ?? '').trim(),
+    })).filter(r => r.name && r.internal_id)
+    if (rows.length === 0) { setError('Nenhuma linha válida — confira se as colunas são Nome da Copy, ID Interno, nessa ordem'); return }
+    setPreview(rows); setError(''); setResult(null)
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => parseCSV(ev.target?.result as string)
+    reader.readAsText(file, 'UTF-8')
+  }
+
+  async function handleUpdate() {
+    setLoading(true); setError('')
+    const res = await fetch('/api/templates/bulk-internal-id', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: preview }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setError(data.error ?? 'Erro ao atualizar'); setLoading(false); return }
+    setResult({ updated: data.updated, notFound: data.notFound ?? [] })
+    onUpdated()
+    setLoading(false)
+  }
+
+  function downloadExample() {
+    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a'); a.href = url; a.download = 'ids_internos_exemplo.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 22, width: '100%', maxWidth: 620, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 28px 64px rgba(0,0,0,0.25)' }}>
+
+        <div className="tpl-modal-hdr" style={{ borderRadius: '22px 22px 0 0', padding: '18px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 className="tpl-modal-hdr-title" style={{ fontSize: 16, fontWeight: 900, margin: 0 }}>🔗 IDs internos — atualização em massa</h2>
+            <p className="tpl-modal-hdr-eyebrow" style={{ fontSize: 12, margin: '3px 0 0' }}>Liga cada template ao nome usado na plataforma de conversação</p>
+          </div>
+          <button onClick={onClose} className="tpl-modal-hdr-close" style={{ width: 30, height: 30, borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} /></button>
+        </div>
+
+        <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ background: 'var(--secondary)', borderRadius: 12, padding: '14px 16px', border: '1px solid var(--border)' }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 8px' }}>📋 Formato do CSV</p>
+            <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 6px', lineHeight: 1.6 }}>
+              Duas colunas, nessa ordem: <strong>Nome da Copy, ID Interno</strong><br />
+              • <strong>Nome da Copy:</strong> precisa bater exatamente com o nome já cadastrado aqui (maiúscula/minúscula e espaços nas pontas não importam)<br />
+              • <strong>ID Interno:</strong> o nome/código usado na plataforma de conversação pra esse template
+            </p>
+            <button onClick={downloadExample}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Download size={13} /> Baixar exemplo CSV
+            </button>
+          </div>
+
+          <div>
+            <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} style={{ display: 'none' }} />
+            <button onClick={() => fileRef.current?.click()}
+              style={{ width: '100%', height: 56, borderRadius: 12, border: '2px dashed var(--border)', background: 'var(--secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: 'inherit', transition: 'all 0.15s', color: 'var(--muted-foreground)' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.background = 'rgba(99,102,241,0.04)'; e.currentTarget.style.color = '#6366f1' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+              <Upload size={18} />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{preview.length > 0 ? `${preview.length} templates prontos para atualizar` : 'Clique para selecionar o arquivo CSV'}</span>
+            </button>
+          </div>
+
+          {error && <div style={{ padding: '10px 14px', borderRadius: 9, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}><p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>⚠ {error}</p></div>}
+
+          {result && (
+            <div style={{ padding: '12px 14px', borderRadius: 9, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)' }}>
+              <p style={{ fontSize: 12.5, color: '#16a34a', fontWeight: 700, margin: '0 0 4px' }}>✓ {result.updated} template{result.updated !== 1 ? 's' : ''} atualizado{result.updated !== 1 ? 's' : ''}</p>
+              {result.notFound.length > 0 && (
+                <p style={{ fontSize: 11.5, color: '#d97706', margin: 0, lineHeight: 1.5 }}>
+                  ⚠ Não encontrado{result.notFound.length !== 1 ? 's' : ''} (confira o nome exato): {result.notFound.join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {preview.length > 0 && !result && (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ padding: '10px 14px', background: 'var(--secondary)', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Preview — {preview.length} linhas
+              </div>
+              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                {preview.map((r, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: i < preview.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <FileText size={13} style={{ color: 'var(--muted-foreground)', flexShrink: 0 }} />
+                    <p style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</p>
+                    <p style={{ fontSize: 11, color: '#6366f1', margin: 0, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{r.internal_id}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} style={{ flex: 1, height: 42, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{result ? 'Fechar' : 'Cancelar'}</button>
+            {!result && (
+              <button onClick={handleUpdate} disabled={preview.length === 0 || loading}
+                style={{ flex: 2, height: 42, borderRadius: 10, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', fontSize: 14, fontWeight: 800, border: 'none', cursor: preview.length === 0 || loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: preview.length === 0 ? 0.4 : loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
+                {loading ? 'Atualizando...' : `Atualizar ${preview.length} template${preview.length !== 1 ? 's' : ''}`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── TemplatesView principal ───────────────────────────────────
 interface Props {
   templates: any[]; isAdmin: boolean; userTeam?: string
   favoriteIds?: string[]
+  templateStats?: Record<string, { disparos: number; respostas: number }>
 }
 
-export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteIds: initialFavoriteIds = [] }: Props) {
+export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteIds: initialFavoriteIds = [], templateStats = {} }: Props) {
   const [templates,  setTemplates]  = useState(initial)
   const [search,     setSearch]     = useState('')
   const [filterTeam, setFilterTeam] = useState('todos')
@@ -768,8 +1006,8 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
   const [filterCategoria, setFilterCategoria] = useState('todos')
   const [filterValidade,  setFilterValidade]  = useState('todos')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [sortBy,   setSortBy]   = useState<'recentes' | 'nome'>('recentes')
-  const [modal,      setModal]      = useState<null | 'create' | 'edit' | 'csv'>(null)
+  const [sortBy,   setSortBy]   = useState<'recentes' | 'nome' | 'disparos' | 'respostas'>('recentes')
+  const [modal,      setModal]      = useState<null | 'create' | 'edit' | 'csv' | 'internal-ids'>(null)
   const [editTarget, setEditTarget] = useState<any>(null)
 
   // ── Favoritos — Set local, atualizado de forma otimista. A chamada pra
@@ -834,10 +1072,17 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
       if (showFavoritesOnly && !favIds.has(t.id)) return false
       return true
     })
-    const sorted = sortBy === 'nome'
-      ? [...result].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    const sorted =
+      sortBy === 'nome'      ? [...result].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')) :
+      sortBy === 'disparos'  ? [...result].sort((a, b) => (templateStats[b.id]?.disparos ?? 0) - (templateStats[a.id]?.disparos ?? 0)) :
+      sortBy === 'respostas' ? [...result].sort((a, b) => {
+        const aD = templateStats[a.id]?.disparos ?? 0, bD = templateStats[b.id]?.disparos ?? 0
+        const aPct = aD > 0 ? (templateStats[a.id]?.respostas ?? 0) / aD : 0
+        const bPct = bD > 0 ? (templateStats[b.id]?.respostas ?? 0) / bD : 0
+        return bPct - aPct
+      }) :
       // 'recentes' — created_at mais novo primeiro
-      : [...result].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+      [...result].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
 
     // Favoritos sempre primeiro, independente do critério de ordenação
     // escolhido acima (que continua valendo como critério secundário,
@@ -847,7 +1092,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
       const bFav = favIds.has(b.id) ? 0 : 1
       return aFav - bFav
     })
-  }, [templates, search, filterTeam, filterVert, filterCategoria, filterValidade, sortBy, showFavoritesOnly, favIds])
+  }, [templates, search, filterTeam, filterVert, filterCategoria, filterValidade, sortBy, showFavoritesOnly, favIds, templateStats])
 
   function handleCreated(t: any)  { setTemplates(prev => [t, ...prev]) }
   function handleUpdated(t: any)  { setTemplates(prev => prev.map(x => x.id === t.id ? t : x)) }
@@ -896,6 +1141,12 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
           </div>
           {isAdmin && (
             <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setModal('internal-ids')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 38, padding: '0 16px', borderRadius: 10, background: 'transparent', color: 'var(--muted-foreground)', border: '1.5px solid var(--border)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--foreground)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+                🔗 IDs internos
+              </button>
               <button onClick={() => setModal('csv')}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 38, padding: '0 16px', borderRadius: 10, background: 'transparent', color: 'var(--muted-foreground)', border: '1.5px solid var(--border)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--foreground)' }}
@@ -964,11 +1215,13 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
         )}
 
         {/* Ordenação */}
-        <FilterDropdown value={sortBy} onChange={v => setSortBy(v as 'recentes' | 'nome')}
+        <FilterDropdown value={sortBy} onChange={v => setSortBy(v as 'recentes' | 'nome' | 'disparos' | 'respostas')}
           options={[
-            {value:'recentes', label:'🕐 Mais recentes'},
-            {value:'nome',     label:'🔤 Nome (A-Z)'},
-          ]} minW={155}/>
+            {value:'recentes',  label:'🕐 Mais recentes'},
+            {value:'nome',      label:'🔤 Nome (A-Z)'},
+            {value:'disparos',  label:'🚀 Mais disparadas'},
+            {value:'respostas', label:'📊 Mais respondidas'},
+          ]} minW={175}/>
 
         {/* Alternador Grid / Lista */}
         <div style={{ display: 'flex', border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
@@ -1028,6 +1281,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
                           onToggleFavorite={() => toggleFavorite(t.id)}
                           onEdit={() => { setEditTarget(t); setModal('edit') }}
                           onDelete={() => handleDeleted(t.id)}
+                          stats={templateStats[t.id]}
                         />
                       ))}
                     </div>
@@ -1039,6 +1293,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
                           onToggleFavorite={() => toggleFavorite(t.id)}
                           onEdit={() => { setEditTarget(t); setModal('edit') }}
                           onDelete={() => handleDeleted(t.id)}
+                          stats={templateStats[t.id]}
                         />
                       ))}
                     </div>
@@ -1059,6 +1314,9 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
       )}
       {modal === 'csv' && (
         <CsvImportModal onClose={() => setModal(null)} onImported={ts => { ts.forEach(handleCreated) }} />
+      )}
+      {modal === 'internal-ids' && (
+        <BulkInternalIdModal onClose={() => setModal(null)} onUpdated={() => {}} />
       )}
 
       {/* Coach de templates — usa o mesmo array de templates já carregado
@@ -1082,6 +1340,12 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
         .dark .tpl-modal-hdr-sparkle { color: #fbbf24; }
         .dark .tpl-modal-hdr-close { background: rgba(255,255,255,0.12); color: #fff; border: none !important; }
         .dark .tpl-modal-hdr-close:hover { background: rgba(255,255,255,0.2); color: #fff; }
+
+        /* Ícone de copiar nome — nunca tem fundo, só o contorno do ícone
+           muda de cor: azul no claro, branco no escuro. */
+        .tpl-copy-name-btn { color: #2563eb; opacity: 0.85; transition: opacity .12s; }
+        .tpl-copy-name-btn:hover { opacity: 1; }
+        .dark .tpl-copy-name-btn { color: #fff; }
       `}</style>
     </div>
   )

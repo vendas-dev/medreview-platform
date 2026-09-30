@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
       return {
         name:         t.name,
         hubspot_name: t.hubspot_name || null,
+        internal_platform_id: t.internal_platform_id || t.botmaker_name || null,
         content:      t.content,
         team:         t.team || 'ambos',
         vertical,
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await admin.from('templates').insert({
     name:         body.name,
     hubspot_name: body.hubspot_name || null,
+    internal_platform_id: body.internal_platform_id || null,
     content:      body.content,
     team:         body.team || 'ambos',
     vertical,
@@ -105,6 +107,7 @@ export async function PATCH(req: NextRequest) {
   const { data, error } = await admin.from('templates').update({
     name:         body.name,
     hubspot_name: body.hubspot_name || null,
+    internal_platform_id: body.internal_platform_id || null,
     content:      body.content,
     team:         body.team,
     vertical,
