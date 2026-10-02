@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { TemplatesView } from './TemplatesView'
+import { dayBoundsSaoPaulo } from '@/lib/timezone'
 
 function normalizeTemplateName(s: string): string {
   return (s ?? '').trim().toLowerCase()
@@ -33,10 +34,15 @@ export default async function TemplatesPage() {
   // consulta é só leitura agregada e não deve depender de RLS liberar
   // 'disparos' pro usuário comum também ver a própria taxa de resposta.
   const disparosAdmin = createAdminClient()
+  // Data de corte fixa — conta TODO o período a partir dela (não é um
+  // filtro de "hoje" que rola todo dia). Disparos anteriores a essa data
+  // são ignorados na contagem (provavelmente porque o rastreio de
+  // resposta só passou a ser confiável a partir daqui).
+  const { start: cutoffStart } = dayBoundsSaoPaulo('2026-09-30')
   const [{ data: templates }, { data: favRows }, { data: disparosRaw }] = await Promise.all([
     query,
     supabase.from('template_favorites').select('template_id').eq('user_id', user.id),
-    disparosAdmin.from('disparos').select('template, respondido_at').limit(999999),
+    disparosAdmin.from('disparos').select('template, respondido_at').gte('data_disparo', cutoffStart).limit(999999),
   ])
 
   const favoriteIds = (favRows ?? []).map((r: any) => r.template_id)

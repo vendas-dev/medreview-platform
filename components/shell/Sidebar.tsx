@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
-  Target,
+  Target, Image as ImageIcon,
 } from 'lucide-react'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -55,6 +55,7 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
       { key: 'disparos',     label: 'Disparos',       icon: Send,         href: '/disparos' },
       { key: 'disparos',     label: 'Links',          icon: Link2,        href: '/disparos/links', staticLabel: true },
       { key: 'templates',    label: 'Templates',      icon: FileText,     href: '/templates',  always: true },
+      { key: 'medmidia',     label: 'MedMídia',       icon: ImageIcon,    href: '/medmidia',   always: true },
     ],
   },
   // ── Administração — unifica o que antes era "Inteligência Comercial"
