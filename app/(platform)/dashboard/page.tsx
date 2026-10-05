@@ -9,7 +9,7 @@ import { ensureDailyInsights } from '@/lib/dashboard/closerInsights'
 import { ensureCompanyInsights } from '@/lib/dashboard/companyInsights'
 import { computeEventsAnalysis } from '@/lib/dashboard/eventsAnalysis'
 import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, weekdayInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
-import { eventMoneyLeftOnTable, extractCouponDiscountPct } from '@/lib/telao/format'
+import { eventMoneyLeftOnTable, eventDiscountPct } from '@/lib/telao/format'
 import { computeForecast, computeRemainingMonthRecurring, computeCurrentMonthRecurringStats, RecurringSale } from '@/lib/telao/forecast'
 
 // Mesmo critério de match usado no telão/intel: closer_id OU hubspot_id (com
@@ -123,7 +123,7 @@ export default async function DashboardPage() {
     ] = await Promise.all([
       admin2.from('profiles').select('id, name, team, avatar_url, hubspot_id').neq('role', 'superadmin'),
       admin2.from('telao_events')
-        .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, sold_by_ambassador, is_recurring, installment_number, event_type, product, vertical')
+        .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, sold_by_ambassador, is_recurring, installment_number, event_type, product, vertical, desconto_ignorado')
         .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
         .limit(999999),
       admin2.from('telao_events')
@@ -140,7 +140,7 @@ export default async function DashboardPage() {
         .eq('event_type', 'sale').eq('is_recurring', true).not('subscription_id', 'is', null)
         .limit(999999),
       admin2.from('telao_events')
-        .select('value, vertical, coupon_code, is_self_checkout, sale_type, product')
+        .select('value, vertical, coupon_code, is_self_checkout, sale_type, product, desconto_ignorado')
         .gte('occurred_at', prevMStart).lte('occurred_at', prevMEnd)
         .limit(999999),
     ])
@@ -172,7 +172,7 @@ export default async function DashboardPage() {
     const companyDiscountByVertical: Record<string, { sum: number; count: number }> = {}
     salesMonth.forEach((e: any) => {
       if (e.is_self_checkout) return
-      const pct = extractCouponDiscountPct(e.coupon_code)
+      const pct = eventDiscountPct(e)
       if (pct === null) return
       const vlabel = vLabel(e.vertical ?? 'outros')
       if (!companyDiscountByVertical[vlabel]) companyDiscountByVertical[vlabel] = { sum: 0, count: 0 }
@@ -235,7 +235,7 @@ export default async function DashboardPage() {
       const myVerticals = [...new Set(mySales.map((e: any) => vLabel(e.vertical ?? 'outros')))]
       const discountByVertical = myVerticals.map(vlabel => {
         const salesInVert = mySales.filter((e: any) => vLabel(e.vertical ?? 'outros') === vlabel && !e.is_self_checkout)
-        const withDiscount = salesInVert.map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+        const withDiscount = salesInVert.map((e: any) => eventDiscountPct(e)).filter((p: any) => p !== null) as number[]
         const avgPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
         return { vertical: vlabel, avgPct, companyAvgPct: companyAvgDiscount(vlabel), count: withDiscount.length }
       })
@@ -437,7 +437,7 @@ export default async function DashboardPage() {
     const prevSales = (prevMonthSales ?? []) as any[]
     const avgDiscountForSales = (sales: any[]) => {
       const withDiscount = sales.filter((e: any) => !e.is_self_checkout)
-        .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+        .map((e: any) => eventDiscountPct(e)).filter((p: any) => p !== null) as number[]
       return withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
     }
     const verticalPrevMonth = ALL_VERTICALS.map(vlabel => {
@@ -462,7 +462,7 @@ export default async function DashboardPage() {
     // foge muito da média do time — sinal diferente de "por vertical".
     const closerOverallDiscount = closers.map((c: any) => {
       const mySales = salesMonth.filter((e: any) => matchesCloser(e, c) && !e.is_self_checkout)
-      const withDiscount = mySales.map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+      const withDiscount = mySales.map((e: any) => eventDiscountPct(e)).filter((p: any) => p !== null) as number[]
       const avgPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
       return { name: c.name, avgPct, count: withDiscount.length }
     }).filter(c => c.count > 0)
@@ -559,7 +559,7 @@ export default async function DashboardPage() {
     const closerPerformanceForAnalysis = closerCardsWithInsight.filter(c => c.salesCount > 0 || c.revenue > 0).map(c => {
       const mySales = salesMonth.filter((e: any) => matchesCloser(e, c))
       const withDiscount = mySales.filter((e: any) => !e.is_self_checkout)
-        .map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+        .map((e: any) => eventDiscountPct(e)).filter((p: any) => p !== null) as number[]
       const avgDiscountPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
       // Receita desse closer, separada por vertical — usada pra calcular
       // "% de atingimento por vertical" na tabela do time OAO, comparando
@@ -687,7 +687,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     admin3.from('profiles').select('id, hubspot_id').neq('role', 'superadmin'),
     admin3.from('telao_events')
-      .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, product, vertical, event_type')
+      .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, product, vertical, event_type, desconto_ignorado')
       .eq('event_type', 'sale').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
     admin3.from('telao_events').select('closer_id, closer_hubspot_id')
       .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
@@ -736,11 +736,11 @@ export default async function DashboardPage() {
   const myVerticalsUsed = [...new Set(mySales3.map((e: any) => vLabel3(e.vertical ?? 'outros')))]
   const myDiscountByVertical = myVerticalsUsed.map(vlabel => {
     const inVert = mySales3.filter((e: any) => vLabel3(e.vertical ?? 'outros') === vlabel && !e.is_self_checkout)
-    const withDiscount = inVert.map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+    const withDiscount = inVert.map((e: any) => eventDiscountPct(e)).filter((p: any) => p !== null) as number[]
     const avgPct = withDiscount.length > 0 ? withDiscount.reduce((s, p) => s + p, 0) / withDiscount.length : 0
     // Média do time nessa vertical, pra comparação
     const teamInVert = allSales3.filter((e: any) => vLabel3(e.vertical ?? 'outros') === vlabel && !e.is_self_checkout)
-    const teamDiscount = teamInVert.map((e: any) => extractCouponDiscountPct(e.coupon_code)).filter((p: any) => p !== null) as number[]
+    const teamDiscount = teamInVert.map((e: any) => eventDiscountPct(e)).filter((p: any) => p !== null) as number[]
     const companyAvgPct = teamDiscount.length > 0 ? teamDiscount.reduce((s, p) => s + p, 0) / teamDiscount.length : 0
     return { vertical: vlabel, avgPct, companyAvgPct, count: withDiscount.length }
   })

@@ -317,20 +317,7 @@ export async function POST(req: NextRequest) {
             // Corrige a atribuição (era self-checkout, na prática é venda do closer)
             insertData.is_self_checkout  = false
             insertData.seller_type       = 'closer'
-            // subscription_transfers.co_closer_id guarda um id de PERFIL
-            // (profiles.id), mas telao_events.closer_id aponta pra tabela
-            // closers — são ids diferentes. Copiar direto violava a chave
-            // estrangeira (telao_events_closer_id_fkey) e a parcela inteira
-            // era recusada. Traduz pelo hubspot_id, que é o mesmo nas duas
-            // tabelas. Se por algum motivo o closer não for achado, grava
-            // sem closer_id mas mantém o hubspot_id: a venda nunca é
-            // perdida por causa da atribuição, e os painéis que casam pelo
-            // hubspot_id continuam enxergando.
-            const transferCloser = transfer.co_closer_hubspot_id
-              ? (closerList.find(c => c.hubspot_id && String(c.hubspot_id).trim() === String(transfer.co_closer_hubspot_id).trim()) ?? null)
-              : null
-            insertData.closer_id         = transferCloser?.id ?? null
-            insertData.closer_name       = transferCloser?.name ?? insertData.closer_name ?? null
+            insertData.closer_id         = transfer.co_closer_id
             insertData.closer_hubspot_id = transfer.co_closer_hubspot_id
           } else {
             // Mantém a atribuição original (embaixador/closer) e soma o co-closer

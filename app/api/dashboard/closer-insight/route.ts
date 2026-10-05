@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
   const [{ data: sales }, { data: certs }, { data: goal }] = await Promise.all([
     admin.from('telao_events')
-      .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, event_type, sale_type')
+      .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, event_type, sale_type, desconto_ignorado')
       .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
       .limit(999999),
     admin.from('telao_events')

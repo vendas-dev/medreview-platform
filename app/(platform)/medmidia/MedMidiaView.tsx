@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Plus, X, Pencil, Trash2, Upload, FileText, Image as ImageIcon, Video,
-  Download, ExternalLink, Play, ChevronDown, LayoutGrid, List as ListIcon,
+  Play, ChevronDown, LayoutGrid, List as ListIcon, ArrowUpRight, Maximize2,
 } from 'lucide-react'
 
 // ── Cada vertical com cor própria — igual pedido: Anest azul, Oft
@@ -132,6 +132,13 @@ function youtubeId(url: string): string | null {
   return m ? m[1] : null
 }
 
+// ── Extrai o ID de um arquivo do Google Drive (formato .../d/ID/...),
+// pra montar o link de preview embutido (.../d/ID/preview).
+function driveFileId(url: string): string | null {
+  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/)
+  return m ? m[1] : null
+}
+
 function ItemThumb({ item }: { item: any }) {
   if (item.tipo === 'imagem') {
     return <img src={item.file_url} alt={item.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -170,10 +177,58 @@ function DeleteConfirm({ nome, onCancel, onConfirm }: { nome: string; onCancel: 
   )
 }
 
+// ── Modal de pré-visualização — abre embutido na plataforma (imagem
+// direto, vídeo via embed do YouTube/Drive, PDF via iframe), sem
+// redirecionar pra fora. "Ir para fora" é a única ação que de fato sai da
+// plataforma, e fica isolada embaixo, bem clara.
+function PreviewModal({ item, onClose }: { item: any; onClose: () => void }) {
+  function handleExternal() { window.open(item.file_url, '_blank', 'noopener,noreferrer') }
+
+  let body: React.ReactNode = null
+  if (item.tipo === 'imagem') {
+    body = <img src={item.file_url} alt={item.nome} style={{ maxWidth: '100%', maxHeight: '68vh', display: 'block', margin: '0 auto', borderRadius: 12, objectFit: 'contain' }} />
+  } else if (item.tipo === 'video' && item.video_source === 'youtube') {
+    const yid = youtubeId(item.file_url)
+    body = yid
+      ? <iframe src={`https://www.youtube.com/embed/${yid}`} style={{ width: '100%', aspectRatio: '16/9', border: 'none', borderRadius: 12 }} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen />
+      : <p style={{ textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 13 }}>Não consegui identificar esse vídeo do YouTube pra mostrar aqui.</p>
+  } else if (item.tipo === 'video' && item.video_source === 'drive') {
+    const did = driveFileId(item.file_url)
+    body = did
+      ? <iframe src={`https://drive.google.com/file/d/${did}/preview`} style={{ width: '100%', aspectRatio: '16/9', border: 'none', borderRadius: 12 }} allow="autoplay" allowFullScreen />
+      : <p style={{ textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 13 }}>Não consegui identificar esse vídeo do Drive pra mostrar aqui.</p>
+  } else if (item.tipo === 'pdf') {
+    body = <iframe src={item.file_url} style={{ width: '100%', height: '68vh', border: 'none', borderRadius: 12 }} />
+  }
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 18, padding: 20, maxWidth: 900, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 28px 64px rgba(0,0,0,0.35)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 10 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--foreground)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</h3>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'var(--secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', flexShrink: 0 }}><X size={15} /></button>
+        </div>
+
+        {body}
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+          <button onClick={handleExternal}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 16px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted-foreground)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .15s' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#6366f1' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+            Ir para fora <ArrowUpRight size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Card (grade) — descrição agora expansível de verdade (medição real
 // do DOM, mesmo padrão já corrigido em Templates — nunca corta sem
 // mostrar "Ver mais", nunca mostra "Ver mais" à toa).
-function MediaCard({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: boolean; onEdit: () => void; onDelete: () => void }) {
+function MediaCard({ item, isAdmin, onEdit, onDelete, onPreview }: { item: any; isAdmin: boolean; onEdit: () => void; onDelete: () => void; onPreview: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const descRef = useRef<HTMLParagraphElement>(null)
@@ -188,19 +243,18 @@ function MediaCard({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: bo
     await fetch('/api/medmidia', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }) })
     onDelete()
   }
-  function handleOpen() { window.open(item.file_url, '_blank', 'noopener,noreferrer') }
 
   if (confirming) return <DeleteConfirm nome={item.nome} onCancel={() => setConfirming(false)} onConfirm={handleDelete} />
 
   return (
     <div className="mm-card" style={{ background: 'var(--card)', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <div onClick={handleOpen} style={{ aspectRatio: '16/10', position: 'relative', cursor: 'pointer', overflow: 'hidden' }}>
+      <div onClick={onPreview} style={{ aspectRatio: '16/10', position: 'relative', cursor: 'pointer', overflow: 'hidden' }}>
         <div className="mm-thumb-inner" style={{ width: '100%', height: '100%' }}>
           <ItemThumb item={item} />
         </div>
         {item.tipo === 'video' && <PlayOverlay />}
         <div style={{ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: 7, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <ExternalLink size={12} style={{ color: '#fff' }} />
+          <Maximize2 size={11} style={{ color: '#fff' }} />
         </div>
       </div>
 
@@ -223,8 +277,8 @@ function MediaCard({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: bo
         )}
 
         <div style={{ display: 'flex', gap: 6, marginTop: 'auto', paddingTop: 8 }}>
-          <button onClick={handleOpen} style={{ flex: 1, height: 32, borderRadius: 8, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--foreground)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-            {item.tipo === 'pdf' ? <Download size={12} /> : <ExternalLink size={12} />} Abrir
+          <button onClick={onPreview} style={{ flex: 1, height: 32, borderRadius: 8, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--foreground)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+            <Maximize2 size={12} /> Abrir
           </button>
           {isAdmin && (
             <>
@@ -240,7 +294,7 @@ function MediaCard({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: bo
 
 // ── Linha (lista) — imagem bem maior que no card, expande/minimiza pra
 // mostrar a descrição completa, mesmo padrão de interação do TemplateRow.
-function MediaRow({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: boolean; onEdit: () => void; onDelete: () => void }) {
+function MediaRow({ item, isAdmin, onEdit, onDelete, onPreview }: { item: any; isAdmin: boolean; onEdit: () => void; onDelete: () => void; onPreview: () => void }) {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
@@ -248,7 +302,7 @@ function MediaRow({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: boo
     await fetch('/api/medmidia', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }) })
     onDelete()
   }
-  function handleOpen(e: React.MouseEvent) { e.stopPropagation(); window.open(item.file_url, '_blank', 'noopener,noreferrer') }
+  function handlePreviewClick(e: React.MouseEvent) { e.stopPropagation(); onPreview() }
 
   if (confirming) return (
     <div style={{ borderBottom: '1px solid var(--border)', padding: '10px 14px' }}>
@@ -264,7 +318,7 @@ function MediaRow({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: boo
         onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
 
         {/* Imagem bem maior que no card — é o pedido específico da lista */}
-        <div onClick={handleOpen} style={{ width: 140, height: 90, borderRadius: 11, overflow: 'hidden', position: 'relative', flexShrink: 0, cursor: 'pointer' }}>
+        <div onClick={handlePreviewClick} style={{ width: 140, height: 90, borderRadius: 11, overflow: 'hidden', position: 'relative', flexShrink: 0, cursor: 'pointer' }}>
           <div className="mm-thumb-inner" style={{ width: '100%', height: '100%' }}>
             <ItemThumb item={item} />
           </div>
@@ -284,8 +338,8 @@ function MediaRow({ item, isAdmin, onEdit, onDelete }: { item: any; isAdmin: boo
         <ChevronDown size={15} style={{ color: 'var(--muted-foreground)', flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
 
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <button onClick={handleOpen} style={{ height: 34, padding: '0 12px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--foreground)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
-            {item.tipo === 'pdf' ? <Download size={13} /> : <ExternalLink size={13} />} Abrir
+          <button onClick={handlePreviewClick} style={{ height: 34, padding: '0 12px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--foreground)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Maximize2 size={13} /> Abrir
           </button>
           {isAdmin && (
             <>
@@ -532,6 +586,7 @@ export function MedMidiaView({ itens: initial, isAdmin, userTeam }: Props) {
   const [filterVert, setFilterVert] = useState('')
   const [viewMode,   setViewMode]   = useState<'grid' | 'list'>('grid')
   const [modal,      setModal]      = useState<null | 'create' | 'edit'>(null)
+  const [previewItem, setPreviewItem] = useState<any>(null)
   const [editTarget, setEditTarget] = useState<any>(null)
 
   // Verticais disponíveis pro filtro — nunca uma lista fixa. Calculada a
@@ -640,6 +695,7 @@ export function MedMidiaView({ itens: initial, isAdmin, userTeam }: Props) {
             <MediaCard key={it.id} item={it} isAdmin={isAdmin}
               onEdit={() => { setEditTarget(it); setModal('edit') }}
               onDelete={handleDeleted}
+              onPreview={() => setPreviewItem(it)}
             />
           ))}
         </div>
@@ -649,6 +705,7 @@ export function MedMidiaView({ itens: initial, isAdmin, userTeam }: Props) {
             <MediaRow key={it.id} item={it} isAdmin={isAdmin}
               onEdit={() => { setEditTarget(it); setModal('edit') }}
               onDelete={handleDeleted}
+              onPreview={() => setPreviewItem(it)}
             />
           ))}
         </div>
@@ -656,6 +713,7 @@ export function MedMidiaView({ itens: initial, isAdmin, userTeam }: Props) {
 
       {modal === 'create' && <MediaModal mode="create" onClose={() => setModal(null)} onSaved={handleCreated} />}
       {modal === 'edit' && editTarget && <MediaModal mode="edit" item={editTarget} onClose={() => { setModal(null); setEditTarget(null) }} onSaved={handleUpdated} />}
+      {previewItem && <PreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />}
 
       <style>{`
         /* Hover sutil nos quadrantes da galeria — card eleva levemente,

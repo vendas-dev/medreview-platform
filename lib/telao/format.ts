@@ -170,15 +170,35 @@ export function moneyLeftOnTable(value: number, pct: number): number {
   return Math.max(original - value, 0)
 }
 
+// Venda marcada pra ficar FORA de qualquer conta de desconto (Upsell,
+// 2 Links, FIES, Prouni — ver lib/discount/excludedReasons.ts). A marca é
+// definida na geração do link e copiada pra venda quando o lead paga. A
+// venda segue contando normal em receita/ranking/quantidade; só os
+// cálculos de desconto devem ignorá-la.
+export function isDiscountIgnored(e: { desconto_ignorado?: boolean | null }): boolean {
+  return e.desconto_ignorado === true
+}
+
+// Desconto % de uma venda pra fins de média: o do sufixo _X% do cupom, ou
+// null se o cupom não tem desconto conhecido OU se a venda está marcada
+// como "desconto não considerado". Use esta no lugar de
+// extractCouponDiscountPct(e.coupon_code) em qualquer cálculo de desconto
+// médio — assim a regra fica num lugar só.
+export function eventDiscountPct(e: { coupon_code?: string | null; desconto_ignorado?: boolean | null }): number | null {
+  if (isDiscountIgnored(e)) return null
+  return extractCouponDiscountPct(e.coupon_code)
+}
+
 // Quanto esse evento específico deixou na mesa — já aplicando as regras
 // combinadas: só vendas de closer (não self-checkout), e só a primeira
 // parcela quando for recorrência (senão a mesma negociação seria contada
-// em dobro/triplo a cada parcela).
-export function eventMoneyLeftOnTable(e: { event_type:string; seller_type?:string; is_self_checkout?:boolean; is_recurring?:boolean; installment_number?:number|null; value:number|null; coupon_code?:string|null }): number {
+// em dobro/triplo a cada parcela). Venda marcada como "desconto não
+// considerado" também não deixa nada na mesa.
+export function eventMoneyLeftOnTable(e: { event_type:string; seller_type?:string; is_self_checkout?:boolean; is_recurring?:boolean; installment_number?:number|null; value:number|null; coupon_code?:string|null; desconto_ignorado?:boolean|null }): number {
   if (e.event_type !== 'sale') return 0
   if (e.is_self_checkout || e.seller_type === 'self_checkout') return 0
   if (e.is_recurring && (e.installment_number ?? 1) > 1) return 0
-  const pct = extractCouponDiscountPct(e.coupon_code)
+  const pct = eventDiscountPct(e)
   if (pct === null) return 0
   return moneyLeftOnTable(e.value ?? 0, pct)
 }
