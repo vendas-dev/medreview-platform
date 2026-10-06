@@ -1,12 +1,11 @@
 'use client'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import Link from 'next/link'
 import { CommercialAnalysis } from './CommercialAnalysis'
 import { EventsSection } from './EventsSection'
+import { ForecastSection } from './ForecastSection'
 import {
-  Users, Target, TrendingUp,
-  ArrowRight, X, Sparkles, Stethoscope, HeartPulse, ClipboardList, ChevronDown
+  Users, X, Sparkles, Stethoscope, HeartPulse, ClipboardList, ChevronDown
 } from 'lucide-react'
 
 // ── Mini bar ────────────────────────────────────────────────
@@ -17,22 +16,6 @@ function Bar({ pct, color, h = 6 }: { pct: number; color: string; h?: number }) 
         style={{ height: '100%', borderRadius: 999, background: color }} />
     </div>
   )
-}
-
-// ── Curva suave (mesma técnica do telão) ─────────────────────
-function smoothPath(pts: { x: number; y: number }[]): string {
-  if (pts.length < 2) return ''
-  let d = `M ${pts[0].x},${pts[0].y}`
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] ?? pts[i]
-    const p1 = pts[i]
-    const p2 = pts[i + 1]
-    const p3 = pts[i + 2] ?? p2
-    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6
-    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6
-    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
-  }
-  return d
 }
 
 // ── Presença online dot ──────────────────────────────────────
@@ -246,275 +229,9 @@ function DualRingGauge({ pctGoal, pctMonth }: { pctGoal: number; pctMonth: numbe
   )
 }
 
-// ── Contador animado — número "conta" do zero até o valor, não aparece pronto ──
-function CountUp({ value, format }: { value: number; format: (v: number) => string }) {
-  const [display, setDisplay] = useState(0)
-  useEffect(() => {
-    const duration = 1200, start = performance.now(), from = display
-    let raf: number
-    const step = (now: number) => {
-      const t = Math.min((now - start) / duration, 1)
-      const eased = 1 - Math.pow(1 - t, 3)
-      setDisplay(from + (value - from) * eased)
-      if (t < 1) raf = requestAnimationFrame(step)
-    }
-    raf = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(raf)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
-  return <>{format(display)}</>
-}
-
-// ── Forecast — componente de destaque, com área suave e saúde das assinaturas ──
-// ── Meta x Realizado — contexto que faltava pro número de receita sozinho ──
-function MetaRealizadoCard({ meta, realizado, evolucao, diasNoMes }: {
-  meta: number; realizado: number
-  evolucao: { day: number; realizado: number; ritmoLinear: number }[]
-  diasNoMes: number
-}) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const pct = meta > 0 ? (realizado / meta) * 100 : 0
-  const acimaOuNoRitmo = evolucao.length > 0 && evolucao[evolucao.length - 1].realizado >= evolucao[evolucao.length - 1].ritmoLinear
-
-  const W = 700, H = 140, padX = 10, padY = 18
-  // Escala pelo range real dos dados visíveis (realizado + ritmo), não pela
-  // meta inteira — se a meta for muito maior que o realizado até agora, usar
-  // a meta como referência espreme as duas linhas lá embaixo, quase retas.
-  const maxVal = Math.max(...evolucao.map(d => Math.max(d.realizado, d.ritmoLinear)), 1)
-  const pts = evolucao.map(d => ({ x: padX + ((d.day - 1) / Math.max(diasNoMes - 1, 1)) * (W - padX * 2), y: padY + (H - padY - 6) * (1 - d.realizado / maxVal) }))
-  const ritmoPts = evolucao.map(d => ({ x: padX + ((d.day - 1) / Math.max(diasNoMes - 1, 1)) * (W - padX * 2), y: padY + (H - padY - 6) * (1 - d.ritmoLinear / maxVal) }))
-  const linePath = smoothPath(pts)
-  const areaPath = pts.length > 1 ? `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z` : ''
-  const ritmoLinePath = ritmoPts.length > 1 ? `M ${ritmoPts[0].x},${ritmoPts[0].y} L ${ritmoPts[ritmoPts.length - 1].x},${ritmoPts[ritmoPts.length - 1].y}` : ''
-
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <Target size={15} style={{ color: '#6366f1' }} />
-        <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Meta x Realizado</p>
-      </div>
-
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 6 }}>
-        <div>
-          <p style={{ fontSize: 'clamp(24px,3vw,30px)', fontWeight: 900, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1 }}>
-            <CountUp value={realizado} format={fmtBRL} />
-          </p>
-          <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>
-            realizado de <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(meta)}</strong> de meta
-          </p>
-        </div>
-        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <p style={{ fontSize: 22, fontWeight: 900, color: pct >= 100 ? '#22c55e' : acimaOuNoRitmo ? '#3b82f6' : '#f97316', margin: 0 }}>{pct.toFixed(1)}%</p>
-          <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>da meta</p>
-        </div>
-      </div>
-
-      <div style={{ height: 6, borderRadius: 999, background: 'var(--border)', overflow: 'hidden', marginBottom: 12 }}>
-        <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(pct, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
-          style={{ height: '100%', background: pct >= 100 ? 'linear-gradient(90deg,#16a34a,#22c55e)' : 'linear-gradient(90deg,#4f46e5,#6366f1)' }} />
-      </div>
-
-      {evolucao.length > 1 && (
-        <div style={{ width: '100%', overflow: 'visible' }}>
-          <svg width="100%" height={H + 8} viewBox={`0 0 ${W} ${H + 8}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
-            <defs>
-              <linearGradient id="metaGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity=".3" />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            {/* Linha de ritmo ideal da meta — reta pontilhada, referência */}
-            <path d={ritmoLinePath} fill="none" stroke="var(--muted-foreground)" strokeWidth={2} strokeDasharray="5 5" opacity={0.7} />
-            <motion.path d={areaPath} fill="url(#metaGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
-            <motion.path d={linePath} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
-              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
-            {pts.map((p, i) => {
-              const isLast = i === pts.length - 1
-              const isHovered = hovered === i
-              if (!isLast && !isHovered && i % Math.max(Math.ceil(pts.length / 8), 1) !== 0) {
-                return <circle key={i} cx={p.x} cy={p.y} r={12} fill="transparent" onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }} />
-              }
-              return (
-                <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
-                  <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
-                  <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6 : isLast ? 4.5 : 2.5} fill={isHovered || isLast ? '#6366f1' : 'var(--card)'} stroke="#6366f1" strokeWidth={1.5}
-                    animate={{ r: isHovered ? 6 : isLast ? 4.5 : 2.5 }} transition={{ duration: 0.15 }} />
-                  {(isHovered || isLast) && (
-                    <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={11} fontWeight={800} fill="#6366f1">
-                      {evolucao[i].realizado >= 1000 ? `${(evolucao[i].realizado / 1000).toFixed(1)}k` : evolucao[i].realizado.toFixed(0)}
-                    </text>
-                  )}
-                </g>
-              )
-            })}
-          </svg>
-        </div>
-      )}
-      <p style={{ fontSize: 10, color: 'var(--muted-foreground)', margin: '2px 0 0', textAlign: 'center' }}>linha pontilhada = ritmo ideal pra bater a meta</p>
-    </div>
-  )
-}
-
-// ── Forecast de fechamento do mês — o gráfico mais importante: "nesse
-// ritmo, onde vamos terminar o mês?" ──────────────────────────────────
-function ClosingForecastCard({ realizado, recorrenciaPrevista, ritmoNovaVenda, forecast, meta, pctVsMeta }: {
-  realizado: number; recorrenciaPrevista: number; ritmoNovaVenda: number; forecast: number; meta: number; pctVsMeta: number
-}) {
-  const maxVal = Math.max(forecast, meta, 1)
-  const acimaDaMeta = pctVsMeta >= 0
-  const bars = [
-    { label: 'Realizado', value: realizado, color: '#22c55e' },
-    { label: 'Forecast', value: forecast, color: acimaDaMeta ? '#3b82f6' : '#f97316' },
-    { label: 'Meta', value: meta, color: '#6366f1' },
-  ]
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <TrendingUp size={15} style={{ color: '#3b82f6' }} />
-        <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Forecast de fechamento do mês</p>
-      </div>
-      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 16px' }}>Nesse ritmo, onde a empresa termina o mês</p>
-
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 12, height: 74 }}>
-        {bars.map((b, i) => (
-          <div key={b.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-            <span style={{ fontSize: 12, fontWeight: 900, color: b.color, marginBottom: 4 }}><CountUp value={b.value} format={fmtBRL} /></span>
-            <motion.div initial={{ height: 0 }} animate={{ height: Math.max((b.value / maxVal) * 64, 4) }} transition={{ duration: 0.8, delay: i * 0.1, ease: 'easeOut' }}
-              style={{ width: '100%', maxWidth: 64, borderRadius: '8px 8px 0 0', background: `linear-gradient(180deg,${b.color},${b.color}99)`, boxShadow: `0 4px 12px ${b.color}35` }} />
-            <span style={{ fontSize: 10.5, color: 'var(--muted-foreground)', marginTop: 6, fontWeight: 700 }}>{b.label}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 12, background: acimaDaMeta ? 'rgba(34,197,94,0.08)' : 'rgba(249,115,22,0.08)', border: `1px solid ${acimaDaMeta ? 'rgba(34,197,94,0.25)' : 'rgba(249,115,22,0.25)'}`, marginBottom: 14 }}>
-        <span style={{ fontSize: 16 }}>{acimaDaMeta ? '📈' : '📉'}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: acimaDaMeta ? '#22c55e' : '#f97316' }}>
-          Projeção: {acimaDaMeta ? '+' : ''}{pctVsMeta.toFixed(1)}% {acimaDaMeta ? 'acima' : 'abaixo'} da meta
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>💵 Já realizado</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--foreground)' }}>{fmtBRL(realizado)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>💓 Recorrência ainda prevista esse mês</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--foreground)' }}>{fmtBRL(recorrenciaPrevista)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>🚀 Projeção de vendas novas no ritmo atual</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--foreground)' }}>{fmtBRL(ritmoNovaVenda)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-
-function ForecastHero({ total, monthly, detail }: {
-  total: number
-  monthly?: { label: string; ajustado: number }[]
-  detail?: { mrrAtual: number; persistenceRate: number; sampleSize: number; ativas: number; atrasadas: number; emRisco: number; completas: number }
-}) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const safeMonthly = monthly ?? []
-  const safeDetail  = detail ?? { mrrAtual: 0, persistenceRate: 0, sampleSize: 0, ativas: 0, atrasadas: 0, emRisco: 0, completas: 0, restamAPagarMes: 0, atrasadasMes: 0, jaPagasMes: 0 }
-  // Mesma técnica/proporção do RevenueChart — pra ter a mesma "cara" dos
-  // outros gráficos do dashboard, em vez de um tratamento visual próprio.
-  const W = 700, H = 90, padX = 10, padY = 18
-  const max = Math.max(...safeMonthly.map(d => d.ajustado), 1)
-  const min = Math.min(...safeMonthly.map(d => d.ajustado), 0)
-  const range = Math.max(max - min, 1)
-  const step = safeMonthly.length > 1 ? (W - padX * 2) / (safeMonthly.length - 1) : 0
-  const pts = safeMonthly.map((d, i) => ({ x: padX + i * step, y: padY + (H - padY - 14) * (1 - (d.ajustado - min) / range) }))
-  const linePath = smoothPath(pts)
-  const areaPath = pts.length > 1 ? `${linePath} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z` : ''
-
-  // 'restam a pagar', 'atrasadas' e 'já pagas' agora são recortados pro MÊS
-  // ATUAL (mudam de verdade dia a dia), não mais uma foto da vida inteira da
-  // base de assinaturas. 'Em risco' continua sendo um sinal de todo o
-  // histórico — é sobre saúde/churn, faz sentido independente do mês.
-  const healthItems = [
-    { label: 'restam a pagar este mês', count: safeDetail.restamAPagarMes ?? safeDetail.ativas, emoji: '💚' },
-    { label: 'atrasadas',               count: safeDetail.atrasadasMes ?? safeDetail.atrasadas, emoji: '⏰' },
-    { label: 'em risco',                count: safeDetail.emRisco,                              emoji: '⚠️' },
-    { label: 'já pagas este mês',       count: safeDetail.jaPagasMes ?? safeDetail.completas,    emoji: '✅' },
-  ].filter(h => h.count > 0)
-
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', boxShadow: 'var(--shadow-sm)', height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <HeartPulse size={15} style={{ color: '#0d9488' }} />
-          <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Sinal vital da recorrência</p>
-        </div>
-        <Link href="/intel" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#0d9488', textDecoration: 'none' }}>
-          Ver detalhe <ArrowRight size={11} />
-        </Link>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-        <p style={{ fontSize: 'clamp(26px,3vw,32px)', fontWeight: 900, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1 }}>
-          <CountUp value={total} format={fmtBRL} />
-        </p>
-        <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>esperado até dezembro</span>
-      </div>
-      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>
-        Recebido este mês: <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(safeDetail.mrrAtual)}</strong>
-        {' · '}aderência histórica <strong style={{ color: '#0d9488' }}>{safeDetail.persistenceRate.toFixed(0)}%</strong>
-      </p>
-
-      {safeMonthly.length > 1 && (
-        <div style={{ width: '100%', overflow: 'visible', marginTop: 8 }}>
-          <svg width="100%" height={H + 20} viewBox={`0 0 ${W} ${H + 20}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
-            <defs>
-              <linearGradient id="fcGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0d9488" stopOpacity=".3" />
-                <stop offset="100%" stopColor="#0d9488" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            <motion.path d={areaPath} fill="url(#fcGrad)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
-            <motion.path d={linePath} fill="none" stroke="#0d9488" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
-              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
-            {pts.map((p, i) => {
-              const isFirst = i === 0 // mês mais próximo/confiável — o que importa mais aqui
-              const isHovered = hovered === i
-              return (
-                <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: 'pointer' }}>
-                  {isHovered && (
-                    <line x1={p.x} y1={padY - 4} x2={p.x} y2={H} stroke="#0d9488" strokeWidth={1} strokeDasharray="3 3" opacity={0.35} />
-                  )}
-                  <circle cx={p.x} cy={p.y} r={12} fill="transparent" />
-                  <motion.circle cx={p.x} cy={p.y} r={isHovered ? 6 : isFirst ? 4.5 : 3} fill={isHovered || isFirst ? '#0d9488' : 'var(--card)'} stroke="#0d9488" strokeWidth={1.5}
-                    animate={{ r: isHovered ? 6 : isFirst ? 4.5 : 3 }} transition={{ duration: 0.15 }}
-                    initial={{ scale: 0 }} style={{ scale: 1 }} />
-                  <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize={isHovered ? 12.5 : 11} fontWeight={isHovered || isFirst ? 800 : 600} fill={isHovered || isFirst ? '#0d9488' : 'var(--muted-foreground)'}>
-                    {safeMonthly[i].ajustado >= 1000 ? `${(safeMonthly[i].ajustado / 1000).toFixed(1)}k` : safeMonthly[i].ajustado.toFixed(0)}
-                  </text>
-                  <text x={p.x} y={H + 16} textAnchor="middle" fontSize={10} fontWeight={isHovered ? 800 : 400} fill={isHovered ? '#0d9488' : 'var(--muted-foreground)'}>{safeMonthly[i].label}</text>
-                </g>
-              )
-            })}
-          </svg>
-        </div>
-      )}
-
-      {healthItems.length > 0 && (
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-          {healthItems.map(h => (
-            <div key={h.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ fontSize: 12 }}>{h.emoji}</span>
-              <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
-                <strong style={{ color: 'var(--foreground)' }}>{h.count}</strong> {h.label}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+// (Meta x Realizado, Forecast de fechamento e Sinal vital da recorrência agora
+// vivem dentro de ./ForecastSection — junto com os links em tempo real e o
+// histórico — pra todo o forecast ficar num lugar só.)
 
 // ── Mural de insights de IA — nível de empresa ────────────────
 // Paleta por GRAVIDADE, não por "tipo de ação" como antes (que deixava tudo
@@ -948,15 +665,9 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
       <PulseDivider />
 
-      <div className="sd-row-meta" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 12, marginBottom: 12 }}>
-        <MetaRealizadoCard meta={commercial.metaGeralMes} realizado={commercial.totalRevMonth} evolucao={commercial.dailyCumulative} diasNoMes={commercial.daysInMonthTotal} />
-        <ClosingForecastCard realizado={commercial.totalRevMonth} recorrenciaPrevista={commercial.recorrenciaPrevistaMes} ritmoNovaVenda={commercial.projecaoRestanteNovaVenda}
-          forecast={commercial.forecastFechamentoMes} meta={commercial.metaGeralMes} pctVsMeta={commercial.pctForecastVsMeta} />
-      </div>
+      <ForecastSection commercial={commercial} />
 
-      <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 12, marginBottom: 12 }}>
-
-        <ForecastHero total={commercial.forecast} monthly={commercial.monthlyForecast} detail={commercial.forecastDetail} />
+      <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 12, marginBottom: 12 }}>
 
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, padding: '15px 17px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -969,9 +680,9 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
             </span>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }} className="scrollbar-hide">
+          <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', gap: 8, alignContent: 'start' }} className="scrollbar-hide">
             {onlineList.length === 0 ? (
-              <p style={{ fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '20px 0' }}>
+              <p style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted-foreground)', textAlign: 'center', padding: '20px 0' }}>
                 Nenhum usuário ativo no momento
               </p>
             ) : (
@@ -993,7 +704,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted-foreground)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Todos os usuários</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }} className="scrollbar-hide">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: '6px 18px', maxHeight: 140, overflowY: 'auto', alignContent: 'start' }} className="scrollbar-hide">
               {usersWithPresence.slice(0, 8).map(u => (
                 <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <OnlineDot online={u.isOnline} />
@@ -1086,7 +797,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
         @keyframes spin  { to{transform:rotate(360deg)} }
         @media (max-width: 1024px) {
           .sd-row2 { grid-template-columns: 1fr !important; }
-          .sd-row-meta { grid-template-columns: 1fr !important; }
           .sd-row3 { grid-template-columns: 1fr !important; }
         }
         @media (max-width: 768px) {

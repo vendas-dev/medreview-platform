@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Maximize2, Settings, RefreshCw, SlidersHorizontal, X, Volume2, VolumeX, TrendingUp, Award, Target, Zap } from 'lucide-react'
+import { Maximize2, Settings, RefreshCw, SlidersHorizontal, X, Volume2, VolumeX, TrendingUp, Award, Target, Zap, Rocket } from 'lucide-react'
 import Link from 'next/link'
 import { useLiveData, LiveDataProvider } from '@/hooks/useLiveData'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
@@ -548,40 +548,97 @@ function EventFeed({ events, byId, byHubId }: { events:TelaoEvent[]; byId:Record
 }
 
 // ── Ranking ─── CORRIGIDO: enriquece closer via hubspot_id ────
-// ── Canais ─── Self Checkout, Embaixadores e Imparáveis (soma geral dos
-// closers, sem separar por time), separados do ranking do time — não é
-// justo comparar uma pessoa com um canal automatizado.
-function Canais({ self, ambassador, imparaveis, accent, isDark=true }: { self:{revenue:number;count:number}; ambassador:{revenue:number;count:number}; imparaveis:{revenue:number;count:number}; accent:string; isDark?:boolean }) {
+// ── Canais em linha ─── Imparáveis (soma geral dos closers, sem separar por
+// time), Self Checkout e Embaixadores — 3 cards lado a lado, logo abaixo do
+// Ritmo de Vendas. Segue a MESMA linguagem visual do resto do painel (em vez
+// de criar um estilo próprio): fundo/borda/raio do GoalBar e dos
+// VerticalCards, ícone em tile igual ao dos chips de KPI do placar, rótulo
+// em JetBrains Mono 9px, valor em Space Grotesk 900 na cor de destaque
+// (accent). A % da fatia do canal e a quantidade de vendas ganham um foco
+// discreto (chip no tom do tile do ícone / número em destaque) — sem barra,
+// que só repetiria a %. Nenhuma cor nova: tudo vem de `accent`.
+// Os 3 canais SEMPRE aparecem (mesmo zerados) pra linha manter a mesma cara
+// o dia todo. A % é a fatia do canal na receita do período — os 3 baldes
+// juntos cobrem todas as vendas, então somam 100%.
+function CanaisRow({ self, ambassador, imparaveis, accent, isDark=true }: { self:{revenue:number;count:number}; ambassador:{revenue:number;count:number}; imparaveis:{revenue:number;count:number}; accent:string; isDark?:boolean }) {
+  const total = imparaveis.revenue + self.revenue + ambassador.revenue
   const items = [
-    { label: 'Imparáveis',    emoji: '🚀', data: imparaveis },
-    { label: 'Self Checkout', emoji: '↻', data: self },
-    { label: 'Embaixadores',  emoji: '🌟', data: ambassador },
-  ].filter(it => it.data.revenue > 0 || it.data.count > 0)
-
-  if (items.length === 0) return (
-    <p style={{textAlign:'center',padding:'12px 0',color:'var(--muted-foreground)',fontSize:11,fontFamily:"'JetBrains Mono',monospace"}}>Sem vendas por canal ainda.</p>
-  )
+    { key:'imp',  label:'Imparáveis',    sub:'Time comercial', Icon:Rocket,    data:imparaveis },
+    { key:'self', label:'Self Checkout', sub:'Compra direta',  Icon:RefreshCw, data:self },
+    { key:'amb',  label:'Embaixadores',  sub:'Indicações',     Icon:Award,     data:ambassador },
+  ]
+  const muted  = isDark ? '#a898c9' : '#6d28d9'   // rótulos (igual VerticalCards / GoalBar)
+  const muted2 = isDark ? '#9d8bc4' : '#7c3aed'   // linha de apoio
 
   return (
-    <div style={{display:'flex',flexDirection:'column',gap:6}}>
-      {items.map(it => (
-        <div key={it.label} style={{display:'flex',alignItems:'center',gap:9,padding:'6px 10px',borderRadius:9,background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)'}}>
-          <span style={{fontSize:14,flexShrink:0}}>{it.emoji}</span>
-          <div style={{flex:1,minWidth:0}}>
-            <p style={{fontSize:10.5,fontWeight:800,color:'var(--foreground)',margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{it.label}</p>
-            <p style={{fontSize:8,color:'var(--muted-foreground)',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{it.data.count}v</p>
-          </div>
-          <span style={{fontSize:12,fontWeight:900,color:accent,fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",flexShrink:0}}>{fmtBRL(it.data.revenue)}</span>
-        </div>
-      ))}
+    <div className="tw-canais-row" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+      {items.map((c, i) => {
+        const share = total > 0 ? (c.data.revenue / total) * 100 : 0
+        const empty = c.data.revenue <= 0 && c.data.count <= 0
+        return (
+          <motion.div key={c.key} initial={{opacity:0,y:8}} animate={{opacity:empty?.7:1,y:0}} whileHover={{scale:1.02}}
+            transition={{delay:i*.03,type:'spring',stiffness:260,damping:24}}
+            style={{background:isDark?'rgba(255,255,255,.025)':'rgba(255,255,255,.55)',border:isDark?'1px solid rgba(168,85,247,.1)':'1px solid rgba(139,92,246,.25)',borderRadius:18,padding:'14px 16px',backdropFilter:'blur(8px)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:10}}>
+              <div style={{width:26,height:26,borderRadius:9,background:`${accent}22`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <c.Icon size={13} style={{color:accent}}/>
+              </div>
+              <span style={{flex:1,minWidth:0,fontSize:9,fontWeight:800,color:muted,textTransform:'uppercase',letterSpacing:'.1em',fontFamily:"'JetBrains Mono',monospace",whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.label}</span>
+              <span style={{flexShrink:0,fontSize:11,fontWeight:900,color:accent,background:`${accent}22`,borderRadius:8,padding:'3px 8px',fontFamily:"'Space Grotesk',sans-serif",fontVariantNumeric:'tabular-nums',letterSpacing:'-.01em'}}>{share.toFixed(share>=10||share===0?0:1)}%</span>
+            </div>
+
+            <motion.p key={c.data.revenue} initial={{scale:1}} animate={{scale:[1,1.12,1]}} transition={{duration:.35}}
+              style={{fontSize:20,fontWeight:900,color:accent,margin:'0 0 2px',fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.02em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',transformOrigin:'left center'}}>
+              {fmtBRL(c.data.revenue)}
+            </motion.p>
+            <p style={{display:'flex',alignItems:'baseline',gap:5,margin:0,whiteSpace:'nowrap',overflow:'hidden'}}>
+              <span style={{fontSize:14,fontWeight:900,color:isDark?'#fff':'#1e0040',fontFamily:"'Space Grotesk',sans-serif",fontVariantNumeric:'tabular-nums'}}>{c.data.count}</span>
+              <span style={{fontSize:10,color:muted2,fontFamily:"'JetBrains Mono',monospace",overflow:'hidden',textOverflow:'ellipsis'}}>{c.data.count===1?'venda':'vendas'} · {c.sub}</span>
+            </p>
+          </motion.div>
+        )
+      })}
     </div>
   )
 }
 
-function Ranking({ stats, accent }: { stats:CloserStats[]; accent:string }) {
+// useLayoutEffect só no navegador (no servidor cai pra useEffect, sem aviso).
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
+
+function Ranking({ stats, accent, peek=false }: { stats:CloserStats[]; accent:string; peek?:boolean }) {
   const max=stats[0]?.revenue??1
+  const listRef = useRef<HTMLDivElement>(null)
+  const [peekH, setPeekH] = useState<number|null>(null)
+  const visibleCount = Math.min(stats.length, 15)
+
+  // Modo "peek" (painéis da direita): mostra exatamente os 3 primeiros
+  // colocados e só a BORDINHA do 4º, pra indicar que dá pra rolar — sem
+  // ocupar a altura de uma lista inteira. A altura é MEDIDA nas linhas
+  // reais (e não chutada em px), então continua certa com qualquer zoom,
+  // fonte ou tamanho de tela. Com 3 linhas ou menos não há o que rolar:
+  // mostra tudo, sem limite.
+  useIsoLayoutEffect(() => {
+    if (!peek) { setPeekH(null); return }
+    const el = listRef.current
+    if (!el) return
+    const measure = () => {
+      const rows = Array.from(el.children).filter((c): c is HTMLElement => c instanceof HTMLElement)
+      if (rows.length <= 3) { setPeekH(null); return }
+      const GAP = 4
+      const top3 = rows[0].offsetHeight + rows[1].offsetHeight + rows[2].offsetHeight + GAP * 3
+      setPeekH(Math.round(top3 + rows[3].offsetHeight * 0.4))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    Array.from(el.children).forEach(c => ro.observe(c))
+    return () => ro.disconnect()
+  }, [peek, visibleCount])
+
   return (
-    <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4,paddingBottom:4}}>
+    <div ref={listRef} style={peek
+      ? {flex:'0 1 auto',minHeight:0,maxHeight:peekH??undefined,overflowY:'auto',display:'flex',flexDirection:'column',gap:4,paddingBottom:4}
+      : {flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4,paddingBottom:4}}>
       <AnimatePresence initial={false}>
       {stats.slice(0,15).map((s,i)=>{
         const pct=max>0?(s.revenue/max)*100:0, top3=i<3, halos=['#FFD700','#C0C0C0','#CD7F32']
@@ -1177,6 +1234,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     text: '#1e0040', muted: '#5b21b6', mutedText: '#7c3aed',
   }
   const accent = vf?VERTICALS[vf].accent:'#a855f7'
+  // Cada ranking só aparece onde faz sentido: Geral mostra OAO e R1; aba R1
+  // só R1; abas Anest/Oft/Ortop só OAO (R1 não vende nelas).
+  const showRankOAO = vf !== 'medreview'
+  const showRankR1  = vf === null || vf === 'medreview'
 
   const visibleVerticals = isAdmin
     ? VERTICAL_LIST
@@ -1710,7 +1771,9 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
         @keyframes cellPulse{0%{box-shadow:0 0 0 0 ${accent}88}70%{box-shadow:0 0 0 10px ${accent}00}100%{box-shadow:0 0 0 0 ${accent}00}}
-        @media(max-width:960px){.tw-main{grid-template-columns:1fr!important;}.tw-vert{grid-template-columns:repeat(2,1fr)!important;}.sd-hero-row{flex-direction:column!important;}.sd-hero-trend{width:100%!important;padding-top:8px!important;}}
+        @media(max-width:960px){.tw-main{grid-template-columns:1fr!important;}.tw-vert{grid-template-columns:repeat(2,1fr)!important;}.sd-hero-row{flex-direction:column!important;}.sd-hero-trend{width:100%!important;padding-top:8px!important;}.tw-side{position:static!important;height:auto!important;overflow:visible!important;}.tw-side .tw-feed{flex:none!important;height:360px!important;}}
+        @media(max-width:640px){.tw-canais-row{grid-template-columns:1fr!important;}}
+        @media(max-height:820px) and (min-width:961px){.tw-side{gap:8px!important;}.tw-side .tw-panel{padding:10px 12px!important;}.tw-side .tw-feed{min-height:110px!important;}}
       `}</style>
 
       <div style={{position:'fixed',inset:0,background:isDark?'radial-gradient(ellipse at 20% 50%,rgba(88,28,135,.12),transparent 50%)':'radial-gradient(ellipse at 10% 30%,rgba(139,92,246,.15),transparent 50%)',pointerEvents:'none',zIndex:0}}/>
@@ -1765,7 +1828,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       <div style={{position:'relative',zIndex:1}}><Ticker events={viewEvents}/></div>
 
       {/* Grid principal */}
-      <div className="tw-main" style={{display:'grid',gridTemplateColumns:isAdmin?'minmax(0,1fr) 400px':'1fr',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
+      <div className="tw-main" style={{display:'grid',gridTemplateColumns:isAdmin?'minmax(0,1fr) clamp(320px,22vw,420px)':'1fr',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
 
         {/* Esquerda */}
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -1846,43 +1909,35 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               <HourlyChart events={viewEvents} closers={closers} byHubId={byHubId} accent={accent} pulseHour={pulseHour} bestHour={paceHighlights.bestHour?.hour ?? null} isDark={isDark}/>
             </div>
           )}
+
+          {/* Canais (Imparáveis / Self Checkout / Embaixadores) — 3 cards numa
+              linha, logo abaixo do Ritmo de Vendas, no mesmo estilo do resto
+              do painel. Só admin, como antes. */}
+          {isAdmin && <CanaisRow self={canais.self} ambassador={canais.ambassador} imparaveis={canais.imparaveis} accent={accent} isDark={isDark}/>}
         </div>
 
-        {/* Direita — Feed + Ranking do Time (OAO/R1 separados) + Canais */}
-        {isAdmin && <div style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)'}}>
-          {/* Feed agora é flexível (flex:'1 1 26%') em vez de altura fixa —
-              se o espaço apertar (Canais com 3 itens agora, por exemplo),
-              é o Feed que cede primeiro, nunca os rankings. minHeight
-              garante que ele nunca desaparece de vez. */}
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'1 1 26%',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:110}}>
+        {/* Direita — Feed + Ranking do Time. A altura é TRAVADA na
+            tela (100vh - cabeçalho), então nada vaza pra fora: o Feed é
+            quem estica/encolhe (flex 1 1 0) e os rankings ficam compactos
+            (3 primeiros + bordinha do 4º, com scroll).
+            Cada ranking só aparece onde faz sentido (ver showRankOAO /
+            showRankR1). Em tela muito baixa, a própria coluna ganha
+            scroll em vez de cortar o conteúdo. */}
+        {isAdmin && <div className="tw-side" style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)',minHeight:0,overflowY:'auto',overflowX:'hidden'}}>
+          <div className="tw-feed tw-panel" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'1 1 0',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:140}}>
             <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>⚡ Feed ao vivo — {viewEvents.length} eventos</p>
             <EventFeed events={viewEvents} byId={byId} byHubId={byHubId}/>
           </div>
 
-          {/* Dois rankings separados — OAO e R1 nunca competem entre si,
-              já que vendem produtos com tickets muito diferentes. O
-              wrapper ganha um minHeight explícito (2× o piso de cada
-              painel + o gap entre eles) — isso avisa o flexbox que esse
-              bloco NUNCA pode ser espremido abaixo do necessário pro top 3
-              de cada time aparecer; quem cede espaço primeiro é o Feed
-              (que já é flexível) ou o Canais (mais compacto agora),
-              nunca o ranking em si — resolve o vazamento visual do Canais
-              por cima do R1 que acontecia antes. */}
-          <div style={{display:'flex',flexDirection:'column',gap:12,flex:'0 0 auto',minHeight:372}}>
-            <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(59,130,246,.18)',borderRadius:20,padding:'14px 16px',flex:1,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:180}}>
-              <p style={{fontSize:10,fontWeight:900,color:'#60a5fa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time OAO{vf?` ${VERTICALS[vf].short}`:''}</p>
-              <Ranking stats={teamStatsOAO} accent={accent}/>
-            </div>
-            <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(139,92,246,.18)',borderRadius:20,padding:'14px 16px',flex:1,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:180}}>
-              <p style={{fontSize:10,fontWeight:900,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time R1{vf?` ${VERTICALS[vf].short}`:''}</p>
-              <Ranking stats={teamStatsR1} accent={accent}/>
-            </div>
-          </div>
-
-          <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'12px 16px',flexShrink:0,backdropFilter:'blur(8px)'}}>
-            <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 8px',fontFamily:"'JetBrains Mono',monospace"}}>📡 Canais</p>
-            <Canais self={canais.self} ambassador={canais.ambassador} imparaveis={canais.imparaveis} accent={accent} isDark={isDark}/>
-          </div>
+          {/* OAO e R1 nunca competem entre si (tickets muito diferentes). */}
+          {showRankOAO && <div className="tw-panel" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(59,130,246,.18)',borderRadius:20,padding:'14px 16px',flex:'0 1 auto',minHeight:104,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)'}}>
+            <p style={{fontSize:10,fontWeight:900,color:'#60a5fa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time OAO{vf?` ${VERTICALS[vf].short}`:''}</p>
+            <Ranking stats={teamStatsOAO} accent={accent} peek/>
+          </div>}
+          {showRankR1 && <div className="tw-panel" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(139,92,246,.18)',borderRadius:20,padding:'14px 16px',flex:'0 1 auto',minHeight:104,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)'}}>
+            <p style={{fontSize:10,fontWeight:900,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time R1{vf?` ${VERTICALS[vf].short}`:''}</p>
+            <Ranking stats={teamStatsR1} accent={accent} peek/>
+          </div>}
         </div>}
       </div>
 
