@@ -36,6 +36,35 @@ type ByV = Record<VKey | 'outros', Bucket>
 const emptyByV = (): ByV => ({ anest: emptyBucket(), oft: emptyBucket(), ortop: emptyBucket(), r1: emptyBucket(), outros: emptyBucket() })
 const num = (v: any) => Number(v) || 0
 
+// ── Negócio (deal) como unidade ───────────────────────────────────────
+// Um mesmo negócio pode ter vários links (reemissões). Contar link por link
+// faz parecer que "sobra" um: se o lead paga um deles, o sistema marca TODOS
+// os outros links do mesmo deal_id como substituídos (superseded). Então a
+// unidade certa é o NEGÓCIO, valendo o link mais recente — reemissão
+// sobrescreve. Link sem deal_id conta sozinho (a chave é o próprio id).
+const dealKey = (l: any) => String(l.deal_id ?? l.id)
+
+function groupByDeal(links: any[]): Map<string, any[]> {
+  const m = new Map<string, any[]>()
+  for (const l of links) {
+    const k = dealKey(l)
+    const arr = m.get(k)
+    if (arr) arr.push(l); else m.set(k, [l])
+  }
+  return m
+}
+const latestLink = (links: any[]) => links.reduce((a, b) => (String(b.generated_at) > String(a.generated_at) ? b : a))
+
+// Negócio resolvido (pago): tem um link convertido, ou foi substituído por um
+// que converteu. O valor é o do link que pagou; se ele não está no conjunto
+// (pago por um link de outro dia), usa o mais recente.
+function dealOutcome(links: any[]) {
+  const winner = links.find(l => l.converted_at)
+  const paid = !!winner || links.some(l => l.superseded_by_link_id)
+  const rep = latestLink(links)
+  return { paid, rep, value: num((winner ?? rep).deal_value) }
+}
+
 // ── AO VIVO ───────────────────────────────────────────────────────────
 // 1) Links gerados HOJE ainda em aberto: não pagos, não substituídos por
 //    reemissão e não excluídos — a mesma definição dos "Links pra cobrar".
@@ -115,8 +144,13 @@ export async function computeForecastLive(admin: any, since?: string | null) {
   const validLinks = [...validByDeal.values()]
   const validValue = validLinks.reduce((s, l) => s + num(l.deal_value), 0)
 
-  const paid = todayLinks.filter(l => l.converted_at)
-  const paidValue = paid.reduce((s, l) => s + num(l.deal_value), 0)
+  // Contadores do dia por NEGÓCIO (reemissão do mesmo negócio vale uma vez)
+  const todayDeals = groupByDeal(todayLinks)
+  let paidCount = 0, paidValue = 0
+  for (const links of todayDeals.values()) {
+    const o = dealOutcome(links)
+    if (o.paid) { paidCount++; paidValue += o.value }
+  }
 
   // ── meta x realizado do mês
   const companyGoals: Record<string, number> = Object.fromEntries(((companyGoalsRes.data ?? []) as any[]).map(g => [g.scope, num(g.goal_value)]))
@@ -146,8 +180,9 @@ export async function computeForecastLive(admin: any, since?: string | null) {
       open: { value: totalValue, count: pending.length },
       byVertical,
       byHour,
-      generatedCount: todayLinks.length,
-      paid: { count: paid.length, value: paidValue },
+      generatedCount: todayDeals.size,                       // negócios com link gerado hoje
+      reissued: todayLinks.length - todayDeals.size,         // links a mais (reemissões) que foram sobrescritos
+      paid: { count: paidCount, value: paidValue },
       // pipeline: todos os links ainda válidos (não só os de hoje)
       valid: { value: validValue, count: validLinks.length },
     },
@@ -163,11 +198,14 @@ export async function computeForecastLive(admin: any, since?: string | null) {
 }
 
 // ── HISTÓRICO ─────────────────────────────────────────────────────────
-// Links gerados nos 15 dias ANTES de hoje (hoje não entra). Conta TODOS os
-// gerados — pagos ou não — porque é histórico: não some quando o lead paga.
-// Só os links excluídos de propósito (dismissed_at) ficam de fora, já que
-// "somem de todas as telas".
+// Links gerados nos 15 dias ANTES de hoje (hoje não entra), por NEGÓCIO (a
+// reemissão mais recente sobrescreve), com receita e a divisão pago x não pago.
+// Conta tudo que foi gerado, pago ou não — é histórico, não some quando o lead
+// paga. Só os links excluídos de propósito (dismissed_at) ficam de fora.
 export const HISTORY_DAYS = 15
+
+interface HistAgg { count: number; value: number; paidCount: number; paidValue: number }
+const emptyAgg = (): HistAgg => ({ count: 0, value: 0, paidCount: 0, paidValue: 0 })
 
 export async function computeForecastHistory(admin: any) {
   const today = todayInSaoPaulo()
@@ -177,27 +215,37 @@ export async function computeForecastHistory(admin: any) {
   const { end } = dayBoundsSaoPaulo(toDate)
 
   const { data, error } = await admin.from('geracoes_links')
-    .select('generated_at, vertical')
+    .select('id, deal_id, deal_value, generated_at, vertical, converted_at, superseded_by_link_id')
     .gte('generated_at', start).lte('generated_at', end).is('dismissed_at', null).limit(999999)
   if (error) console.error('[forecast] histórico:', error.message)
 
   const days = Array.from({ length: HISTORY_DAYS }, (_, i) => addDaysToDateStr(fromDate, i))
   const dayIndex = new Map(days.map((d, i) => [d, i]))
-  const mk = () => ({ count: 0, daily: Array.from({ length: HISTORY_DAYS }, () => 0) })
-  const byVertical: Record<VKey, { count: number; daily: number[] }> = { anest: mk(), oft: mk(), ortop: mk(), r1: mk() }
-  let outros = 0, total = 0
+  const zeros = () => Array.from({ length: HISTORY_DAYS }, () => 0)
+  const mk = () => ({ ...emptyAgg(), daily: zeros(), dailyValue: zeros() })
+  const byVertical: Record<VKey, ReturnType<typeof mk>> = { anest: mk(), oft: mk(), ortop: mk(), r1: mk() }
+  const outros = emptyAgg(), total = emptyAgg()
 
-  for (const l of ((data ?? []) as any[])) {
-    const idx = dayIndex.get(spDateOf(l.generated_at))
-    if (idx === undefined) continue            // fora da janela (borda de fuso)
-    total++
-    const vk = verticalKey(l.vertical)
-    if (!vk) { outros++; continue }
-    byVertical[vk].count++
-    byVertical[vk].daily[idx]++
+  const rows = (data ?? []) as any[]
+  const deals = groupByDeal(rows)
+  const add = (a: HistAgg, o: { paid: boolean; value: number }) => {
+    a.count++; a.value += o.value
+    if (o.paid) { a.paidCount++; a.paidValue += o.value }
   }
 
-  return { today, from: fromDate, to: toDate, days, byVertical, outros, total }
+  for (const links of deals.values()) {
+    const o = dealOutcome(links)
+    const idx = dayIndex.get(spDateOf(o.rep.generated_at))   // dia do link que vale (o mais recente)
+    if (idx === undefined) continue                            // fora da janela (borda de fuso)
+    add(total, o)
+    const vk = verticalKey(o.rep.vertical)
+    if (!vk) { add(outros, o); continue }
+    add(byVertical[vk], o)
+    byVertical[vk].daily[idx]++
+    byVertical[vk].dailyValue[idx] += o.value
+  }
+
+  return { today, from: fromDate, to: toDate, days, byVertical, outros, total, reissued: rows.length - deals.size }
 }
 
 export type ForecastLive = Awaited<ReturnType<typeof computeForecastLive>>

@@ -22,7 +22,7 @@ function matchesCloser(e: { closer_id?: string|null; closer_hubspot_id?: string|
   return false
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ view?: string | string[] }> }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -38,6 +38,13 @@ export default async function DashboardPage() {
   // ── SUPERADMIN ──────────────────────────────────────────────
   if (isAdmin) {
     const admin = createAdminClient()
+
+    // Visão do dashboard do superadmin — vem do menu lateral
+    // (Dashboard > Dados Gerais / Forecast / Eventos). /dashboard sem
+    // parâmetro continua sendo "Dados Gerais", então nenhum link antigo quebra.
+    const sp = (await searchParams) ?? {}
+    const rawView = Array.isArray(sp.view) ? sp.view[0] : sp.view
+    const view: 'geral' | 'forecast' | 'eventos' = rawView === 'forecast' || rawView === 'eventos' ? rawView : 'geral'
 
     const [
       { data: users },
@@ -590,7 +597,8 @@ export default async function DashboardPage() {
     // ── Seção de Eventos — mesmo cálculo compartilhado usado pela API de
     // filtro (lib/dashboard/eventsAnalysis.ts), já pronto pro estado padrão
     // (mês, sem filtro nenhum) — evita um fetch extra no primeiro carregamento.
-    const eventsAnalysisInitial = await computeEventsAnalysis(admin2, { period: 'mes' })
+    // Só a visão "Eventos" usa isso — nas outras, pula a consulta pesada.
+    const eventsAnalysisInitial = view === 'eventos' ? await computeEventsAnalysis(admin2, { period: 'mes' }) : null
 
     return (
       <SuperDashboard
@@ -600,6 +608,7 @@ export default async function DashboardPage() {
         progressByDay={progressByDay}
         commercialAnalysisInitial={commercialAnalysisInitial}
         eventsAnalysisInitial={eventsAnalysisInitial}
+        view={view}
         commercial={{
           totalRevMonth, totalSalesMonth, totalSalesToday, totalRevToday, avgTicketAll, totalMoneyLeft, totalCertsMonth,
           forecast: forecastUntilYearEnd, monthlyForecast, forecastDetail, revenueByDay, closerCards: closerCardsWithInsight,
@@ -691,7 +700,7 @@ export default async function DashboardPage() {
       .eq('event_type', 'sale').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
     admin3.from('telao_events').select('closer_id, closer_hubspot_id')
       .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
-    admin3.from('closer_goals').select('goal_sales').eq('user_id', user.id).eq('month', monthKey3).maybeSingle(),
+    admin3.from('closer_goals').select('goal_sales, goals_by_vertical').eq('user_id', user.id).eq('month', monthKey3).maybeSingle(),
     // Links dele que ainda não converteram nem foram superados por outro
     // link do mesmo negócio — candidatos a "expirando" ou "vencido".
     admin3.from('geracoes_links')
@@ -716,6 +725,17 @@ export default async function DashboardPage() {
   const myAvgTicket = myNovaSales.length > 0 ? myNovaSales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0) / myNovaSales.length : 0
   const myGoalSales = Number((myGoalRaw as any)?.goal_sales ?? 0)
   const myPctGoal = myGoalSales > 0 ? (myRevenue / myGoalSales) * 100 : 0
+  // Meta por vertical dele (chaves = rótulos: 'Anest-Review'…). Só o time OAO
+  // usa de verdade; R1 vende numa vertical só, então a meta geral já basta.
+  const myGoalsByVertical: Record<string, number> = Object.fromEntries(
+    Object.entries(((myGoalRaw as any)?.goals_by_vertical ?? {}) as Record<string, unknown>)
+      .map(([k, v]) => [k, Number(v) || 0] as [string, number])
+      .filter(([, v]) => v > 0)
+  )
+  // Calendário do mês em São Paulo — o ritmo necessário (R$/dia) conta daqui,
+  // não do relógio do navegador (que pode estar em outro fuso).
+  const myDayOfMonth = Number(today3.slice(8, 10))
+  const myDaysInMonth = new Date(Number(monthKey3.slice(0, 4)), Number(monthKey3.slice(5, 7)), 0).getDate()
   const myTodaySales = mySales3.filter((e: any) => e.occurred_at >= tStart3 && e.occurred_at <= tEnd3)
   const myRevToday = myTodaySales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
   const myMoneyLeft = mySales3.reduce((s: number, e: any) => s + eventMoneyLeftOnTable(e), 0)
@@ -859,6 +879,7 @@ export default async function DashboardPage() {
         certsCount: myCertsCount, daysSinceLastSale: myDaysSinceLastSale, rank: myRank, totalClosers: rankList.length,
         discountByVertical: myDiscountByVertical, verticalBreakdown: myVerticalBreakdown, revenueByDay: myRevenueByDay,
         insight: myInsight,
+        goalsByVertical: myGoalsByVertical, dayOfMonth: myDayOfMonth, daysInMonth: myDaysInMonth,
       }}
       linkAlerts={{ expiringSoon: linksExpiringSoon, expired: linksExpired, pending: linksPendingAll }}
     />

@@ -23,6 +23,42 @@ export function pmt(PV: number, monthlyRatePct: number, n: number): number {
   return PV * (i * f) / (f - 1)
 }
 
+// ── Valor negociado ────────────────────────────────────────────────────
+// O que o closer digita em "valor desejado" MANDA sempre — seja MENOR que a
+// oferta (desconto) ou MAIOR (reajuste/acréscimo, quando a oferta da planilha
+// está defasada). Antes, o cálculo travava em 0% de desconto e qualquer
+// valor acima da oferta era descartado, voltando pro valor da oferta.
+//
+// Acima da oferta NÃO é desconto: impliedPct fica 0 (o limite de desconto
+// da vertical só vale pra desconto). O valor digitado segue direto pro
+// parcelamento e pra copy, e cada vertical aplica o próprio juros (ou não)
+// em cima dele — igual a qualquer outro valor.
+export function resolveNegotiatedPV(params: {
+  pv:             number                          // valor da oferta (já somado o upsell)
+  discountPct:    number                          // desconto da barra
+  targetValue:    string | number | null | undefined  // o que foi digitado em "valor desejado"
+  maxDiscountPct: number                          // limite de desconto da vertical
+}) {
+  const { pv, discountPct, targetValue, maxDiscountPct } = params
+  const tv = targetValue === '' || targetValue == null ? 0 : parseBRL(targetValue)
+  const hasTarget = pv > 0 && tv > 0
+
+  const impliedPct = hasTarget ? Math.max(0, (1 - tv / pv) * 100) : null
+  const isAboveOffer = hasTarget && tv > pv
+  const isOverLimit = impliedPct !== null && impliedPct > maxDiscountPct
+
+  return {
+    effectivePV:         hasTarget ? tv : pv * (1 - discountPct / 100),
+    impliedPct,                                                   // só desconto (0 quando acima da oferta)
+    isAboveOffer,
+    markupPct:           isAboveOffer ? (tv / pv - 1) * 100 : 0,   // quanto acima da oferta
+    isOverLimit,
+    // dentro do limite a barra acompanha o valor digitado; passou do limite
+    // (ou acima da oferta) ela fica onde estava, só o valor final muda
+    effectiveDiscountPct: isOverLimit ? discountPct : (impliedPct ?? discountPct),
+  }
+}
+
 export interface SimResult {
   mode:        PaymentMode
   rate:        number
@@ -154,7 +190,10 @@ export function buildFullNegotiationText(params: {
   const totalCheio = precoCheio + upsellPrice
   const totalBase  = precoBase  + upsellPrice
   const economia   = totalCheio - totalBase
-  const pctOff     = Math.round((1 - totalBase / totalCheio) * 100)
+  const pctOff     = totalCheio > 0 ? Math.round((1 - totalBase / totalCheio) * 100) : 0
+  // Valor negociado igual ou ACIMA do preço de tabela (reajuste): não há
+  // "de X por Y" nem economia — mostrar isso viraria "economiza R$ -500".
+  const hasDiscount = totalCheio > 0 && economia > 0.5
   const sem        = result.rate === 0
 
   const lines: string[] = []
@@ -165,12 +204,18 @@ export function buildFullNegotiationText(params: {
   lines.push(`📦 *${produtoLabel}*`)
   if (upsellLabel && upsellPrice > 0) lines.push(`   ➕ ${upsellLabel}`)
   lines.push('')
-  lines.push('💰 *SEU INVESTIMENTO ESPECIAL:*')
-  lines.push(`   ~~${fmt(totalCheio)}~~ ← valor normal`)
-  lines.push(`   *${fmt(totalBase)}* ← seu preço especial`)
-  lines.push('')
-  lines.push(`🎯 *Você economiza ${fmt(economia)} — ${pctOff}% OFF!*`)
-  lines.push('')
+  if (hasDiscount) {
+    lines.push('💰 *SEU INVESTIMENTO ESPECIAL:*')
+    lines.push(`   ~~${fmt(totalCheio)}~~ ← valor normal`)
+    lines.push(`   *${fmt(totalBase)}* ← seu preço especial`)
+    lines.push('')
+    lines.push(`🎯 *Você economiza ${fmt(economia)}${pctOff >= 1 ? ` — ${pctOff}% OFF` : ''}!*`)
+    lines.push('')
+  } else {
+    lines.push('💰 *SEU INVESTIMENTO:*')
+    lines.push(`   *${fmt(totalBase)}*`)
+    lines.push('')
+  }
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   lines.push('💳 *FORMAS DE PAGAMENTO:*')
 

@@ -9,7 +9,7 @@ import { WhatsAppPreview }   from './components/WhatsAppPreview'
 import { InstallmentsPanel } from './components/InstallmentsPanel'
 import { SettingsDialog }    from './components/SettingsDialog'
 import { PaymentMode, PriceRow } from './lib/types'
-import { simulate, rateForVertical, parseBRL, buildWhatsAppMessage } from './lib/pricing'
+import { simulate, rateForVertical, resolveNegotiatedPV, buildWhatsAppMessage } from './lib/pricing'
 
 // Busca os entregáveis de UM produto, com a mesma resiliência a duplicatas
 // na planilha que já existia (se a linha encontrada não tiver entregáveis
@@ -127,33 +127,21 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
     return selectedRow.precoCheio + (upsellOn && upsellRow ? upsellRow.precoCheio : 0)
   }, [selectedRow, upsellOn, upsellRow])
 
-  // Cálculo reverso: se o closer digitou um valor desejado, qual % de
-  // desconto isso implica sobre o PV?
-  const impliedPct = useMemo(() => {
-    if (!targetValue || PV <= 0) return null
-    const tv = parseBRL(targetValue)
-    if (tv <= 0) return null
-    return Math.max(0, (1 - tv / PV) * 100)
-  }, [targetValue, PV])
-
   // Limite da barra — configurável por vertical, não mais fixo em 20%.
   const maxDiscountPct = settings.discountLimits?.[vertical] ?? 20
-  const isOverLimit = impliedPct !== null && impliedPct > maxDiscountPct
 
-  // Enquanto o valor digitado ficar DENTRO do limite, a barra acompanha e
-  // fica destravada. Passou do limite: a barra trava na última posição
-  // válida (visualmente "apagada"), mas o valor final ainda reflete
-  // exatamente o que o closer digitou — só o destaque visual muda.
-  const effectiveDiscountPct = isOverLimit ? discountPct : (impliedPct ?? discountPct)
-
-  const effectivePV = useMemo(() => {
-    if (isOverLimit) {
-      const tv = parseBRL(targetValue)
-      return tv > 0 ? tv : PV
-    }
-    if (impliedPct !== null) return PV * (1 - impliedPct / 100)
-    return PV * (1 - discountPct / 100)
-  }, [isOverLimit, targetValue, PV, impliedPct, discountPct])
+  // Valor negociado: o que o closer digitar em "valor desejado" manda sempre —
+  // MENOR que a oferta (desconto) ou MAIOR (reajuste, quando a oferta da
+  // planilha está defasada). Antes o cálculo travava em 0% de desconto e o
+  // valor acima da oferta era descartado. Dali o valor segue pro parcelamento
+  // e pra copy, e cada vertical aplica o próprio juros (ou não) em cima dele.
+  // Dentro do limite a barra acompanha; passou do limite (ou acima da oferta)
+  // ela fica onde estava e só o valor final muda.
+  const negotiated = useMemo(
+    () => resolveNegotiatedPV({ pv: PV, discountPct, targetValue, maxDiscountPct }),
+    [PV, discountPct, targetValue, maxDiscountPct],
+  )
+  const { impliedPct, isOverLimit, effectiveDiscountPct, effectivePV } = negotiated
 
   const simResult = useMemo(() => {
     if (!selectedRow || effectivePV <= 0) return null

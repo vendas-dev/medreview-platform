@@ -8,6 +8,7 @@ import {
   ChevronRight, TrendingUp, AlertCircle, Star, Flame,
   DollarSign, AlertTriangle, Sparkles, Award, Stethoscope, ExternalLink, Trash2, Timer
 } from 'lucide-react'
+import { computeGoalProgress, effectiveGeneralGoal, verticalsForTeam, fmtCompactBRL, GoalProgress } from '@/lib/dashboard/goalProgress'
 
 // ── Helpers ────────────────────────────────────────────────
 function timeAgo(iso: string): string {
@@ -216,94 +217,238 @@ function MyKpiCard({ icon: Icon, label, rawValue, format = fmtBRL, sub, grad, co
   )
 }
 
-// ── Resumo do mês — linguagem natural, calculada a partir dos mesmos
-// números que já vêm em `commercial` (nada de novo do backend). O insight
-// gerado pela IA continua exibido, só que como nota secundária — não
-// removi nada, só dei mais peso ao que é direto e humano primeiro.
-function MonthSummary({ commercial }: { commercial: NonNullable<Props['commercial']> }) {
-  let insight: { resumo?: string; destaque?: string | null; atencao?: string | null } = {}
-  try { insight = commercial.insight ? JSON.parse(commercial.insight) : {} } catch { insight = { resumo: commercial.insight } }
+// ── Atingimento de meta ───────────────────────────────────────────────
+// A conta (geral e por vertical) vem toda de computeGoalProgress — um lugar
+// só, pra os números do banner nunca discordarem entre si.
 
-  const hasGoal = commercial.goalSales > 0
-  const overGoalPct = hasGoal ? commercial.pctGoal - 100 : null
+// Cores por vertical no banner (tons claros, pra ler bem sobre o degradê escuro)
+const GOAL_VERT: Record<string, { from: string; to: string; dot: string; short: string }> = {
+  'Anest-Review':  { from: '#bfdbfe', to: '#60a5fa', dot: '#60a5fa', short: 'Anest' },
+  'Oft-Review':    { from: '#fde68a', to: '#fbbf24', dot: '#fbbf24', short: 'Oft' },
+  'Ortop-Review':  { from: '#fed7aa', to: '#fb923c', dot: '#fb923c', short: 'Ortop' },
+  'Med-Review R1': { from: '#ddd6fe', to: '#a78bfa', dot: '#a78bfa', short: 'R1' },
+}
+const GOAL_NEUTRAL = { from: 'rgba(255,255,255,0.55)', to: '#ffffff', dot: '#ffffff', short: '' }
+const UP_COLOR = '#86efac'
+const DOWN_COLOR = '#fcd34d'
 
-  // Vertical onde o desconto médio dele está mais abaixo da média do time
-  // (ou seja, o melhor resultado em disciplina de desconto)
-  const bestDiscount = commercial.discountByVertical.length > 0
-    ? [...commercial.discountByVertical].sort((a, b) => (a.avgPct - a.companyAvgPct) - (b.avgPct - b.companyAvgPct))[0]
-    : null
-  const bestDiscountGap = bestDiscount ? bestDiscount.companyAvgPct - bestDiscount.avgPct : 0
+// Calendário do mês: do servidor (fuso de São Paulo). Se não vier, usa o do navegador.
+function resolveMonthDays(c: NonNullable<Props['commercial']>) {
+  if (c.dayOfMonth && c.daysInMonth) return { dayOfMonth: c.dayOfMonth, daysInMonth: c.daysInMonth }
+  const now = new Date()
+  return { dayOfMonth: now.getDate(), daysInMonth: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() }
+}
 
-  const headline = !hasGoal
-    ? 'Confira como está seu mês até agora.'
-    : commercial.pctGoal >= 100
-      ? 'Você já bateu sua meta. 🔥'
-      : `Faltam ${fmtBRL(commercial.goalSales - commercial.revenue)} para bater a meta.`
-
+// Barra de atingimento + marcador de "quanto já deveria ter feito hoje"
+function GoalBar({ prog, from, to, height = 12, delay = 0 }: { prog: GoalProgress; from: string; to: string; height?: number; delay?: number }) {
   return (
-    <div>
-      <p style={{ fontSize: 10.5, fontWeight: 800, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Seu mês até agora</p>
-      <p style={{ fontSize: 16, fontWeight: 800, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.01em' }}>{headline}</p>
-      <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', margin: 0, lineHeight: 1.5 }}>
-        {fmtMoneyCompact(commercial.revenue)} vendidos{overGoalPct !== null ? ` — ${Math.abs(overGoalPct).toFixed(0)}% ${overGoalPct >= 0 ? 'acima' : 'abaixo'} do objetivo.` : '.'}
-      </p>
-      {bestDiscount && bestDiscountGap > 0.5 && (
-        <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.7)', margin: '8px 0 0', lineHeight: 1.5 }}>
-          Seu melhor resultado está vindo da <strong style={{ color: '#fff' }}>{bestDiscount.vertical}</strong>, onde seu desconto médio está {bestDiscountGap.toFixed(1)} p.p. abaixo da média do time.
-        </p>
-      )}
-      {insight.resumo && (
-        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.1)', display: 'flex', gap: 7 }}>
-            <Sparkles size={12} style={{ color: 'rgba(255,255,255,0.7)', flexShrink: 0, marginTop: 1 }} />
-            <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.85)', margin: 0, lineHeight: 1.4 }}>{insight.resumo}</p>
-          </div>
-          {insight.destaque && <p style={{ fontSize: 11, color: '#dcfce7', margin: 0, paddingLeft: 4, opacity: 0.85 }}>✅ {insight.destaque}</p>}
-          {insight.atencao && <p style={{ fontSize: 11, color: '#fef3c7', margin: 0, paddingLeft: 4, opacity: 0.85 }}>⚠️ {insight.atencao}</p>}
-        </div>
+    <div style={{ position: 'relative', height, borderRadius: 999, background: 'rgba(255,255,255,0.16)' }}>
+      <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(prog.pct, 100)}%` }} transition={{ duration: 1.1, ease: 'easeOut', delay }}
+        style={{ height: '100%', borderRadius: 999, background: `linear-gradient(90deg,${from},${to})` }} />
+      {prog.goal > 0 && (
+        <motion.div title={`esperado até hoje: ${fmtBRL(prog.expected)}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: delay + 0.5 }}
+          style={{ position: 'absolute', top: -4, bottom: -4, left: `${Math.min(prog.pctMonth, 100)}%`, width: 2, marginLeft: -1, borderRadius: 2, background: '#fff', boxShadow: '0 0 0 1.5px rgba(15,23,42,0.4)' }} />
       )}
     </div>
   )
 }
 
-// ── A carta principal — premium e editorial. Sem avatar (já está na
-// sidebar), sem grid de indicadores duplicado (já tem no grid de KPIs logo
-// abaixo) — só o essencial: quem, quanto, contra qual meta, e por quê.
+function StatusPill({ prog }: { prog: GoalProgress }) {
+  if (prog.status === 'none') return null
+  const glyph = prog.status === 'ahead' ? <span style={{ color: UP_COLOR }}>▲</span> : prog.status === 'behind' ? <span style={{ color: DOWN_COLOR }}>▼</span> : prog.status === 'onpace' ? <span style={{ color: '#fff' }}>●</span> : <span>🎯</span>
+  const text = prog.status === 'done' ? 'Meta batida'
+    : prog.status === 'onpace' ? 'No ritmo do mês'
+    : `${Math.abs(prog.diffPP).toFixed(0)}pp ${prog.status === 'ahead' ? 'à frente' : 'atrás'} do ritmo`
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 700, color: '#fff', padding: '5px 13px', borderRadius: 999, background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.24)', whiteSpace: 'nowrap' }}>
+      {glyph}{text}
+    </span>
+  )
+}
+
+function GoalStat({ label, value, unit, sub, glyph }: { label: string; value: string; unit?: string; sub: string; glyph?: React.ReactNode }) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 14, padding: '12px 15px', minWidth: 0 }}>
+      <p style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.62)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 5px' }}>{label}</p>
+      <p style={{ fontSize: 'clamp(19px,2.2vw,23px)', fontWeight: 900, color: '#fff', margin: '0 0 3px', letterSpacing: '-0.025em', lineHeight: 1.1, display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
+        {glyph}{value}{unit && <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.7)', letterSpacing: 0 }}>{unit}</span>}
+      </p>
+      <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.68)', margin: 0, lineHeight: 1.35 }}>{sub}</p>
+    </div>
+  )
+}
+
+// Um cartão por vertical (só time OAO) — cada uma com a sua cor
+function VerticalGoalCard({ label, prog, idx }: { label: string; prog: GoalProgress; idx: number }) {
+  const c = GOAL_VERT[label] ?? GOAL_NEUTRAL
+  const hasGoal = prog.goal > 0
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 + idx * 0.08, duration: 0.4 }} whileHover={{ y: -2 }}
+      style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 16, padding: '14px 16px', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 11 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 800, color: '#fff', minWidth: 0 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: c.dot, flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        </span>
+        {hasGoal
+          ? <span style={{ fontSize: 22, fontWeight: 900, color: '#fff', letterSpacing: '-0.03em', lineHeight: 1 }}><CountUp value={prog.pct} format={v => `${Math.round(v)}%`} /></span>
+          : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>sem meta</span>}
+      </div>
+      <GoalBar prog={prog} from={c.from} to={c.to} height={9} delay={0.4 + idx * 0.08} />
+      <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', margin: '11px 0 3px', fontWeight: 700 }}>
+        {fmtBRL(prog.revenue)}{hasGoal && <span style={{ color: 'rgba(255,255,255,0.62)', fontWeight: 500 }}> de {fmtBRL(prog.goal)}</span>}
+      </p>
+      <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.68)', margin: 0, lineHeight: 1.4 }}>
+        {!hasGoal ? 'Meta desta vertical não definida'
+          : prog.status === 'done' ? <>✓ meta batida · <strong style={{ color: '#fff' }}>+{fmtCompactBRL(prog.excess)}</strong></>
+          : <>faltam <strong style={{ color: '#fff' }}>{fmtCompactBRL(prog.gap)}</strong> · <strong style={{ color: '#fff' }}>{fmtCompactBRL(prog.perDayNeeded)}/dia</strong></>}
+      </p>
+    </motion.div>
+  )
+}
+
+// Frase da IA e o destaque de desconto — o que sobrou do antigo "resumo do mês"
+// (a frase "faltam R$ X…" agora vive no painel de meta, sem repetir).
+function MonthSummary({ commercial }: { commercial: NonNullable<Props['commercial']> }) {
+  let insight: { resumo?: string; destaque?: string | null; atencao?: string | null } = {}
+  try { insight = commercial.insight ? JSON.parse(commercial.insight) : {} } catch { insight = { resumo: commercial.insight } }
+
+  // Vertical onde o desconto médio dele está mais abaixo da média do time
+  const bestDiscount = commercial.discountByVertical.length > 0
+    ? [...commercial.discountByVertical].sort((a, b) => (a.avgPct - a.companyAvgPct) - (b.avgPct - b.companyAvgPct))[0]
+    : null
+  const bestDiscountGap = bestDiscount ? bestDiscount.companyAvgPct - bestDiscount.avgPct : 0
+  const showDiscount = !!bestDiscount && bestDiscountGap > 0.5
+  if (!insight.resumo && !showDiscount) return null
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.14)', display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {insight.resumo && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <Sparkles size={13} style={{ color: 'rgba(255,255,255,0.75)', flexShrink: 0, marginTop: 2 }} />
+          <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.88)', margin: 0, lineHeight: 1.5 }}>{insight.resumo}</p>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '4px 18px', flexWrap: 'wrap' }}>
+        {insight.destaque && <p style={{ fontSize: 11.5, color: '#bbf7d0', margin: 0, lineHeight: 1.45 }}>✅ {insight.destaque}</p>}
+        {insight.atencao && <p style={{ fontSize: 11.5, color: '#fde68a', margin: 0, lineHeight: 1.45 }}>⚠️ {insight.atencao}</p>}
+        {showDiscount && bestDiscount && (
+          <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.75)', margin: 0, lineHeight: 1.45 }}>
+            Seu melhor resultado está na <strong style={{ color: '#fff' }}>{bestDiscount.vertical}</strong>, com desconto médio {bestDiscountGap.toFixed(1)} p.p. abaixo da média do time.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── A carta principal — identidade, receita e, agora, o atingimento de meta.
+// R1 vende numa vertical só: uma barra. OAO: barra geral + uma por vertical.
 function MyBigCard({ userName, avatarUrl, teamName, commercial }: { userName: string; avatarUrl?: string | null; teamName: string; commercial: NonNullable<Props['commercial']> }) {
-  const teamColor = teamName === 'R1' ? '#8b5cf6' : teamName === 'OAO' ? '#3b82f6' : '#6366f1'
+  const bg = teamName === 'R1' ? 'linear-gradient(135deg,#2e1065 0%,#4c1d95 55%,#6d28d9 100%)'
+           : teamName === 'OAO' ? 'linear-gradient(135deg,#0b1d4d 0%,#1e3a8a 55%,#2563eb 100%)'
+           : 'linear-gradient(135deg,#1e1b4b 0%,#312e81 55%,#4f46e5 100%)'
   const firstName = userName.split(' ')[0]
+
+  const days = resolveMonthDays(commercial)
+  const goalsByV = commercial.goalsByVertical ?? {}
+  const revByV = Object.fromEntries(commercial.verticalBreakdown.map(v => [v.vertical, v.revenue]))
+  const generalGoal = effectiveGeneralGoal(commercial.goalSales, goalsByV)
+  const general = computeGoalProgress({ goal: generalGoal, revenue: commercial.revenue, ...days })
+  const hasGoal = general.goal > 0
+
+  // R1: a barra geral É a da vertical (usa a cor dela). OAO: neutra, e cada vertical tem a sua.
+  const gc = teamName === 'R1' ? GOAL_VERT['Med-Review R1'] : GOAL_NEUTRAL
+  const verticalCardsAll = verticalsForTeam(teamName)
+    .map(v => ({ label: v, prog: computeGoalProgress({ goal: Number(goalsByV[v]) || 0, revenue: revByV[v] ?? 0, ...days }) }))
+    .filter(v => v.prog.goal > 0 || v.prog.revenue > 0)
+  // Sem NENHUMA meta por vertical definida, a seção some (três cartões "sem
+  // meta" seriam só ruído — a receita por vertical já aparece no gráfico abaixo).
+  // Com pelo menos uma, mostra as que têm meta ou venda.
+  const verticalCards = verticalCardsAll.some(v => v.prog.goal > 0) ? verticalCardsAll : []
+
+  const ritmoOk = general.perDayCurrent >= general.perDayNeeded
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
-      style={{ background: `linear-gradient(135deg,${teamColor}ee,${teamColor}bb)`, borderRadius: 22, padding: 'clamp(22px,3vw,32px)', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: `0 16px 48px ${teamColor}44` }}>
-      <div style={{ position: 'absolute', top: -50, right: -30, width: 220, height: 220, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+      style={{ background: bg, borderRadius: 24, padding: 'clamp(20px,3vw,32px)', marginBottom: 20, position: 'relative', overflow: 'hidden', boxShadow: '0 18px 44px rgba(15,23,42,0.26)' }}>
+      <style>{`
+        .mbc-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+        .mbc-verts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+        @media(max-width:760px){.mbc-verts{grid-template-columns:minmax(0,1fr)}}
+        @media(max-width:640px){.mbc-stats{grid-template-columns:minmax(0,1fr)}}
+      `}</style>
 
-        <div style={{ flex: 1, minWidth: 260 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+      {/* textura e formas bem discretas — dão profundidade sem chamar atenção */}
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.08) 1px, transparent 1px)', backgroundSize: '22px 22px', WebkitMaskImage: 'linear-gradient(100deg,transparent 30%,#000 100%)', maskImage: 'linear-gradient(100deg,transparent 30%,#000 100%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: -90, right: -60, width: 260, height: 260, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', pointerEvents: 'none' }} />
+
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        {/* quem + situação */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Avatar name={userName} url={avatarUrl} size={40} />
-            <p style={{ fontSize: 13, fontWeight: 700, color: '#fff', margin: 0 }}>{firstName}</p>
-            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.18)', padding: '2px 10px', borderRadius: 999 }}>#{commercial.rank} de {commercial.totalClosers} · Time {teamName || '—'}</span>
+            <p style={{ fontSize: 14, fontWeight: 800, color: '#fff', margin: 0 }}>{firstName}</p>
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.16)', padding: '3px 11px', borderRadius: 999 }}>#{commercial.rank} de {commercial.totalClosers} · Time {teamName || '—'}</span>
           </div>
+          <StatusPill prog={general} />
+        </div>
 
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', margin: '0 0 4px' }}>Receita este mês</p>
-          <p style={{ fontSize: 'clamp(32px,4.5vw,44px)', fontWeight: 900, color: '#fff', margin: '0 0 10px', letterSpacing: '-0.03em', lineHeight: 1 }}>
-            <CountUp value={commercial.revenue} format={fmtBRL} />
-          </p>
-          {commercial.goalSales > 0 && (
-            <div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 999, overflow: 'hidden', marginBottom: 4 }}>
-                <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(commercial.pctGoal, 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }}
-                  style={{ height: '100%', background: commercial.pctGoal >= 100 ? '#4ade80' : '#fff', borderRadius: 999 }} />
-              </div>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>{commercial.pctGoal.toFixed(0)}% da meta ({fmtBRL(commercial.goalSales)})</span>
+        {/* receita + atingimento */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: hasGoal ? 16 : 0 }}>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.62)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Receita este mês</p>
+            <p style={{ fontSize: 'clamp(34px,5vw,50px)', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.04em', lineHeight: 1 }}>
+              <CountUp value={commercial.revenue} format={fmtBRL} />
+            </p>
+            {hasGoal && <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.72)', margin: '7px 0 0' }}>de <strong style={{ color: '#fff' }}>{fmtBRL(general.goal)}</strong> de meta</p>}
+          </div>
+          {hasGoal && (
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 'clamp(34px,5vw,50px)', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.04em', lineHeight: 1 }}>
+                <CountUp value={general.pct} format={v => `${Math.round(v)}%`} />
+              </p>
+              <p style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.62)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '6px 0 0' }}>da meta</p>
             </div>
           )}
         </div>
 
-        <div style={{ flex: 1, minWidth: 260, borderLeft: '1px solid rgba(255,255,255,0.15)', paddingLeft: 28 }} className="mybigcard-divider">
-          <MonthSummary commercial={commercial} />
-        </div>
+        {hasGoal ? (
+          <>
+            <GoalBar prog={general} from={gc.from} to={gc.to} height={13} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', margin: '9px 1px 16px', fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>
+              <span>│ esperado até hoje: <strong style={{ color: 'rgba(255,255,255,0.9)' }}>{fmtCompactBRL(general.expected)}</strong> ({Math.round(general.pctMonth)}% do mês)</span>
+              <span>meta {fmtCompactBRL(general.goal)}</span>
+            </div>
+
+            <div className="mbc-stats">
+              {general.status === 'done'
+                ? <GoalStat label="Acima da meta" value={fmtBRL(general.excess)} sub="você já passou do objetivo do mês" />
+                : <GoalStat label="Faltam pra meta" value={fmtBRL(general.gap)} sub={`${Math.round(100 - Math.min(general.pct, 100))}% do objetivo ainda em aberto`} />}
+              {general.status === 'done'
+                ? <GoalStat label="Precisa por dia" value="—" sub="meta batida, o resto é bônus 🎉" />
+                : <GoalStat label="Precisa por dia" value={fmtCompactBRL(general.perDayNeeded)} unit="/dia" sub={`${general.diasRestantes} ${general.diasRestantes === 1 ? 'dia restante' : 'dias restantes'} · contando hoje`} />}
+              <GoalStat label="Seu ritmo atual" value={fmtCompactBRL(general.perDayCurrent)} unit="/dia"
+                glyph={general.status === 'done' ? undefined : <span style={{ fontSize: 13, color: ritmoOk ? UP_COLOR : DOWN_COLOR }}>{ritmoOk ? '▲' : '▼'}</span>}
+                sub={`fecha em ${fmtCompactBRL(general.projected)} · ${Math.round(general.projectedPct)}% da meta`} />
+            </div>
+
+            {verticalCards.length > 0 && (
+              <>
+                <p style={{ fontSize: 10.5, fontWeight: 800, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '20px 0 10px' }}>Por vertical</p>
+                <div className="mbc-verts">
+                  {verticalCards.map((v, i) => <VerticalGoalCard key={v.label} label={v.label} prog={v.prog} idx={i} />)}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.72)', margin: '14px 0 0', padding: '11px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.16)' }}>
+            Você ainda não tem uma meta definida para este mês. Fale com seu gestor para acompanhar seu atingimento por aqui.
+          </p>
+        )}
+
+        <MonthSummary commercial={commercial} />
       </div>
     </motion.div>
   )
@@ -626,6 +771,11 @@ interface Props {
     verticalBreakdown: { vertical: string; revenue: number; count: number }[]
     revenueByDay: { day: string; revenue: number }[]
     insight: string
+    // Atingimento de meta: meta por vertical (chaves = rótulos, ex 'Anest-Review') e o
+    // calendário do mês em São Paulo (vem do servidor, não do relógio do navegador)
+    goalsByVertical?: Record<string, number>
+    dayOfMonth?: number
+    daysInMonth?: number
   }
   linkAlerts?: {
     expiringSoon: { id: string; deal_id: string | null; deal_name: string | null; deal_value: number | null; expires_at: string | null; generated_at?: string }[]

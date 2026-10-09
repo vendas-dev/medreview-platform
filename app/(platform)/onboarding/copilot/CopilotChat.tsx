@@ -227,7 +227,7 @@ export function CopilotChat({ userName, userAvatarUrl, welcomeMessage, conversat
                 <span style={{ fontSize: 9.5, color: palette.secondary, fontWeight: 600 }}>Online</span>
               </span>
             </div>
-            <p style={{ fontSize: 11, color: palette.secondary, margin: 0 }}>Assistente de onboarding · MedReview</p>
+            <p style={{ fontSize: 11, color: palette.secondary, margin: 0 }}>Assistente Comercial360</p>
           </div>
           <button onClick={newConversation}
             style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 16px', borderRadius: 999, border: `1px solid ${palette.border}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: palette.secondary, fontFamily: 'inherit', transition: 'all 0.15s' }}

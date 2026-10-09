@@ -3,6 +3,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient }  from '@/lib/supabase/client'
 import { CustomSelect }  from '@/components/ui/CustomSelect'
+import { ExamAlerts, useExamData } from './ExamAlerts'
+import { examToCalendarMilestones, EXAM_CATEGORY } from '@/lib/milestones/exams/alerts'
 import {
   ChevronLeft, ChevronRight, Plus, X, ExternalLink,
   Calendar, Edit2, Trash2, Save, Loader2
@@ -16,6 +18,9 @@ interface Milestone {
   link?: string | null; priority?: string | null
   audience?: string | null; color: string
   created_at: string
+  // Só nas datas de provas de título lidas dos sites oficiais (somente leitura)
+  allDay?: boolean
+  exam?: { society: string; origin: 'auto' | 'manual'; evidence: string | null; checkedAt: string; changedFrom: string | null; addedBy: string | null }
 }
 
 // ── Constantes ────────────────────────────────────────────────
@@ -31,6 +36,7 @@ const CATEGORIES = [
   { value: 'reuniao',         label: '📅 Reunião',            color: '#64748b' },
   { value: 'outro',           label: '⭐ Outro',              color: '#a855f7' },
 ]
+const ALL_CATEGORIES = [...CATEGORIES, EXAM_CATEGORY]   // o formulário continua usando só CATEGORIES (prova de título é automática)
 const VERTICALS = [
   { value: 'all',         label: '🌐 Todas as Verticais' },
   { value: 'medreview',   label: '🟣 Med-Review R1' },
@@ -55,7 +61,7 @@ const AUDIENCES = [
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
-function getCat(cat: string) { return CATEGORIES.find(c => c.value === cat) ?? { label: cat, color: '#7c3aed', value: cat } }
+function getCat(cat: string) { return ALL_CATEGORIES.find(c => c.value === cat) ?? { label: cat, color: '#7c3aed', value: cat } }
 function getPriorityColor(p?: string | null) {
   return p === 'high' ? '#ef4444' : p === 'medium' ? '#f59e0b' : p === 'low' ? '#22c55e' : 'transparent'
 }
@@ -293,20 +299,41 @@ function MilestoneDetail({ m, onClose, onEdit, onDelete, isAdmin }: {
             <div style={{ flex:1, background:'var(--secondary)', borderRadius:10, padding:'10px 12px' }}>
               <p style={{ fontSize:10, color:'var(--muted-foreground)', margin:'0 0 3px', textTransform:'uppercase', letterSpacing:'.07em', fontWeight:700 }}>Início</p>
               <p style={{ fontSize:13, fontWeight:700, color:'var(--foreground)', margin:0 }}>
-                {fmtDate(m.start_at)} <span style={{ color:'var(--muted-foreground)', fontWeight:400 }}>{fmtTime(m.start_at)}</span>
+                {fmtDate(m.start_at)} {!m.allDay && <span style={{ color:'var(--muted-foreground)', fontWeight:400 }}>{fmtTime(m.start_at)}</span>}
               </p>
             </div>
             {m.end_at && (
               <div style={{ flex:1, background:'var(--secondary)', borderRadius:10, padding:'10px 12px' }}>
                 <p style={{ fontSize:10, color:'var(--muted-foreground)', margin:'0 0 3px', textTransform:'uppercase', letterSpacing:'.07em', fontWeight:700 }}>Fim</p>
                 <p style={{ fontSize:13, fontWeight:700, color:'var(--foreground)', margin:0 }}>
-                  {fmtDate(m.end_at)} <span style={{ color:'var(--muted-foreground)', fontWeight:400 }}>{fmtTime(m.end_at)}</span>
+                  {fmtDate(m.end_at)} {!m.allDay && <span style={{ color:'var(--muted-foreground)', fontWeight:400 }}>{fmtTime(m.end_at)}</span>}
                 </p>
               </div>
             )}
           </div>
 
           {m.description && <p style={{ fontSize:13, color:'var(--foreground)', lineHeight:1.6, background:'var(--secondary)', borderRadius:10, padding:'10px 12px', margin:0 }}>{m.description}</p>}
+
+          {m.exam && (
+            <div style={{ display:'flex', flexDirection:'column', gap:8, fontSize:12 }}>
+              {m.exam.changedFrom && (
+                <p style={{ margin:0, padding:'8px 12px', borderRadius:10, background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.35)', color:'color-mix(in srgb,#d97706 62%,var(--foreground))', fontWeight:700 }}>
+                  ⚠️ Data alterada (errata/retificação) · antes: {m.exam.changedFrom}
+                </p>
+              )}
+              {m.exam.evidence && (
+                <div style={{ background:'var(--secondary)', borderRadius:10, padding:'10px 12px' }}>
+                  <p style={{ fontSize:10, color:'var(--muted-foreground)', margin:'0 0 3px', textTransform:'uppercase', letterSpacing:'.07em', fontWeight:700 }}>Trecho do edital</p>
+                  <p style={{ margin:0, color:'var(--foreground)', fontStyle:'italic', lineHeight:1.5 }}>“{m.exam.evidence}”</p>
+                </div>
+              )}
+              <p style={{ margin:0, color:'var(--muted-foreground)', fontSize:11 }}>
+                {m.exam.origin === 'manual'
+                  ? `Cadastro manual${m.exam.addedBy ? ` · ${m.exam.addedBy}` : ''} · ${m.exam.society}`
+                  : `Lido do site oficial (${m.exam.society}) e verificado em ${fmtDate(m.exam.checkedAt)} ${fmtTime(m.exam.checkedAt)}`}
+              </p>
+            </div>
+          )}
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, fontSize:12 }}>
             {m.responsible && <div style={{ display:'flex', gap:6, alignItems:'center' }}><span style={{ color:'var(--muted-foreground)' }}>👤</span><span style={{ color:'var(--foreground)', fontWeight:600 }}>{m.responsible}</span></div>}
@@ -316,11 +343,16 @@ function MilestoneDetail({ m, onClose, onEdit, onDelete, isAdmin }: {
           {m.link && (
             <a href={m.link} target="_blank" rel="noopener noreferrer"
               style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', borderRadius:10, background:'rgba(99,102,241,.06)', border:'1px solid rgba(99,102,241,.2)', color:'#6366f1', textDecoration:'none', fontSize:13, fontWeight:600 }}>
-              <ExternalLink size={14}/> Abrir link
+              <ExternalLink size={14}/> {m.exam ? 'Abrir documento oficial' : 'Abrir link'}
             </a>
           )}
 
-          {isAdmin && (
+          {isAdmin && m.exam && (
+            <p style={{ margin:0, fontSize:11, color:'var(--muted-foreground)' }}>
+              {m.exam.origin === 'manual' ? 'Cadastro manual: gerencie em “Provas de título”, no topo da página.' : 'Datas lidas automaticamente — não são editáveis aqui. Se mudarem no site, atualizam sozinhas.'}
+            </p>
+          )}
+          {isAdmin && !m.exam && (
             <div style={{ display:'flex', gap:8, paddingTop:4 }}>
               <button onClick={onEdit} style={{ flex:2, height:38, borderRadius:10, border:'1.5px solid rgba(99,102,241,.3)', background:'rgba(99,102,241,.06)', color:'#6366f1', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
                 <Edit2 size={13}/> Editar
@@ -371,9 +403,16 @@ export function MilestonesClient({ isAdmin, userTeam }: Props) {
   }
   useEffect(() => { fetchMilestones() }, [])
 
+  // Provas de título (Anest/Oft/Ortop) lidas dos sites oficiais — só superadmin e time OAO.
+  // Entram no MESMO array do calendário, então herdam filtros e visibilidade por time.
+  const showExams = isAdmin || userTeam === 'OAO'
+  const exam = useExamData(showExams)
+  const examMilestones = useMemo<Milestone[]>(() => (showExams ? examToCalendarMilestones(exam.data?.items ?? []) : []), [showExams, exam.data])
+  const allMilestones = useMemo(() => [...milestones, ...examMilestones].sort((a, b) => a.start_at.localeCompare(b.start_at)), [milestones, examMilestones])
+
   // Filtro de visibilidade por time
   const visible = useMemo(() => {
-    return milestones.filter(m => {
+    return allMilestones.filter(m => {
       // Visibilidade por time
       if (!isAdmin) {
         const oaoVerts = ['anestreview','oftreview','ortopreview']
@@ -385,7 +424,7 @@ export function MilestonesClient({ isAdmin, userTeam }: Props) {
       if (filterVert && filterVert !== 'all' && m.vertical !== filterVert) return false
       return true
     })
-  }, [milestones, isAdmin, userTeam, filterCat, filterVert])
+  }, [allMilestones, isAdmin, userTeam, filterCat, filterVert])
 
   // Grid do calendário
   const grid = useMemo(() => getMonthGrid(year, month), [year, month])
@@ -439,7 +478,7 @@ export function MilestonesClient({ isAdmin, userTeam }: Props) {
           {/* Filtro categoria */}
           <div style={{ minWidth:180 }}>
             <CustomSelect value={filterCat} onChange={setFilterCat} placeholder="Todas categorias"
-              options={[{ value:'', label:'Todas categorias' }, ...CATEGORIES.map(c=>({ value:c.value, label:c.label }))]}/>
+              options={[{ value:'', label:'Todas categorias' }, ...ALL_CATEGORIES.map(c=>({ value:c.value, label:c.label }))]}/>
           </div>
           {/* Filtro vertical */}
           <div style={{ minWidth:160 }}>
@@ -454,6 +493,9 @@ export function MilestonesClient({ isAdmin, userTeam }: Props) {
           )}
         </div>
       </div>
+
+      {/* Provas de título: alertas automáticos (superadmin e time OAO) */}
+      {showExams && <ExamAlerts exam={exam} />}
 
       {/* Grid principal */}
       <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 300px', gap:16, alignItems:'start' }}>
@@ -482,14 +524,14 @@ export function MilestonesClient({ isAdmin, userTeam }: Props) {
           </div>
 
           {/* Dias da semana */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', borderBottom:'1px solid var(--border)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,minmax(0,1fr))', borderBottom:'1px solid var(--border)' }}>
             {WEEK_DAYS.map(d => (
               <div key={d} style={{ padding:'10px 4px', textAlign:'center', fontSize:10, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.08em' }}>{d}</div>
             ))}
           </div>
 
           {/* Células */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,minmax(0,1fr))' }}>
             {grid.map((day, i) => {
               if (!day) return <div key={`e-${i}`} style={{ minHeight:100, borderRight:'1px solid var(--border)', borderBottom:'1px solid var(--border)', background:'color-mix(in srgb,var(--secondary) 40%,transparent)' }}/>
               const dayEvs = visible.filter(m => spansMilestone(m, year, month, day))
@@ -571,7 +613,7 @@ export function MilestonesClient({ isAdmin, userTeam }: Props) {
           <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:16, padding:'14px 16px' }}>
             <p style={{ fontSize:10, fontWeight:800, color:'var(--muted-foreground)', textTransform:'uppercase', letterSpacing:'.1em', margin:'0 0 10px' }}>Categorias</p>
             <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-              {CATEGORIES.map(cat => {
+              {ALL_CATEGORIES.map(cat => {
                 const count = visible.filter(m => m.category === cat.value && spansMilestone(m, year, month, ...(selDay ? [selDay] : [today.getDate()]) as [number])).length
                 return (
                   <div key={cat.value} style={{ display:'flex', alignItems:'center', gap:8 }}>

@@ -1,13 +1,13 @@
 'use client'
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
-  Target, Image as ImageIcon,
+  Target, Image as ImageIcon, PartyPopper, MonitorPlay
 } from 'lucide-react'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -19,24 +19,40 @@ import { useActiveModuleKeys, useActiveModules } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
 interface NavChild { key?: string; label: string; icon: any; href: string; always?: boolean; staticLabel?: boolean; children?: NavChild[] }
-interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; children?: NavChild[] }
+interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; collapsedLink?: boolean; children?: NavChild[] }
 
 const buildNav = (isAdmin: boolean): NavItem[] => [
-  { key: 'dashboard',    label: 'Dashboard',      icon: LayoutDashboard, href: '/dashboard',    always: true },
+  // Dashboard — pro SUPERADMIN vira uma categoria com 3 visões da mesma página
+  // (/dashboard?view=…). "Dados Gerais" é o /dashboard puro, então qualquer
+  // link antigo pra /dashboard continua caindo nele. Pro usuário/closer o
+  // dashboard é simples e geral: segue sendo um item direto, sem submenu.
+  // collapsedLink: com o menu recolhido (só ícones) o item vira link direto
+  // pro /dashboard — uma categoria recolhida não tem onde abrir o submenu.
+  isAdmin
+    ? {
+        key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', always: true, collapsedLink: true,
+        children: [
+          { label: 'Dados Gerais', icon: LayoutDashboard, href: '/dashboard' },
+          { label: 'Forecast',     icon: TrendingUp,      href: '/dashboard?view=forecast' },
+          { label: 'Eventos',      icon: PartyPopper,     href: '/dashboard?view=eventos' },
+        ],
+      } as NavItem
+    : { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', always: true },
+  // Medy — fora do Onboarding, logo abaixo do Dashboard (superadmin e usuário):
+  // é o acesso mais usado no dia a dia, então não fica escondido numa categoria.
+  { key: 'medy', label: 'Medy', icon: Bot, href: '/onboarding/copilot', always: true },
   {
     key: 'onboarding', label: 'Onboarding', icon: GraduationCap, href: '/onboarding', always: true,
     children: isAdmin ? [
       { label: 'Visão geral', icon: Home,           href: '/onboarding' },
       { label: 'Trilha',      icon: List,           href: '/onboarding/trilha' },
       { label: 'Videoaulas',  icon: Video,          href: '/onboarding/videoaulas' },
-      { label: 'Medy',        icon: Bot,            href: '/onboarding/copilot' },
       { label: 'Config. IA',  icon: Bot,            href: '/onboarding/config' },
       { label: 'Dashboard',   icon: BarChart2,      href: '/onboarding/dashboard' },
       { label: 'Simulados',   icon: FlaskConical,   href: '/admin/simulados' },
     ] : [
       { label: 'Início',         icon: Home,          href: '/onboarding' },
       { label: 'Minha Trilha',   icon: List,          href: '/onboarding/trilha' },
-      { label: 'Medy',         icon: Bot,           href: '/onboarding/copilot' },
       { label: 'Videoaulas',     icon: Video,         href: '/onboarding/videoaulas' },
       { label: 'Meu Progresso',  icon: TrendingUp,    href: '/onboarding/progresso' },
       { label: 'Simulado Final', icon: FlaskConical,  href: '/onboarding/simulado' },
@@ -49,6 +65,8 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
     key: 'ferramentas', label: 'Ferramentas', icon: Zap, href: '/ferramentas', always: true,
     children: [
       { key: 'telao',        label: 'Telão',          icon: Monitor,      href: '/telao' },
+      // Visão dos fundadores (histórico/acumulado) — só superadmin. A página também barra quem não for.
+      ...(isAdmin ? [{ key: 'telao-completo', label: 'Telão Completo', icon: MonitorPlay, href: '/telao-completo', always: true }] : []),
       { key: 'calculadora',  label: 'Calculadora',    icon: Calculator,   href: '/calculadora' },
       { key: 'calculadora2', label: 'Calculadora 2',  icon: Calculator,   href: '/calculadora2' },
       { key: 'milestones',   label: 'Milestones',     icon: CalendarDays, href: '/milestones', always: true },
@@ -74,17 +92,35 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
   } as NavItem] : []),
 ]
 
+// Um href pode trazer query (ex: /dashboard?view=forecast). O pathname sozinho
+// não distingue as visões, então compara também os parâmetros. O link "limpo"
+// /dashboard é "Dados Gerais": ativo quando não há view (ou view=geral).
+function hrefMatches(href: string, pathname: string, sp: { get(k: string): string | null } | null): boolean {
+  const [path, query] = href.split('?')
+  if (pathname !== path) return false
+  if (query) {
+    for (const [k, v] of new URLSearchParams(query)) if (sp?.get(k) !== v) return false
+    return true
+  }
+  if (path === '/dashboard') return (sp?.get('view') ?? 'geral') === 'geral'
+  return true
+}
+
 function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; depth?: number; collapsed: boolean; activeModules: any[] | null }) {
   const pathname = usePathname()
+  const sp = useSearchParams()
   const Icon = item.icon
-  const hasChildren = item.children?.length > 0
+  // recolhido + collapsedLink: trata como item simples (link direto)
+  const hasChildren = item.children?.length > 0 && !(collapsed && item.collapsedLink)
   const isActive = depth === 0
     ? ['/','/dashboard','/onboarding','/ferramentas','/administracao'].includes(item.href)
         ? pathname === item.href
         : pathname.startsWith(item.href)
-    : pathname === item.href
+    : hrefMatches(item.href, pathname, sp)
   const anyChildActive = hasChildren && item.children.some((c: any) =>
-    pathname === c.href || (c.href !== '/onboarding' && c.href !== '/intel' && pathname.startsWith(c.href))
+    c.href.startsWith('/dashboard')
+      ? hrefMatches(c.href, pathname, sp)
+      : pathname === c.href || (c.href !== '/onboarding' && c.href !== '/intel' && pathname.startsWith(c.href))
   )
   const [open, setOpen] = useState(anyChildActive)
 
@@ -220,7 +256,9 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '14px 10px', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 3 }} className="scrollbar-hide">
-        {visible.map(item => <NavNode key={item.key} item={item} depth={0} collapsed={collapsed} activeModules={activeModules} />)}
+        <Suspense fallback={null}>
+          {visible.map(item => <NavNode key={item.key} item={item} depth={0} collapsed={collapsed} activeModules={activeModules} />)}
+        </Suspense>
       </nav>
 
       {/* Footer */}

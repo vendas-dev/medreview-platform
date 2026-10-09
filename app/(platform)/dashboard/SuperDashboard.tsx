@@ -536,6 +536,8 @@ interface Props {
   progressByDay: { day: string; completions: number; quizzes: number }[]
   commercialAnalysisInitial: any
   eventsAnalysisInitial: any
+  // Visão escolhida no menu lateral (Dashboard > Dados Gerais / Forecast / Eventos)
+  view?: 'geral' | 'forecast' | 'eventos'
   commercial: {
     totalRevMonth: number; totalSalesMonth: number; totalSalesToday: number; totalRevToday: number
     avgTicketAll: number; totalMoneyLeft: number; totalCertsMonth: number
@@ -559,7 +561,9 @@ interface Props {
   }
 }
 
-export function SuperDashboard({ userName, stats, users, progressByDay, commercial, commercialAnalysisInitial, eventsAnalysisInitial }: Props) {
+export function SuperDashboard({ userName, stats, users, progressByDay, commercial, commercialAnalysisInitial, eventsAnalysisInitial, view: viewProp }: Props) {
+  // Qualquer valor desconhecido cai em "Dados Gerais" — nunca uma tela vazia.
+  const view: 'geral' | 'forecast' | 'eventos' = viewProp === 'forecast' || viewProp === 'eventos' ? viewProp : 'geral'
   const [activities, setActivities] = useState<any[]>([])
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [loadingActivity, setLoadingActivity] = useState(true)
@@ -567,11 +571,12 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
+    if (view !== 'geral') return          // atividade só aparece em "Dados Gerais"
     fetch('/api/admin/activity')
       .then(r => r.json())
       .then(d => { setActivities(d.activities ?? []); setLoadingActivity(false) })
       .catch(() => setLoadingActivity(false))
-  }, [])
+  }, [view])
 
   useEffect(() => {
     async function tick() {
@@ -580,10 +585,11 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
       const d = await r.json()
       setOnlineUsers(new Set((d.online ?? []).map((p: any) => p.user_id)))
     }
+    if (view !== 'geral') return          // "Online agora" só aparece em "Dados Gerais"
     tick()
     intervalRef.current = setInterval(tick, 30_000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [])
+  }, [view])
 
   const now   = new Date()
   const hour  = now.getHours()
@@ -595,6 +601,9 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
   return (
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1200, margin: '0 auto' }}>
 
+      {/* ── DADOS GERAIS — tudo, menos Forecast e Eventos, que têm visão própria ── */}
+      {view === 'geral' && (
+      <>
       <div style={{ background: 'linear-gradient(160deg,#0f0524 0%,#1e0a4a 35%,#2e1065 65%,#3b1590 100%)', borderRadius: 22, padding: 'clamp(18px,2.6vw,30px)', marginBottom: 18, position: 'relative', overflow: 'hidden', boxShadow: '0 20px 56px rgba(46,16,101,0.5)', minHeight: 190 }}>
         {/* Data — canto superior direito, discreta */}
         <div style={{ position: 'absolute', top: 20, right: 24, zIndex: 2 }}>
@@ -664,8 +673,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
       <CommercialAnalysis initialData={commercialAnalysisInitial} />
 
       <PulseDivider />
-
-      <ForecastSection commercial={commercial} />
 
       <div className="sd-row2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 12, marginBottom: 12 }}>
 
@@ -744,8 +751,6 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
 
       <PulseDivider />
 
-      <EventsSection initialData={eventsAnalysisInitial} />
-
       <div className="sd-row3" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 16 }}>
 
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
@@ -791,6 +796,14 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
         </div>
 
       </div>
+      </>
+      )}
+
+      {/* ── FORECAST ── */}
+      {view === 'forecast' && <ForecastSection commercial={commercial} />}
+
+      {/* ── EVENTOS ── */}
+      {view === 'eventos' && <EventsSection initialData={eventsAnalysisInitial} />}
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }

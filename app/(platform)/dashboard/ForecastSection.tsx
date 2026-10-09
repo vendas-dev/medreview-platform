@@ -15,7 +15,7 @@ type ByV = Record<VKey | 'outros', Bucket>
 interface HourBucket { hour: number; label: string; value: number; count: number; byVertical: ByV }
 interface LiveData {
   generatedAt: string; today: string
-  links: { open: Bucket; byVertical: ByV; byHour: HourBucket[]; generatedCount: number; paid: Bucket; valid: Bucket }
+  links: { open: Bucket; byVertical: ByV; byHour: HourBucket[]; generatedCount: number; reissued: number; paid: Bucket; valid: Bucket }
   recurringPaidSince: number
   goals: {
     monthKey: string; daysInMonth: number; dayOfMonth: number; pctMonthElapsed: number
@@ -24,10 +24,13 @@ interface LiveData {
     realizadoOutros: number
   }
 }
+interface HistAgg { count: number; value: number; paidCount: number; paidValue: number }
 interface HistoryData {
   today: string; from: string; to: string; days: string[]
-  byVertical: Record<VKey, { count: number; daily: number[] }>
-  outros: number; total: number
+  byVertical: Record<VKey, HistAgg & { daily: number[]; dailyValue: number[] }>
+  outros: HistAgg; total: HistAgg; reissued: number
+  // true quando o servidor respondeu no formato ANTIGO (sem receita / pago x não pago)
+  legacy?: boolean
 }
 
 // O que a tela principal já carrega (page.tsx): serve pro 1º desenho, pro
@@ -118,6 +121,28 @@ function FlashRing({ k, radius = 16 }: { k: number; radius?: number }) {
   if (k === 0) return null
   return <motion.div key={k} initial={{ opacity: 0.55, boxShadow: `inset 0 0 0 1.5px ${ACCENT}` }} animate={{ opacity: 0 }} transition={{ duration: 1.1, ease: 'easeOut' }}
     style={{ position: 'absolute', inset: 0, borderRadius: radius, pointerEvents: 'none' }} />
+}
+
+// A resposta da API pode vir de uma versão anterior do cálculo (tela nova + servidor
+// antigo, ou o contrário). Normaliza com valores seguros em vez de quebrar a tela
+// inteira; se vier no formato antigo, marca `legacy` pra mostrar um aviso claro.
+function normalizeHistory(raw: any): HistoryData | null {
+  if (!raw || typeof raw !== 'object' || !raw.byVertical) return null
+  const n = (v: any) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const days: string[] = Array.isArray(raw.days) ? raw.days : []
+  const zeros = () => days.map(() => 0)
+  const agg = (a: any): HistAgg => ({ count: n(a?.count), value: n(a?.value), paidCount: n(a?.paidCount), paidValue: n(a?.paidValue) })
+  const byVertical = Object.fromEntries((['anest', 'oft', 'ortop', 'r1'] as VKey[]).map(k => {
+    const a = raw.byVertical?.[k]
+    return [k, { ...agg(a), daily: Array.isArray(a?.daily) ? a.daily : zeros(), dailyValue: Array.isArray(a?.dailyValue) ? a.dailyValue : zeros() }]
+  })) as HistoryData['byVertical']
+  const legacy = typeof raw.total !== 'object' || raw.total === null
+  return {
+    today: String(raw.today ?? ''), from: String(raw.from ?? ''), to: String(raw.to ?? ''), days, byVertical,
+    total: legacy ? { ...agg(null), count: n(raw.total) } : agg(raw.total),
+    outros: typeof raw.outros === 'object' && raw.outros ? agg(raw.outros) : { ...agg(null), count: n(raw.outros) },
+    reissued: n(raw.reissued), legacy,
+  }
 }
 
 function smoothPath(pts: { x: number; y: number }[]): string {
@@ -354,39 +379,121 @@ function MiniStat({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+// Mede o tamanho real do espaço disponível — o gráfico desenha em pixels reais
+// (sem esticar texto nem linhas) e ocupa o quadro inteiro.
+function useBox<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setBox({ w: el.clientWidth, h: el.clientHeight }))
+    ro.observe(el); setBox({ w: el.clientWidth, h: el.clientHeight })
+    return () => ro.disconnect()
+  }, [])
+  return [ref, box] as const
+}
+
+// Evolução da receita no mês contra o ritmo ideal. O eixo vai até a META: a
+// linha tracejada (ritmo ideal) sobe até ela no último dia do mês, e a linha
+// cheia (realizado) mostra onde você está. A distância entre as duas é o que
+// importa — e agora o gráfico usa o quadro inteiro pra ela ficar legível.
+function EvolutionChart({ meta, daysInMonth, series }: { meta: number; daysInMonth: number; series: { day: number; realizado: number }[] }) {
+  const [boxRef, box] = useBox<HTMLDivElement>()
+  const [hov, setHov] = useState<number | null>(null)
+  const today = series[series.length - 1].day
+  const shown = hov ?? today
+  const idealAt = (d: number) => (meta * d) / daysInMonth
+  const real = series.find(s => s.day === shown)?.realizado ?? null
+  const ideal = idealAt(shown)
+  const diff = real !== null ? real - ideal : null
+
+  const W = Math.max(box.w, 300), H = Math.max(box.h, 150)
+  const padL = 8, padR = 66, padT = 18, padB = 24
+  const ymax = Math.max(meta, ...series.map(s => s.realizado)) * 1.05 || 1
+  const x = (d: number) => padL + ((d - 1) / Math.max(daysInMonth - 1, 1)) * (W - padL - padR)
+  const y = (v: number) => padT + (1 - v / ymax) * (H - padT - padB)
+  const pts = series.map(s => ({ x: x(s.day), y: y(s.realizado) }))
+  const line = smoothPath(pts)
+  const area = pts.length > 1 ? `${line} L ${pts[pts.length - 1].x},${y(0)} L ${pts[0].x},${y(0)} Z` : ''
+  const ticks = [1, 5, 10, 15, 20, 25, 30].filter(d => d < daysInMonth - 1).concat(daysInMonth)
+
+  function onMove(e: React.MouseEvent<SVGSVGElement>) {
+    const r = e.currentTarget.getBoundingClientRect()
+    const d = Math.round(1 + ((e.clientX - r.left - padL) / (W - padL - padR)) * (daysInMonth - 1))
+    setHov(Math.min(Math.max(d, 1), daysInMonth))
+  }
+
+  return (
+    <div className="fc-card" style={{ ...cvar('#6366f1'), padding: '14px 16px 10px', flex: 1, minHeight: 270, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px 14px', flexWrap: 'wrap', marginBottom: 4 }}>
+        <p style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>
+          Evolução no mês <span style={{ fontWeight: 600, color: 'var(--muted-foreground)' }}>· dia {shown}{hov === null ? ' (hoje)' : ''}</span>
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px 14px', flexWrap: 'wrap', fontSize: 11.5, color: 'var(--muted-foreground)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--foreground)" strokeWidth="2.4" strokeDasharray="5 4" /></svg>
+            Ritmo ideal <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(ideal)}</strong>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke={ACCENT} strokeWidth="3.4" strokeLinecap="round" /></svg>
+            Realizado <strong style={{ color: 'var(--foreground)' }}>{real !== null ? fmtBRL(real) : '—'}</strong>
+          </span>
+          {diff !== null && <Pill tone={diff >= 0 ? 'good' : 'warn'}>{diff >= 0 ? '▲ +' : '▼ −'}{fmtCompact(Math.abs(diff))}</Pill>}
+        </div>
+      </div>
+
+      <div ref={boxRef} style={{ flex: '1 1 0', minHeight: 190, overflow: 'hidden' }}>
+        <svg width={W} height={H} style={{ display: 'block', cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHov(null)}>
+          <defs>
+            <linearGradient id="fcEvo2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6366f1" stopOpacity=".34" /><stop offset="100%" stopColor="#6366f1" stopOpacity="0" /></linearGradient>
+            <linearGradient id="fcEvoLine2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#6366f1" /><stop offset="100%" stopColor="#8b5cf6" /></linearGradient>
+          </defs>
+
+          {/* referências de 25/50/75/100% da meta */}
+          {[0.25, 0.5, 0.75, 1].map(f => (
+            <g key={f}>
+              <line x1={padL} x2={W - padR} y1={y(meta * f)} y2={y(meta * f)} stroke="var(--border)" strokeWidth={1} strokeDasharray={f === 1 ? '0' : '2 5'} />
+              <text x={W - padR + 8} y={y(meta * f) + (f === 1 ? -1 : 3.5)} fontSize={f === 1 ? 11 : 10} fontWeight={f === 1 ? 800 : 600} fill={f === 1 ? 'var(--foreground)' : 'var(--muted-foreground)'}>{f === 1 ? 'Meta' : fmtCompact(meta * f)}</text>
+              {f === 1 && <text x={W - padR + 8} y={y(meta) + 11} fontSize={10} fontWeight={600} fill="var(--muted-foreground)">{fmtCompact(meta)}</text>}
+            </g>
+          ))}
+
+          <motion.path d={area} fill="url(#fcEvo2)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
+
+          {/* RITMO IDEAL — tracejado em destaque, até a meta no último dia do mês */}
+          {/* (aparece por opacidade: a animação de "desenhar" (pathLength) troca o tracejado por linha cheia) */}
+          <motion.line x1={x(1)} y1={y(idealAt(1))} x2={x(daysInMonth)} y2={y(idealAt(daysInMonth))} stroke="var(--foreground)" strokeWidth={2.4} strokeDasharray="8 6" strokeLinecap="round"
+            initial={{ opacity: 0 }} animate={{ opacity: 0.92 }} transition={{ duration: 0.8, delay: 0.2 }} />
+
+          {/* REALIZADO — linha cheia */}
+          <motion.path d={line} fill="none" stroke="url(#fcEvoLine2)" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
+
+          {/* guia de hover */}
+          {hov !== null && <line x1={x(hov)} x2={x(hov)} y1={padT - 6} y2={H - padB} stroke="var(--muted-foreground)" strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />}
+          {hov !== null && <circle cx={x(hov)} cy={y(ideal)} r={4.5} fill="var(--card)" stroke="var(--foreground)" strokeWidth={2.2} />}
+          {real !== null && <>
+            {hov === null && <circle cx={x(shown)} cy={y(real)} r={10} fill={ACCENT} opacity={0.2} />}
+            <circle cx={x(shown)} cy={y(real)} r={5.2} fill="#7c3aed" stroke="var(--card)" strokeWidth={2.6} />
+          </>}
+
+          {ticks.map(d => <text key={d} x={x(d)} y={H - 7} fontSize={10} fontWeight={600} textAnchor="middle" fill={d === shown ? 'var(--foreground)' : 'var(--muted-foreground)'}>{d}</text>)}
+        </svg>
+      </div>
+    </div>
+  )
+}
+
 function MetaOverall({ meta, realizado, pctMonth, dayOfMonth, daysInMonth, evolucao }: {
   meta: number; realizado: number; pctMonth: number; dayOfMonth: number; daysInMonth: number
   evolucao: { day: number; realizado: number; ritmoLinear: number }[]
 }) {
-  const [hov, setHov] = useState<number | null>(null)
   const pct = meta > 0 ? (realizado / meta) * 100 : 0
   const diffPP = pct - pctMonth
   const status: 'done' | 'ahead' | 'onpace' | 'behind' = pct >= 100 ? 'done' : Math.abs(diffPP) < 1 ? 'onpace' : diffPP > 0 ? 'ahead' : 'behind'
   const [r1, r2] = status === 'behind' ? ['#f59e0b', '#d97706'] : status === 'done' || status === 'ahead' ? ['#22c55e', '#16a34a'] : ['#6366f1', '#8b5cf6']
   const falta = Math.max(meta - realizado, 0)
   const diasRestantes = Math.max(daysInMonth - dayOfMonth + 1, 1)
-
-  // O card do gráfico cresce pra preencher o painel (que acompanha a altura do
-  // vizinho, "Meta por vertical"). A altura é MEDIDA — o gráfico usa o espaço
-  // todo sem esticar o texto.
-  const boxRef = useRef<HTMLDivElement>(null)
-  const [boxH, setBoxH] = useState(0)
-  const hasChart = evolucao.length > 1
-  useEffect(() => {
-    const el = boxRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => setBoxH(el.clientHeight))
-    ro.observe(el); setBoxH(el.clientHeight)
-    return () => ro.disconnect()
-  }, [hasChart])
-  const W = 600, H = Math.max(100, boxH || 100), padX = 6, padY = 30
-  const maxVal = Math.max(...evolucao.map(d => Math.max(d.realizado, d.ritmoLinear)), 1)
-  const px = (d: number) => padX + ((d - 1) / Math.max(daysInMonth - 1, 1)) * (W - padX * 2)
-  const py = (v: number) => padY + (H - padY - 4) * (1 - v / maxVal)
-  const pts = evolucao.map(d => ({ x: px(d.day), y: py(d.realizado) }))
-  const ritmo = evolucao.length > 1 ? `M ${px(evolucao[0].day)},${py(evolucao[0].ritmoLinear)} L ${px(evolucao[evolucao.length - 1].day)},${py(evolucao[evolucao.length - 1].ritmoLinear)}` : ''
-  const line = smoothPath(pts)
-  const area = pts.length > 1 ? `${line} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z` : ''
 
   return (
     <Block icon={Target} title="Meta do mês" subtitle={`Dia ${dayOfMonth} de ${daysInMonth} · ${Math.round(pctMonth)}% do mês decorrido`}>
@@ -413,31 +520,8 @@ function MetaOverall({ meta, realizado, pctMonth, dayOfMonth, daysInMonth, evolu
         </div>
       </div>
 
-      {hasChart && (
-        <div className="fc-card" style={{ ...cvar('#6366f1'), padding: '12px 16px 10px', flex: 1, minHeight: 150, display: 'flex', flexDirection: 'column' }}>
-          <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '0 0 4px' }}>Evolução no mês · pontilhada = ritmo ideal</p>
-          <div ref={boxRef} style={{ flex: '1 1 0', minHeight: 100, overflow: 'hidden' }}>
-          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }}>
-            <defs>
-              <linearGradient id="fcEvo" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={ACCENT} stopOpacity=".3" /><stop offset="100%" stopColor={ACCENT} stopOpacity="0" /></linearGradient>
-              <linearGradient id="fcEvoLine" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#6366f1" /><stop offset="100%" stopColor="#8b5cf6" /></linearGradient>
-            </defs>
-            <path d={ritmo} fill="none" stroke="var(--muted-foreground)" strokeWidth={1.6} strokeDasharray="4 4" opacity={0.55} />
-            <motion.path d={area} fill="url(#fcEvo)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
-            <motion.path d={line} fill="none" stroke="url(#fcEvoLine)" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
-            {pts.map((p, i) => {
-              const show = hov === i || i === pts.length - 1
-              return (
-                <g key={i} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} style={{ cursor: 'pointer' }}>
-                  <circle cx={p.x} cy={p.y} r={10} fill="transparent" />
-                  {show && <circle cx={p.x} cy={p.y} r={hov === i ? 5.5 : 4.5} fill="#7c3aed" stroke="var(--card)" strokeWidth={2.5} />}
-                  {show && <text x={p.x} y={p.y - 10} textAnchor={i === pts.length - 1 ? 'end' : 'middle'} fontSize={10.5} fontWeight={800} fill="#6d28d9">{`dia ${evolucao[i].day} · ${fmtCompact(evolucao[i].realizado)}`}</text>}
-                </g>
-              )
-            })}
-          </svg>
-          </div>
-        </div>
+      {meta > 0 && evolucao.length > 1 && (
+        <EvolutionChart meta={meta} daysInMonth={daysInMonth} series={evolucao.map(d => ({ day: d.day, realizado: d.realizado }))} />
       )}
     </Block>
   )
@@ -614,33 +698,94 @@ function HourlyLinksChart({ hours }: { hours: HourBucket[] }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// 4. HISTÓRICO — últimos 15 dias (sem hoje)
+// 4. HISTÓRICO — últimos 15 dias (sem hoje): receita gerada, e quanto foi pago
 // ══════════════════════════════════════════════════════════════════════
-function HistoryCard({ k, data, days, idx }: { k: VKey; data: { count: number; daily: number[] }; days: string[]; idx: number }) {
+const PAID_GRAD = 'linear-gradient(90deg,#16a34a,#22c55e)'
+
+// barra pago x não pago (por valor)
+function PaidSplit({ value, paid, height = 8 }: { value: number; paid: number; height?: number }) {
+  const pct = value > 0 ? Math.min((paid / value) * 100, 100) : 0
+  return (
+    <div style={{ height, borderRadius: 999, background: 'color-mix(in srgb, var(--foreground) 11%, transparent)', overflow: 'hidden' }}>
+      <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.9, ease: 'easeOut', delay: 0.2 }} style={{ height: '100%', borderRadius: 999, background: PAID_GRAD }} />
+    </div>
+  )
+}
+
+function SplitRow({ paid, label, value, count }: { paid: boolean; label: string; value: number; count: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: paid ? GOOD : 'var(--muted-foreground)' }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: paid ? GOOD : 'transparent', border: paid ? 'none' : '1.5px solid var(--muted-foreground)' }} />{label}
+      </span>
+      <span style={{ color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>
+        <strong style={{ color: 'var(--foreground)', fontWeight: 800 }}>{fmtBRL(value)}</strong> · {count}
+      </span>
+    </div>
+  )
+}
+
+// O total de tudo que foi gerado e quanto disso foi pago
+function HistorySummary({ total }: { total: HistoryData['total'] }) {
+  const unpaidValue = total.value - total.paidValue, unpaidCount = total.count - total.paidCount
+  const conv = total.value > 0 ? (total.paidValue / total.value) * 100 : 0
+  const Stat = ({ label, color, value, sub }: { label: string; color?: string; value: number; sub: string }) => (
+    <div style={{ minWidth: 0 }}>
+      <p style={{ fontSize: 10.5, fontWeight: 800, color: color ?? 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 4px' }}>{label}</p>
+      <p style={{ fontSize: 'clamp(20px,2.4vw,27px)', fontWeight: 900, color: 'var(--foreground)', margin: '0 0 2px', letterSpacing: '-0.035em', lineHeight: 1.05 }}><CountUp value={value} format={fmtBRL} /></p>
+      <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0 }}>{sub}</p>
+    </div>
+  )
+  return (
+    <div className="fc-card" style={{ ...cvar('#16a34a'), padding: '16px 20px', marginBottom: 12 }}>
+      <div className="fc-sum" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '12px 20px', marginBottom: 14 }}>
+        <Stat label="Total gerado" value={total.value} sub={`${fmtInt(total.count)} ${total.count === 1 ? 'link' : 'links'}`} />
+        <Stat label="✓ Pago" color={GOOD} value={total.paidValue} sub={`${fmtInt(total.paidCount)} ${total.paidCount === 1 ? 'link' : 'links'} · ${conv.toFixed(conv >= 10 || conv === 0 ? 0 : 1)}% da receita`} />
+        <Stat label="○ Ainda não pago" value={unpaidValue} sub={`${fmtInt(unpaidCount)} ${unpaidCount === 1 ? 'link' : 'links'}`} />
+      </div>
+      <PaidSplit value={total.value} paid={total.paidValue} height={10} />
+    </div>
+  )
+}
+
+function HistoryCard({ k, data, days, idx }: { k: VKey; data: HistoryData['byVertical'][VKey]; days: string[]; idx: number }) {
   const v = VERT[k]
-  const max = Math.max(...data.daily, 1)
-  const avg = days.length > 0 ? data.count / days.length : 0
+  const max = Math.max(...data.dailyValue, 1)
+  const unpaidValue = data.value - data.paidValue, unpaidCount = data.count - data.paidCount
+  const conv = data.value > 0 ? (data.paidValue / data.value) * 100 : 0
   return (
     <motion.div className="fc-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05, duration: 0.35 }} whileHover={{ y: -3 }}
       style={{ ...cvar(v.color), position: 'relative', overflow: 'hidden', background: tint(v.color, 6), padding: '16px 18px' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: vGradH(k) }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <Tile size={32} grad={vGradD(k)}><span style={{ fontSize: 11, fontWeight: 900 }}>{v.init}</span></Tile>
-        <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--foreground)' }}>{v.label}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--foreground)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.label}</span>
       </div>
-      <p style={{ fontSize: 'clamp(32px,3.4vw,42px)', fontWeight: 900, color: v.ink, margin: '0 0 2px', letterSpacing: '-0.045em', lineHeight: 1 }}>
-        <CountUp value={data.count} format={fmtInt} />
+
+      <p style={{ fontSize: 'clamp(22px,2.3vw,28px)', fontWeight: 900, color: v.ink, margin: '0 0 2px', letterSpacing: '-0.035em', lineHeight: 1.05 }}>
+        <CountUp value={data.value} format={fmtBRL} />
       </p>
-      <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '0 0 12px' }}>links gerados</p>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 40 }}>
-        {data.daily.map((n, i) => (
-          <motion.div key={i} title={`${fmtDM(days[i])} · ${n} ${n === 1 ? 'link' : 'links'}`}
-            initial={{ height: 0 }} animate={{ height: Math.max((n / max) * 40, n > 0 ? 4 : 2) }} transition={{ duration: 0.7, delay: 0.1 + i * 0.025, ease: 'easeOut' }}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '0 0 12px' }}>
+        <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0 }}>
+          <strong style={{ color: 'var(--foreground)', fontWeight: 800 }}>{fmtInt(data.count)}</strong> {data.count === 1 ? 'link gerado' : 'links gerados'}
+        </p>
+        {data.value > 0 && <span style={{ fontSize: 11, fontWeight: 800, color: GOOD, background: `${GOOD}1a`, borderRadius: 8, padding: '3px 8px', whiteSpace: 'nowrap' }}>{conv.toFixed(conv >= 10 || conv === 0 ? 0 : 1)}% pago</span>}
+      </div>
+
+      <PaidSplit value={data.value} paid={data.paidValue} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, margin: '10px 0 12px' }}>
+        <SplitRow paid label="Pago" value={data.paidValue} count={data.paidCount} />
+        <SplitRow paid={false} label="Não pago" value={unpaidValue} count={unpaidCount} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 26 }}>
+        {data.dailyValue.map((n, i) => (
+          <motion.div key={i} title={`${fmtDM(days[i])} · ${fmtBRL(n)} · ${data.daily[i]} ${data.daily[i] === 1 ? 'link' : 'links'}`}
+            initial={{ height: 0 }} animate={{ height: Math.max((n / max) * 26, n > 0 ? 3 : 2) }} transition={{ duration: 0.7, delay: 0.1 + i * 0.025, ease: 'easeOut' }}
             whileHover={{ opacity: 1 }}
-            style={{ flex: 1, borderRadius: '3px 3px 1px 1px', background: n > 0 ? vGradV(k) : 'color-mix(in srgb, var(--foreground) 10%, transparent)', opacity: n > 0 ? 0.85 : 1, transformOrigin: 'bottom' }} />
+            style={{ flex: 1, borderRadius: '3px 3px 1px 1px', background: n > 0 ? vGradV(k) : 'color-mix(in srgb, var(--foreground) 10%, transparent)', opacity: n > 0 ? 0.8 : 1, transformOrigin: 'bottom' }} />
         ))}
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: '10px 0 0' }}>média de <strong style={{ color: 'var(--foreground)' }}>{avg.toFixed(1).replace('.', ',')}</strong> por dia</p>
     </motion.div>
   )
 }
@@ -743,6 +888,7 @@ const CSS = `
 .fc-even{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 @media(max-width:1020px){.fc-g4{grid-template-columns:repeat(2,minmax(0,1fr))}.fc-two,.fc-even{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:700px){.fc-leg{grid-template-columns:minmax(0,1fr)!important}}
+@media(max-width:640px){.fc-sum{grid-template-columns:minmax(0,1fr)!important}}
 @media(max-width:560px){.fc-g4{grid-template-columns:minmax(0,1fr)}.fc-hours{overflow-x:auto}.fc-tiles{grid-template-columns:minmax(0,1fr)!important}}
 `
 
@@ -766,7 +912,8 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
       const res = await fetch(`/api/dashboard/forecast?scope=${scope}&since=${encodeURIComponent(mountedAt.current)}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(String(res.status))
       const d = await res.json()
-      if (d.history) { setHistory(d.history); historyDayRef.current = d.history.today }
+      const hist = d.history ? normalizeHistory(d.history) : null
+      if (hist) { setHistory(hist); historyDayRef.current = hist.today }
       if (my !== reqRef.current) return
       setLive(d); setUpdatedAt(Date.now()); setError(false)
       if (historyDayRef.current && d.today !== historyDayRef.current) load('full')   // virou o dia
@@ -850,7 +997,7 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
         </div>
 
         {/* 3 — o que está entrando agora */}
-        <Block icon={Link2} title="Links em aberto hoje" subtitle="Gerados hoje e ainda não pagos. O que é pago sai daqui sozinho e o valor abaixa">
+        <Block icon={Link2} title="Links em aberto hoje" subtitle="Um por negócio (se o link foi reemitido, vale o mais recente) · o que é pago sai daqui sozinho e o valor abaixa">
           {!live ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <Shimmer h={64} />
@@ -865,10 +1012,17 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
                   <p style={{ fontSize: 11, fontWeight: 800, color: ACCENT, textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 5px' }}>Em aberto agora</p>
                   <p style={{ fontSize: 'clamp(30px,3.8vw,40px)', fontWeight: 900, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.045em', lineHeight: 1 }}><CountUp value={openTotal} format={fmtBRL} /></p>
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <Pill>{live.links.open.count} {live.links.open.count === 1 ? 'link aguardando' : 'links aguardando'}</Pill>
-                  <Pill>{live.links.generatedCount} {live.links.generatedCount === 1 ? 'gerado' : 'gerados'} hoje</Pill>
-                  <Pill tone="good">✓ {live.links.paid.count} {live.links.paid.count === 1 ? 'pago' : 'pagos'}{live.links.paid.value > 0 ? ` · ${fmtBRL(live.links.paid.value)}` : ''}</Pill>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 7 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <Pill>{live.links.open.count} {live.links.open.count === 1 ? 'link aguardando' : 'links aguardando'}</Pill>
+                    <Pill>{live.links.generatedCount} {live.links.generatedCount === 1 ? 'gerado' : 'gerados'} hoje</Pill>
+                    <Pill tone="good">✓ {live.links.paid.count} {live.links.paid.count === 1 ? 'pago' : 'pagos'}{live.links.paid.value > 0 ? ` · ${fmtBRL(live.links.paid.value)}` : ''}</Pill>
+                  </div>
+                  {live.links.reissued > 0 && (
+                    <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                      ↻ {live.links.reissued} {live.links.reissued === 1 ? 'reemissão' : 'reemissões'} do mesmo negócio — vale só a mais recente
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="fc-g4" style={{ marginBottom: outros && outros.count > 0 ? 6 : 16 }}>
@@ -890,15 +1044,35 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
 
         {/* 4 — o que já aconteceu */}
         <Block icon={History} title="Links gerados nos últimos 15 dias"
-          subtitle={history ? `${fmtDM(history.from)} a ${fmtDM(history.to)} · sem hoje · conta todos, pagos ou não` : 'Carregando…'}
-          right={history ? <Pill>{fmtInt(history.total)} no total</Pill> : undefined}>
+          subtitle={history ? `${fmtDM(history.from)} a ${fmtDM(history.to)} · sem hoje · um por negócio (reemissão vale a mais recente) · conta todos, pagos ou não` : 'Carregando…'}
+          right={history ? <Pill>{fmtInt(history.total.count)} {history.total.count === 1 ? 'link' : 'links'} no total</Pill> : undefined}>
           {!history ? (
-            <div className="fc-g4">{[0, 1, 2, 3].map(i => <Shimmer key={i} h={176} r={16} />)}</div>
+            <>
+              <div style={{ marginBottom: 12 }}><Shimmer h={104} r={16} /></div>
+              <div className="fc-g4">{[0, 1, 2, 3].map(i => <Shimmer key={i} h={250} r={16} />)}</div>
+            </>
           ) : (
-            <div className="fc-g4">{ORDER.map((k, i) => <HistoryCard key={k} k={k} data={history.byVertical[k]} days={history.days} idx={i} />)}</div>
+            history.legacy ? (
+              <div style={{ padding: '16px 18px', borderRadius: 14, background: `${WARN}12`, border: `1px solid ${WARN}40` }}>
+                <p style={{ fontSize: 13, fontWeight: 800, color: WARN, margin: '0 0 4px' }}>Histórico em formato antigo</p>
+                <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0, lineHeight: 1.5 }}>
+                  O servidor ainda está com a versão anterior do cálculo (sem receita nem pago × não pago). Atualize e publique o arquivo{' '}
+                  <code style={{ fontSize: 11.5, color: 'var(--foreground)' }}>lib/dashboard/forecastAnalysis.ts</code> junto com esta tela.
+                </p>
+              </div>
+            ) : (
+              <>
+                <HistorySummary total={history.total} />
+                <div className="fc-g4">{ORDER.map((k, i) => <HistoryCard key={k} k={k} data={history.byVertical[k]} days={history.days} idx={i} />)}</div>
+              </>
+            )
           )}
-          {history && history.outros > 0 && (
-            <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '10px 0 0', textAlign: 'right' }}>+ {history.outros} {history.outros === 1 ? 'link' : 'links'} sem vertical identificada no período</p>
+          {history && !history.legacy && (history.outros.count > 0 || history.reissued > 0) && (
+            <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '10px 0 0', textAlign: 'right' }}>
+              {history.outros.count > 0 && <>+ {history.outros.count} {history.outros.count === 1 ? 'link' : 'links'} sem vertical identificada ({fmtBRL(history.outros.value)}), já no total</>}
+              {history.outros.count > 0 && history.reissued > 0 && ' · '}
+              {history.reissued > 0 && <>↻ {history.reissued} {history.reissued === 1 ? 'reemissão' : 'reemissões'} do mesmo negócio contadas uma vez</>}
+            </p>
           )}
         </Block>
 
