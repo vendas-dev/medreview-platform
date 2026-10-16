@@ -1,5 +1,6 @@
 'use client'
 import { useState, Suspense } from 'react'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -7,7 +8,7 @@ import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
-  Target, Image as ImageIcon, PartyPopper, MonitorPlay
+  Target, Image as ImageIcon, PartyPopper, MonitorPlay, Trophy, Megaphone
 } from 'lucide-react'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -86,6 +87,8 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
     children: [
       { label: 'Visão Geral',      icon: BarChart2, href: '/intel' },
       { label: 'Meta dos Closers', icon: Target,    href: '/intel/goals' },
+      { label: 'Campanhas',        icon: Trophy,    href: '/admin/campanhas' },
+      { label: 'Notificação',      icon: Megaphone, href: '/admin/notificacoes' },
       { label: 'Módulos',          icon: Package,   href: '/admin/modules' },
       { label: 'Usuários',         icon: Users,     href: '/admin' },
     ],
@@ -263,6 +266,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 
       {/* Footer */}
       <div style={{ padding: '12px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+        {!collapsed && profile && <div style={{ marginBottom: 8 }}><NotificationBell /></div>}
         {!collapsed && profile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'var(--card)', marginBottom: 8, border: '1px solid var(--border)', boxShadow: 'var(--shadow-xs)' }}>
             <UserAvatar name={profile.name} avatarUrl={profile.avatar_url} />
@@ -279,7 +283,8 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           </div>
         )}
         {collapsed && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            {profile && <NotificationBell collapsed />}
             <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
               style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', boxShadow: 'var(--shadow-xs)' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}

@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/shell/Sidebar'
 import { MobileDrawer } from '@/components/shell/MobileDrawer'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { MedLogoSVG } from '@/components/MedLogo'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
@@ -44,6 +45,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
                 <MedLogoSVG size={22} color="#3d3d3d" />
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--foreground)', letterSpacing: '-0.02em' }}>MedReview</span>
               </div>
+              <div style={{ marginLeft: 'auto' }}><NotificationBell variant="header" /></div>
             </header>
           )}
           <main style={{ flex: 1, overflowY: 'auto' }}>{children}</main>
