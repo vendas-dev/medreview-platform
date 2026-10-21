@@ -394,19 +394,26 @@ function useBox<T extends HTMLElement>() {
   return [ref, box] as const
 }
 
-// Evolução da receita no mês contra o ritmo ideal. O eixo vai até a META: a
-// linha tracejada (ritmo ideal) sobe até ela no último dia do mês, e a linha
-// cheia (realizado) mostra onde você está. A distância entre as duas é o que
-// importa — e agora o gráfico usa o quadro inteiro pra ela ficar legível.
+// Evolução da receita no mês: REALIZADO × ESPERADO até hoje, com a META como uma linha horizontal.
+//  • META — tracejado horizontal: o alvo do mês, na mesma altura o mês inteiro.
+//  • ESPERADO — linha cheia e neutra: quanto deveríamos ter feito em cada dia se o ritmo fosse constante até a meta
+//    (meta × dia ÷ dias do mês, o mesmo "esperado até hoje" das barras por vertical). Vai do dia 1 até HOJE; depois só
+//    um traço bem fraco segue até encostar na meta no fim do mês.
+//  • REALIZADO — linha cheia, índigo: o que de fato foi feito.
+//  • A diferença entre as duas linhas é pintada (verde = à frente, âmbar = atrás) e o valor aparece no dia de hoje —
+//    ou no dia sob o mouse.
 function EvolutionChart({ meta, daysInMonth, series }: { meta: number; daysInMonth: number; series: { day: number; realizado: number }[] }) {
   const [boxRef, box] = useBox<HTMLDivElement>()
   const [hov, setHov] = useState<number | null>(null)
   const today = series[series.length - 1].day
   const shown = hov ?? today
-  const idealAt = (d: number) => (meta * d) / daysInMonth
+  const expectedAt = (d: number) => (meta * d) / daysInMonth
   const real = series.find(s => s.day === shown)?.realizado ?? null
-  const ideal = idealAt(shown)
-  const diff = real !== null ? real - ideal : null
+  const expected = expectedAt(shown)
+  const diff = real !== null ? real - expected : null
+  // mesma tolerância do "No ritmo do mês" do anel acima: diferença menor que 1% da meta conta como "no ritmo"
+  const near = diff !== null && Math.abs(diff) < meta * 0.01
+  const lastReal = series[series.length - 1].realizado
 
   const W = Math.max(box.w, 300), H = Math.max(box.h, 150)
   const padL = 8, padR = 66, padT = 18, padB = 24
@@ -416,6 +423,8 @@ function EvolutionChart({ meta, daysInMonth, series }: { meta: number; daysInMon
   const pts = series.map(s => ({ x: x(s.day), y: y(s.realizado) }))
   const line = smoothPath(pts)
   const area = pts.length > 1 ? `${line} L ${pts[pts.length - 1].x},${y(0)} L ${pts[0].x},${y(0)} Z` : ''
+  // área sob a linha do esperado (dia 1 → hoje): serve só de molde pra pintar a diferença entre as duas linhas
+  const expArea = `M ${x(1)},${y(0)} L ${x(1)},${y(expectedAt(1))} L ${x(today)},${y(expectedAt(today))} L ${x(today)},${y(0)} Z`
   const ticks = [1, 5, 10, 15, 20, 25, 30].filter(d => d < daysInMonth - 1).concat(daysInMonth)
 
   function onMove(e: React.MouseEvent<SVGSVGElement>) {
@@ -424,54 +433,110 @@ function EvolutionChart({ meta, daysInMonth, series }: { meta: number; daysInMon
     setHov(Math.min(Math.max(d, 1), daysInMonth))
   }
 
+  // etiqueta com a diferença, colada no conector entre as duas linhas (à direita do dia; à esquerda se não houver espaço)
+  const chip = (() => {
+    if (real === null || diff === null) return null
+    const label = `${diff >= 0 ? '+' : '−'}${fmtCompact(Math.abs(diff))}`
+    const w = label.length * 6.4 + 16
+    const cx = x(shown), right = cx + 12 + w <= W - padR - 4
+    const cy = Math.min(Math.max((y(real) + y(expected)) / 2, padT + 9), H - padB - 9)
+    return { label, w, left: right ? cx + 12 : cx - 12 - w, cy, color: near ? 'var(--muted-foreground)' : diff >= 0 ? GOOD : WARN }
+  })()
+
+  // 1 linha (muito largo) · 2 linhas (título+resumo / legenda) · 3 linhas (estreito): o nº de linhas depende SÓ da largura, nunca do que está sob o mouse
+  const tier: 1 | 2 | 3 = W >= 1040 ? 1 : W >= 560 ? 2 : 3
+  const valW = `${fmtBRL(meta).length}ch`
+  const pillEl = diff !== null
+    ? <Pill tone={near ? 'neutral' : diff >= 0 ? 'good' : 'warn'}>{near ? '● No ritmo' : <>{diff >= 0 ? '▲' : '▼'} {fmtCompact(Math.abs(diff))} {diff >= 0 ? 'à frente do ritmo' : 'atrás do ritmo'}</>}</Pill>
+    : null
+
   return (
     <div className="fc-card" style={{ ...cvar('#6366f1'), padding: '14px 16px 10px', flex: 1, minHeight: 270, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px 14px', flexWrap: 'wrap', marginBottom: 4 }}>
-        <p style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>
-          Evolução no mês <span style={{ fontWeight: 600, color: 'var(--muted-foreground)' }}>· dia {shown}{hov === null ? ' (hoje)' : ''}</span>
-        </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px 14px', flexWrap: 'wrap', fontSize: 11.5, color: 'var(--muted-foreground)' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--foreground)" strokeWidth="2.4" strokeDasharray="5 4" /></svg>
-            Ritmo ideal <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(ideal)}</strong>
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke={ACCENT} strokeWidth="3.4" strokeLinecap="round" /></svg>
-            Realizado <strong style={{ color: 'var(--foreground)' }}>{real !== null ? fmtBRL(real) : '—'}</strong>
-          </span>
-          {diff !== null && <Pill tone={diff >= 0 ? 'good' : 'warn'}>{diff >= 0 ? '▲ +' : '▼ −'}{fmtCompact(Math.abs(diff))}</Pill>}
+      {/* Cabeçalho com altura FIXA: o mesmo nº de linhas e os números com largura reservada, senão o resumo sumir (dia futuro) ou
+          trocar de "à frente" pra "atrás" mudava a quebra de linha, o cabeçalho pulava e o gráfico inteiro se reescalava ao passar o mouse. */}
+      <div style={{ marginBottom: 10, ...(tier === 1 ? { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'nowrap' } : {}) }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 28, ...(tier === 1 ? { flex: 'none' } : tier === 2 ? { marginBottom: 8 } : {}) }}>
+          <p style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--foreground)', margin: 0, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Evolução no mês <span style={{ fontWeight: 600, color: 'var(--muted-foreground)' }}>· dia {shown}{hov === null ? ' (hoje)' : ''}</span>
+          </p>
+          {tier === 2 && pillEl}
         </div>
+        {tier === 3 && <div style={{ minHeight: 28, display: 'flex', alignItems: 'center', marginBottom: 8 }}>{pillEl}</div>}
+        <div data-evo-legend style={{ display: 'flex', alignItems: 'center', gap: '4px 16px', flexWrap: tier === 1 ? 'nowrap' : 'wrap', fontSize: 11.5, color: 'var(--muted-foreground)', minHeight: 18, ...(tier === 1 ? { flex: 1, justifyContent: 'flex-end' } : {}) }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--foreground)" strokeWidth="2.4" strokeDasharray="5 4" /></svg>
+            Meta <strong style={{ color: 'var(--foreground)', display: 'inline-block', minWidth: valW, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(meta)}</strong>
+          </span>
+          <span title="Quanto deveríamos ter feito até este dia, em ritmo constante rumo à meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--foreground)" strokeWidth="2.2" strokeLinecap="round" opacity="0.7" /><circle cx="11" cy="4" r="2.6" fill="var(--card)" stroke="var(--foreground)" strokeWidth="1.6" /></svg>
+            Esperado <strong style={{ color: 'var(--foreground)', display: 'inline-block', minWidth: valW, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(expected)}</strong>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke={ACCENT} strokeWidth="3.4" strokeLinecap="round" /></svg>
+            Realizado <strong style={{ color: 'var(--foreground)', display: 'inline-block', minWidth: valW, fontVariantNumeric: 'tabular-nums' }}>{real !== null ? fmtBRL(real) : '—'}</strong>
+          </span>
+        </div>
+        {tier === 1 && <div style={{ flex: 'none', minWidth: 190, display: 'flex', justifyContent: 'flex-end', minHeight: 28, alignItems: 'center' }}>{pillEl}</div>}
       </div>
 
       <div ref={boxRef} style={{ flex: '1 1 0', minHeight: 190, overflow: 'hidden' }}>
-        <svg width={W} height={H} style={{ display: 'block', cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHov(null)}>
+        <svg width={W} height={H} role="img" aria-label={`Evolução no mês: realizado ${fmtBRL(lastReal)} contra ${fmtBRL(expectedAt(today))} esperados até hoje; meta do mês ${fmtBRL(meta)}`}
+          style={{ display: 'block', cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHov(null)}>
           <defs>
             <linearGradient id="fcEvo2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6366f1" stopOpacity=".34" /><stop offset="100%" stopColor="#6366f1" stopOpacity="0" /></linearGradient>
             <linearGradient id="fcEvoLine2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#6366f1" /><stop offset="100%" stopColor="#8b5cf6" /></linearGradient>
+            {/* moldes da diferença entre as duas linhas: verde onde o realizado passa o esperado, âmbar onde fica abaixo */}
+            <mask id="fcGapUp" maskUnits="userSpaceOnUse" x={0} y={0} width={W} height={H}>
+              <rect x={0} y={0} width={W} height={H} fill="black" /><path d={area} fill="white" /><path d={expArea} fill="black" />
+            </mask>
+            <mask id="fcGapDown" maskUnits="userSpaceOnUse" x={0} y={0} width={W} height={H}>
+              <rect x={0} y={0} width={W} height={H} fill="black" /><path d={expArea} fill="white" /><path d={area} fill="black" />
+            </mask>
           </defs>
 
-          {/* referências de 25/50/75/100% da meta */}
-          {[0.25, 0.5, 0.75, 1].map(f => (
+          {/* referências de 25/50/75% da meta (a de 100% é a linha tracejada da META, mais abaixo) */}
+          {[0.25, 0.5, 0.75].map(f => (
             <g key={f}>
-              <line x1={padL} x2={W - padR} y1={y(meta * f)} y2={y(meta * f)} stroke="var(--border)" strokeWidth={1} strokeDasharray={f === 1 ? '0' : '2 5'} />
-              <text x={W - padR + 8} y={y(meta * f) + (f === 1 ? -1 : 3.5)} fontSize={f === 1 ? 11 : 10} fontWeight={f === 1 ? 800 : 600} fill={f === 1 ? 'var(--foreground)' : 'var(--muted-foreground)'}>{f === 1 ? 'Meta' : fmtCompact(meta * f)}</text>
-              {f === 1 && <text x={W - padR + 8} y={y(meta) + 11} fontSize={10} fontWeight={600} fill="var(--muted-foreground)">{fmtCompact(meta)}</text>}
+              <line x1={padL} x2={W - padR} y1={y(meta * f)} y2={y(meta * f)} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 5" />
+              <text x={W - padR + 8} y={y(meta * f) + 3.5} fontSize={10} fontWeight={600} fill="var(--muted-foreground)">{fmtCompact(meta * f)}</text>
             </g>
           ))}
 
           <motion.path d={area} fill="url(#fcEvo2)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />
 
-          {/* RITMO IDEAL — tracejado em destaque, até a meta no último dia do mês */}
-          {/* (aparece por opacidade: a animação de "desenhar" (pathLength) troca o tracejado por linha cheia) */}
-          <motion.line x1={x(1)} y1={y(idealAt(1))} x2={x(daysInMonth)} y2={y(idealAt(daysInMonth))} stroke="var(--foreground)" strokeWidth={2.4} strokeDasharray="8 6" strokeLinecap="round"
+          {/* DIFERENÇA entre realizado e esperado (dia 1 → hoje) */}
+          <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 0.9 }}>
+            <rect x={0} y={0} width={W} height={H} fill={GOOD} opacity={0.36} mask="url(#fcGapUp)" />
+            <rect x={0} y={0} width={W} height={H} fill={WARN} opacity={0.34} mask="url(#fcGapDown)" />
+          </motion.g>
+
+          {/* META — tracejado HORIZONTAL (aparece por opacidade: a animação de "desenhar" (pathLength) troca o tracejado por linha cheia) */}
+          <motion.line x1={padL} x2={W - padR} y1={y(meta)} y2={y(meta)} stroke="var(--foreground)" strokeWidth={2.4} strokeDasharray="8 6" strokeLinecap="round"
             initial={{ opacity: 0 }} animate={{ opacity: 0.92 }} transition={{ duration: 0.8, delay: 0.2 }} />
+          <text x={W - padR + 8} y={y(meta) - 1} fontSize={11} fontWeight={800} fill="var(--foreground)">Meta</text>
+          <text x={W - padR + 8} y={y(meta) + 11} fontSize={10} fontWeight={600} fill="var(--muted-foreground)">{fmtCompact(meta)}</text>
+
+          {/* ESPERADO — de hoje em diante só um traço fraco, até encostar na meta no fim do mês */}
+          <line x1={x(today)} y1={y(expectedAt(today))} x2={x(daysInMonth)} y2={y(meta)} stroke="var(--foreground)" strokeWidth={1.6} strokeDasharray="1 6" strokeLinecap="round" opacity={0.3} />
+          {/* ESPERADO — linha cheia e neutra, do dia 1 até hoje */}
+          <motion.line x1={x(1)} y1={y(expectedAt(1))} x2={x(today)} y2={y(expectedAt(today))} stroke="var(--foreground)" strokeWidth={2.2} strokeLinecap="round" opacity={0.75}
+            initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.9, delay: 0.15, ease: 'easeOut' }} />
 
           {/* REALIZADO — linha cheia */}
           <motion.path d={line} fill="none" stroke="url(#fcEvoLine2)" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: 'easeOut' }} />
 
           {/* guia de hover */}
           {hov !== null && <line x1={x(hov)} x2={x(hov)} y1={padT - 6} y2={H - padB} stroke="var(--muted-foreground)" strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />}
-          {hov !== null && <circle cx={x(hov)} cy={y(ideal)} r={4.5} fill="var(--card)" stroke="var(--foreground)" strokeWidth={2.2} />}
+
+          {/* conector + diferença no dia mostrado (hoje, ou o dia sob o mouse) */}
+          {real !== null && chip && (
+            <motion.g key={shown} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18 }}>
+              <line data-evo-connector x1={x(shown)} x2={x(shown)} y1={y(real)} y2={y(expected)} stroke={chip.color} strokeWidth={3} strokeLinecap="round" opacity={0.9} />
+              <rect x={chip.left} y={chip.cy - 9} width={chip.w} height={18} rx={9} fill="var(--card)" stroke={chip.color} strokeWidth={1.2} />
+              <text data-evo-chip x={chip.left + chip.w / 2} y={chip.cy + 3.8} fontSize={10.5} fontWeight={800} textAnchor="middle" fill={chip.color}>{chip.label}</text>
+            </motion.g>
+          )}
+          <circle cx={x(shown)} cy={y(expected)} r={4.5} fill="var(--card)" stroke="var(--foreground)" strokeWidth={2.2} opacity={real !== null ? 1 : 0.55} />
           {real !== null && <>
             {hov === null && <circle cx={x(shown)} cy={y(real)} r={10} fill={ACCENT} opacity={0.2} />}
             <circle cx={x(shown)} cy={y(real)} r={5.2} fill="#7c3aed" stroke="var(--card)" strokeWidth={2.6} />

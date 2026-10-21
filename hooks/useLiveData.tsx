@@ -79,13 +79,24 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
       'Oft-Review': 'oftreview', 'Ortop-Review': 'ortopreview',
     }
 
-    // Receita mensal
-    const { data: monthData } = await supabase
-      .from('telao_events')
-      .select('value, vertical')
-      .eq('event_type', 'sale')
-      .gte('occurred_at', monthStart())
-      .not('value', 'is', null)
+    // Receita mensal — PAGINADA: o Supabase entrega no máximo 1.000 linhas por consulta e corta em silêncio;
+    // num mês forte (Black, vestibular…) passa disso e a receita do mês ficava menor do que a real.
+    // Pede de 1.000 em 1.000 e só para quando vem uma página vazia.
+    const monthData: { value: number | null; vertical: string }[] = []
+    for (let from = 0, page = 0; page < 200; page++) {
+      const { data: pageRows } = await supabase
+        .from('telao_events')
+        .select('value, vertical')
+        .eq('event_type', 'sale')
+        .gte('occurred_at', monthStart())
+        .not('value', 'is', null)
+        .order('occurred_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + 999)
+      if (!pageRows || pageRows.length === 0) break
+      monthData.push(...(pageRows as { value: number | null; vertical: string }[]))
+      from += pageRows.length
+    }
 
     const mr: MonthRevenue = { overall: 0, byVertical: {} as Record<VerticalId, number> }
     for (const row of (monthData ?? [])) {

@@ -12,7 +12,7 @@ import {
   CountUp, TrendBadge, PaceThermometer, Clock, Ticker, MoneyLeftOnTable, Celebration, GoalCelebration, MonthGoalCelebration, CloserGoalCelebration,
   initAudio, loadCelebratedGoals, persistCelebratedGoal,
 } from './animations'
-import { Panel, Legend, LineChart, StackBars, ShareArea, Donut, HeatGrid, TileMap, HBars, makeTheme, fmtCompact, fmtDM, Th, StackKey } from './charts'
+import { Panel, Legend, LineChart, StackBars, ShareArea, Donut, HeatGrid, RegionMap, IntensityLegend, HBars, makeTheme, fmtCompact, fmtDM, Th, StackKey } from './charts'
 
 // ══ Telão Completo — visão dos fundadores ═════════════════════════════════════
 // Histórico + acumulado, 5 painéis (Geral/Anest/Oft/Ortop/R1) que filtram TUDO.
@@ -291,49 +291,43 @@ function GoalsPanel({ th, goals, sales, panel, today, accent }: { th: Th; goals:
 }
 
 // ══ Receita por região e estado ══════════════════════════════════════════════
+// Os estados ficam AGRUPADOS por região (Norte → Sul), em quadrados maiores. A cor de cada estado e de cada região é
+// relativa à MÉDIA (calculada por dentro, não é exibida): mais forte = vende mais que a média, mais fraca = vende menos.
+// As contas ficam em lib/telao/analytics.ts (regionBlocks); o desenho em charts.tsx (RegionMap).
 const MEDALS = ['🥇', '🥈', '🥉']
 function RegionPanel({ th, uf, accent }: { th: Th; uf: ReturnType<typeof A.byUF>; accent: string }) {
-  const { regions } = useMemo(() => A.byRegion(uf.items), [uf])
+  const rb = useMemo(() => A.regionBlocks(uf.items), [uf])
   const top3 = useMemo(() => A.topStates(uf.items, 3), [uf])
   const lab: React.CSSProperties = { margin: '0 0 8px', fontSize: 9.5, fontWeight: 900, color: th.muted, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.1em' }
   return (
-    <Panel th={th} title="Receita por região e estado" sub={`% sobre as vendas com estado informado (${uf.coveragePct.toFixed(0)}% do total)`} accent={accent} className="tc-s7" id="mapa">
-      <div className="tc-region-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,300px) minmax(0,1fr)', gap: 20, alignItems: 'start' }}>
-        <TileMap th={th} data={uf.items} accent={accent} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-          <div>
-            <p style={lab}>Por região · % do total</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {regions.map((r, i) => (
-                <div key={r.region} data-region={r.region}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
-                    <span style={{ fontSize: 12, fontWeight: i === 0 ? 900 : 700, color: i === 0 ? accent : th.text, fontFamily: SANS }}>{r.label}{r.topUF && r.revenue > 0 ? <span style={{ fontSize: 9.5, color: th.soft, fontFamily: MONO, fontWeight: 600 }}> · {r.topUF.uf} lidera</span> : null}</span>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: th.text, fontFamily: MONO, whiteSpace: 'nowrap' }}><span data-pct style={{ color: i === 0 ? accent : th.text }}>{r.sharePct.toFixed(r.sharePct >= 10 ? 0 : 1)}%</span><span style={{ color: th.soft, fontWeight: 600 }}> · {fmtCompact(r.revenue).replace('R$ ', 'R$ ')}</span></span>
-                  </div>
-                  <div style={{ height: 7, borderRadius: 999, background: th.track, overflow: 'hidden' }}>
-                    <motion.div initial={{ width: 0 }} animate={{ width: `${r.sharePct}%` }} transition={{ duration: 0.7, delay: i * 0.07, ease: 'easeOut' }} style={{ height: '100%', borderRadius: 999, background: accent, opacity: i === 0 ? 1 : 0.6 }} />
-                  </div>
-                </div>
-              ))}
+    <Panel th={th} title="Receita por região e estado" sub={`% sobre as vendas com estado informado (${uf.coveragePct.toFixed(0)}% do total) · estados agrupados por região, em uma linha`} accent={accent} className="tc-s12" id="mapa">
+      {uf.items.length === 0 ? <p style={{ margin: 0, fontSize: 12, color: th.muted, fontFamily: SANS }}>Sem vendas com estado informado no período.</p> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px 28px' }}>
+            <div style={{ flex: '1 1 520px', minWidth: 0 }}>
+              <p style={lab}>Top 3 estados · % do total</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 8 }}>
+                {top3.map((st, i) => (
+                  <motion.div key={st.uf} data-top-state={st.uf} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.08 }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 14, background: th.dark ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,.65)', borderLeft: `3px solid ${accent}` }}>
+                    <span style={{ fontSize: 20 }}>{MEDALS[i]}</span>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <strong style={{ display: 'block', fontSize: 17, fontWeight: 900, color: th.text, fontFamily: SANS, lineHeight: 1.1 }}>{st.uf}</strong>
+                      <span style={{ fontSize: 10, color: th.soft, fontFamily: MONO }}>{A.REGION_LABEL[st.region]} · {fmtCompact(st.revenue)}</span>
+                    </span>
+                    <span data-pct style={{ fontSize: 16, fontWeight: 900, color: accent, fontFamily: SANS }}>{st.sharePct.toFixed(1)}%</span>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+            <div style={{ flex: '0 1 260px', minWidth: 200 }}>
+              <p style={lab}>Cor dos estados</p>
+              <IntensityLegend th={th} accent={accent} />
             </div>
           </div>
-          <div>
-            <p style={lab}>Top 3 estados · % do total</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {top3.map((st, i) => (
-                <motion.div key={st.uf} data-top-state={st.uf} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.08 }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 12, background: th.dark ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,.65)', borderLeft: `3px solid ${accent}` }}>
-                  <span style={{ fontSize: 17 }}>{MEDALS[i]}</span>
-                  <span style={{ fontSize: 15, fontWeight: 900, color: th.text, fontFamily: SANS, minWidth: 28 }}>{st.uf}</span>
-                  <span style={{ fontSize: 10, color: th.soft, fontFamily: MONO, flex: 1 }}>{A.REGION_LABEL[st.region]} · {fmtCompact(st.revenue)}</span>
-                  <span data-pct style={{ fontSize: 14, fontWeight: 900, color: accent, fontFamily: SANS }}>{st.sharePct.toFixed(1)}%</span>
-                </motion.div>
-              ))}
-              {top3.length === 0 && <p style={{ margin: 0, fontSize: 11.5, color: th.muted, fontFamily: SANS }}>Sem vendas com estado informado no período.</p>}
-            </div>
-          </div>
+          <RegionMap th={th} blocks={rb.blocks} accent={accent} />
         </div>
-      </div>
+      )}
     </Panel>
   )
 }
@@ -387,7 +381,8 @@ function PaymentPanel({ th, ps, pay, accent }: { th: Th; ps: A.PayStructure; pay
   )
 }
 
-// ══ Quando a empresa vende: mapa compacto + ranking (melhor dia, melhor horário, top momentos) ══
+// ══ Quando a empresa vende: mapa de calor + melhor dia + melhor horário ═══════
+// (o ranking dos melhores momentos é o painel ao lado de "Forma de pagamento": RankingPanel)
 const WD_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 const WD_LETTER = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]
@@ -396,12 +391,11 @@ function HeatPanel({ th, heat, accent }: { th: Th; heat: A.Heat; accent: string 
   const best = hi.top[0]
   const dayMax = Math.max(...hi.days, 1), hourMax = Math.max(...hi.hours, 1)
   const card = { padding: '11px 14px 10px', borderRadius: 16, background: `${accent}14`, border: `1px solid ${accent}44`, minWidth: 0 } as const
-  const lab: React.CSSProperties = { margin: '0 0 7px', fontSize: 9.5, fontWeight: 900, color: th.muted, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.1em' }
   return (
-    <Panel th={th} title="Quando a empresa vende" sub="receita por dia da semana × hora · horário de São Paulo" accent={accent} className="tc-s6" id="calor">
-      <HeatGrid th={th} cells={heat.cells} counts={heat.counts} max={heat.max} accent={accent} cell={13} highlight={best ?? null} />
+    <Panel th={th} title="Quando a empresa vende" sub="receita por dia da semana × hora · horário de São Paulo" accent={accent} className="tc-s7" id="calor">
+      <HeatGrid th={th} cells={heat.cells} counts={heat.counts} max={heat.max} accent={accent} cell={20} highlight={best ?? null} />
       {!best ? <p style={{ margin: '12px 0 0', fontSize: 12, color: th.muted }}>Sem vendas no período.</p> : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, marginTop: 14 }}>
+        <div style={{ marginTop: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10 }}>
             <div data-heat-day style={card}>
               <span style={{ fontSize: 9.5, fontWeight: 900, color: accent, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.1em' }}>📅 Melhor dia</span>
@@ -436,13 +430,22 @@ function HeatPanel({ th, heat, accent }: { th: Th; heat: A.Heat; accent: string 
               <p style={{ margin: '5px 0 0', fontSize: 10, color: th.soft, fontFamily: MONO }}>{fmtBRL(hi.hour!.revenue)} da receita do período</p>
             </div>
           </div>
+        </div>
+      )}
+    </Panel>
+  )
+}
 
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <p style={lab}>🏆 Ranking dos melhores momentos · dia + horário</p>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6 }}>
+// ══ Ranking dos melhores momentos (dia + horário): painel próprio, ao lado de "Forma de pagamento" ══
+function RankingPanel({ th, heat, accent }: { th: Th; heat: A.Heat; accent: string }) {
+  const hi = useMemo(() => A.heatHighlights(heat, 5), [heat])
+  return (
+    <Panel th={th} title="Ranking dos melhores momentos" sub="dia da semana + horário · os 5 que mais faturam · horário de São Paulo" accent={accent} className="tc-s6" id="ranking-momentos">
+      {hi.top.length === 0 ? <p style={{ margin: 0, fontSize: 12, color: th.muted }}>Sem vendas no período.</p> : (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {hi.top.map((x, i) => (
                 <motion.div key={`${x.weekday}-${x.hour}`} data-heat-rank={i + 1} data-heat-best={i === 0 ? '' : undefined} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.07 }}
-                  style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 10, padding: i === 0 ? '10px 12px' : '7px 12px', borderRadius: 12, background: i === 0 ? `${accent}22` : th.dark ? 'rgba(255,255,255,.03)' : 'rgba(255,255,255,.65)', border: i === 0 ? `1px solid ${accent}66` : '1px solid transparent' }}>
+                  style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 10, flex: i === 0 ? 1.3 : 1, minHeight: 56, maxHeight: 120, padding: i === 0 ? '10px 14px' : '8px 14px', borderRadius: 12, background: i === 0 ? `${accent}22` : th.dark ? 'rgba(255,255,255,.03)' : 'rgba(255,255,255,.65)', border: i === 0 ? `1px solid ${accent}66` : '1px solid transparent' }}>
                   <motion.div initial={{ width: 0 }} animate={{ width: `${(x.pct / hi.top[0].pct) * 100}%` }} transition={{ duration: 0.8, delay: 0.25 + i * 0.07, ease: 'easeOut' }} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: `${accent}${i === 0 ? '26' : '14'}`, zIndex: 0 }} />
                   <span style={{ position: 'relative', zIndex: 1, width: 26, textAlign: 'center', fontSize: i < 3 ? (i === 0 ? 20 : 17) : 11, fontWeight: 900, fontFamily: MONO, color: th.soft }}>{i < 3 ? MEDALS[i] : `${i + 1}º`}</span>
                   <span style={{ position: 'relative', zIndex: 1, flex: 1, fontSize: i === 0 ? 17 : 13.5, fontWeight: 900, color: th.text, fontFamily: SANS, letterSpacing: '-.01em' }}>{WD_FULL[x.weekday]} · {String(x.hour).padStart(2, '0')}h{i === 0 && <span style={{ marginLeft: 8, fontSize: 9.5, color: accent, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.08em' }}>🔥 melhor momento</span>}</span>
@@ -452,8 +455,6 @@ function HeatPanel({ th, heat, accent }: { th: Th; heat: A.Heat; accent: string 
                   </span>
                 </motion.div>
               ))}
-            </div>
-          </div>
         </div>
       )}
     </Panel>
@@ -636,10 +637,9 @@ function TelaoCompletoInner() {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
         .tc-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
         .tc-grid>*{grid-column:span 12}
-        @media(min-width:1100px){.tc-s3{grid-column:span 3}.tc-s4{grid-column:span 4}.tc-s5{grid-column:span 5}.tc-s6{grid-column:span 6}.tc-s7{grid-column:span 7}.tc-s8{grid-column:span 8}}
+        @media(min-width:1100px){.tc-s3{grid-column:span 3}.tc-s4{grid-column:span 4}.tc-s5{grid-column:span 5}.tc-s6{grid-column:span 6}.tc-s7{grid-column:span 7}.tc-s8{grid-column:span 8}.tc-s12{grid-column:span 12}}
         @media(max-width:960px){.tc-hero-row{flex-direction:column!important}}
-        @media(max-width:780px){.tc-region-grid{grid-template-columns:1fr!important}}
-      `}</style>
+              `}</style>
       <div style={{ position: 'fixed', inset: 0, background: th.dark ? 'radial-gradient(ellipse at 20% 50%,rgba(88,28,135,.12),transparent 50%)' : 'radial-gradient(ellipse at 10% 30%,rgba(139,92,246,.15),transparent 50%)', pointerEvents: 'none' }} />
       <div style={{ position: 'fixed', inset: 0, backgroundImage: th.dark ? 'radial-gradient(rgba(168,85,247,.04) 1px,transparent 1px)' : 'radial-gradient(rgba(109,40,217,.12) 1px,transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none' }} />
 
@@ -744,10 +744,12 @@ function TelaoCompletoInner() {
             </Panel>
 
             <GoalsPanel th={th} goals={goalsMap} sales={sales} panel={panel} today={today} accent={accent} />
-            <RegionPanel th={th} uf={uf} accent={accent} />
+            <HeatPanel th={th} heat={heat} accent={accent} />
 
             <PaymentPanel th={th} ps={payS} pay={pay} accent={accent} />
-            <HeatPanel th={th} heat={heat} accent={accent} />
+            <RankingPanel th={th} heat={heat} accent={accent} />
+
+            <RegionPanel th={th} uf={uf} accent={accent} />
           </div>
 
           <p style={{ margin: 0, textAlign: 'center', fontSize: 10, color: th.muted, fontFamily: MONO }}>

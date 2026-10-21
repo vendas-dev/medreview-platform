@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { smoothPath } from './animations'
 import { fmtBRL } from '@/lib/telao/format'
+import type { RegionBlock, StateCell } from '@/lib/telao/analytics'
 
 // ══ Kit de gráficos do Telão Completo ═════════════════════════════════════════
 // Mesmo estilo das linhas/barras do Telão ao vivo (cartões "vidro" roxos,
@@ -310,32 +311,100 @@ export function HeatGrid({ th, cells, counts, max, accent, cell = 22, highlight 
   )
 }
 
-// ══ 6. Cartograma do Brasil (um quadrado por estado, posição aproximada) ════════
-const TILES: Record<string, [number, number]> = {
-  RR: [0, 2], AP: [0, 3],
-  AM: [1, 1], PA: [1, 2], MA: [1, 3], CE: [1, 4], RN: [1, 5],
-  AC: [2, 0], RO: [2, 1], TO: [2, 2], PI: [2, 3], PE: [2, 4], PB: [2, 5],
-  MT: [3, 1], GO: [3, 2], BA: [3, 3], AL: [3, 4],
-  MS: [4, 1], DF: [4, 2], MG: [4, 3], SE: [4, 4],
-  SP: [5, 2], RJ: [5, 3], ES: [5, 4],
-  PR: [6, 1], SC: [6, 2], RS: [6, 3],
+// ══ 6. Receita por região: os estados AGRUPADOS por região, com a cor dizendo quem vende mais/menos que a média ══
+// Cada região é um bloco (Norte → Sul) com os estados dela em quadrados grandes, o mais forte primeiro.
+// A intensidade da cor é relativa à MÉDIA (lib/telao/analytics.ts: levelOfRatio): na média = cor do meio, acima = mais forte, abaixo = mais fraca.
+const rgbOf = (hex: string): [number, number, number] | null => { const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim()); if (!m) return null; const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
+export const withAlpha = (hex: string, a: number) => { const c = rgbOf(hex); return c ? `rgba(${c[0]},${c[1]},${c[2]},${a.toFixed(3)})` : hex }
+/** Branco ou escuro: o que tiver MAIOR contraste (WCAG) sobre `hex` com transparência `a`, em cima do fundo do cartão.
+ *  Compara os dois em vez de usar um limite fixo — perto do limite nenhum dos dois ficava bom (cor de força média). */
+function inkOn(th: Th, hex: string, a: number): string {
+  const c = rgbOf(hex); if (!c) return th.text
+  const base = th.dark ? [16, 8, 32] : [255, 255, 255]
+  const lin = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4 }
+  const lum = (m: number[]) => 0.2126 * lin(m[0]) + 0.7152 * lin(m[1]) + 0.0722 * lin(m[2])
+  const bg = lum(c.map((v, i) => v * a + base[i] * (1 - a)))
+  const WHITE = 1, DARK = lum([0x1e, 0x00, 0x40])
+  return (WHITE + 0.05) / (bg + 0.05) >= (bg + 0.05) / (DARK + 0.05) ? '#fff' : '#1e0040'
 }
-export function TileMap({ th, data, accent }: { th: Th; data: { uf: string; revenue: number; count: number }[]; accent: string }) {
-  const m = new Map(data.map(d => [d.uf, d])); const max = Math.max(...data.map(d => d.revenue), 1)
-  const cell = 'minmax(0,1fr)'
+const tileAlpha = (level: number) => 0.1 + level * 0.88            // nível 0,5 (a média) ≈ 0,54 de cor; nível 1 ≈ cor cheia
+// Layout em UMA LINHA, sem quebrar: os 5 blocos lado a lado. Todos têm 2 fileiras de quadrados (Norte 4+3, Nordeste 5+4, demais 2+2 / 2+1), então
+// a altura é a mesma e o conjunto fica harmônico. O tamanho do quadrado (T) acompanha a largura disponível; se a tela for mais estreita que o mínimo,
+// a linha ROLA na horizontal dentro do painel (nunca quebra pra baixo).
+const REGION_COLS: Record<string, number> = { norte: 4, nordeste: 5, 'centro-oeste': 2, sudeste: 2, sul: 2 }     // colunas de quadrados em cada região
+const R_PAD = 14, R_BORDER = 1, R_GAP = 12, R_TGAP = 6, T_MIN = 50, T_MAX = 116                                // px: respiro do bloco · borda · entre blocos · entre quadrados · menor/maior quadrado
+/** Largura de cada quadrado (px) pra caber todos os blocos numa linha na largura disponível — pura, pra testar. */
+export function regionTileSize(width: number, cols: number[] = Object.values(REGION_COLS)): number {
+  const fixed = (cols.length - 1) * R_GAP + cols.reduce((a, c) => a + 2 * (R_PAD + R_BORDER) + (c - 1) * R_TGAP, 0)
+  return Math.max(T_MIN, Math.min(T_MAX, Math.floor((width - fixed) / cols.reduce((a, c) => a + c, 0))))
+}
+const fmtShare = (v: number) => (v > 0 && v < 0.1 ? '<0.1%' : `${v.toFixed(v >= 10 ? 0 : 1)}%`)
+
+function StateTile({ th, s, accent, index, size }: { th: Th; s: StateCell; accent: string; index: number; size: number }) {
+  const has = s.revenue > 0, a = has ? tileAlpha(s.level) : 0, ink = has ? inkOn(th, accent, a) : th.soft
+  const fUf = Math.max(12, Math.min(20, size * 0.22)), fVal = Math.max(8.5, Math.min(13, size * 0.15)), fPct = Math.max(8, Math.min(11, size * 0.115))
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(6,${cell})`, gridTemplateRows: 'repeat(7,auto)', gap: 4 }}>
-      {Object.entries(TILES).map(([uf, [row, col]]) => {
-        const d = m.get(uf), f = d ? Math.sqrt(d.revenue / max) : 0
-        return (
-          <motion.div key={uf} data-uf={uf} title={d ? `${uf} · ${fmtBRL(d.revenue)} · ${d.count} venda(s)` : `${uf} · sem vendas`}
-            initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: (row * 6 + col) * 0.012, type: 'spring', stiffness: 260, damping: 20 }}
-            style={{ gridRow: row + 1, gridColumn: col + 1, borderRadius: 8, height: 38, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: d ? accent : th.track, opacity: d ? 0.2 + f * 0.8 : th.dark ? 0.45 : 0.6, color: d && f > 0.45 ? '#fff' : th.text, lineHeight: 1.05 }}>
-            <span style={{ fontSize: 10, fontWeight: 900, fontFamily: MONO }}>{uf}</span>
-            {d && <span style={{ fontSize: 8, fontWeight: 700, fontFamily: MONO }}>{fmtCompact(d.revenue).replace('R$ ', '')}</span>}
-          </motion.div>
-        )
-      })}
+    <motion.div data-uf={s.uf} data-level={has ? s.level.toFixed(2) : '0'}
+      title={has ? `${s.uf} · ${fmtBRL(s.revenue)} · ${s.count} venda(s) · ${s.sharePct.toFixed(1)}% do total` : `${s.uf} · sem vendas no período`}
+      initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: has ? 1 : 0.8, scale: 1 }} transition={{ delay: 0.05 + index * 0.02, type: 'spring', stiffness: 260, damping: 20 }}
+      style={{ position: 'relative', width: '100%', height: '100%', borderRadius: Math.round(size * 0.16), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: '0 3px', boxSizing: 'border-box', overflow: 'hidden',
+        background: has ? withAlpha(accent, a) : th.track, border: has ? `1px solid ${withAlpha(accent, Math.min(0.28 + s.level * 0.72, 1))}` : `1px dashed ${th.border}`, color: ink }}>
+      {s.isTop && <span title="o estado que mais vende nesta região" style={{ position: 'absolute', top: 3, right: 5, fontSize: 9, lineHeight: 1 }}>★</span>}
+      <span style={{ fontSize: fUf, fontWeight: 900, fontFamily: SANS, letterSpacing: '.01em', lineHeight: 1.05 }}>{s.uf}</span>
+      {has ? (<>
+        <span style={{ fontSize: fVal, fontWeight: 800, fontFamily: MONO, lineHeight: 1.15, whiteSpace: 'nowrap' }}>{fmtCompact(s.revenue).replace('R$ ', '')}</span>
+        <span data-share style={{ fontSize: fPct, fontWeight: 700, fontFamily: MONO, opacity: 0.88, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{fmtShare(s.sharePct)}</span>
+      </>) : <span style={{ fontSize: fPct, fontFamily: MONO, lineHeight: 1.2 }}>—</span>}
+    </motion.div>
+  )
+}
+
+/** A régua de cor: mais fraca = vende menos · mais forte = vende mais. */
+export function IntensityLegend({ th, accent }: { th: Th; accent: string }) {
+  return (
+    <div data-intensity-legend>
+      <div style={{ height: 12, borderRadius: 999, background: `linear-gradient(90deg, ${withAlpha(accent, tileAlpha(0.12))}, ${withAlpha(accent, tileAlpha(1))})`, border: `1px solid ${th.border}` }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 5, fontFamily: MONO, fontSize: 9.5, color: th.soft, fontWeight: 700 }}>
+        <span>vende menos</span>
+        <span>vende mais</span>
+      </div>
+    </div>
+  )
+}
+
+export function RegionMap({ th, blocks, accent }: { th: Th; blocks: RegionBlock[]; accent: string }) {
+  const [boxRef, box] = useBox<HTMLDivElement>()
+  const colsOf = blocks.map(b => REGION_COLS[b.region] ?? 4)
+  const T = box.w > 0 ? regionTileSize(box.w, colsOf) : 76, tileH = Math.round(T * 0.92)
+  const labelFs = Math.max(10, Math.min(15, T * 0.18)), pctFs = Math.max(18, Math.min(26, T * 0.3))
+  return (
+    <div ref={boxRef} data-region-map data-tile={T} style={{ width: '100%', overflowX: 'auto', paddingBottom: 2 }}>
+      <div data-region-row style={{ display: 'flex', gap: R_GAP, width: 'max-content', margin: '0 auto', alignItems: 'stretch' }}>
+        {blocks.map((b, bi) => {
+          const cols = colsOf[bi], has = b.revenue > 0
+          const border = withAlpha(accent, has ? 0.2 + b.level * 0.55 : 0.12), tint = withAlpha(accent, has ? 0.035 + b.level * 0.15 : 0.02)
+          return (
+            <motion.div key={b.region} data-region={b.region} data-region-level={b.level.toFixed(2)} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: bi * 0.06, duration: 0.4 }}
+              style={{ flex: 'none', width: cols * T + (cols - 1) * R_TGAP + 2 * (R_PAD + R_BORDER), padding: R_PAD, borderRadius: 18, background: tint, border: `${R_BORDER}px solid ${border}`, boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minHeight: 22 }}>
+                <span style={{ fontSize: labelFs, fontWeight: 900, color: th.text, fontFamily: SANS, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.label}</span>
+                {b.rank !== null && <span data-region-rank style={{ flex: 'none', fontSize: 9.5, fontWeight: 900, fontFamily: MONO, padding: '2px 7px', borderRadius: 999, background: withAlpha(accent, 0.16 + b.level * 0.5), color: inkOn(th, accent, 0.16 + b.level * 0.5) }}>#{b.rank}</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, marginTop: 6 }}>
+                <span data-pct style={{ fontSize: pctFs, fontWeight: 900, color: accent, fontFamily: SANS, lineHeight: 1 }}>{b.sharePct.toFixed(b.sharePct >= 10 || b.sharePct === 0 ? 0 : 1)}%</span>
+                <span data-region-rev style={{ fontSize: 10, fontWeight: 800, color: th.text, fontFamily: MONO, whiteSpace: 'nowrap' }}>{fmtCompact(b.revenue)}</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 999, background: th.track, overflow: 'hidden', margin: '8px 0 6px' }}>
+                <motion.div initial={{ width: 0 }} animate={{ width: `${b.sharePct}%` }} transition={{ duration: 0.7, delay: 0.1 + bi * 0.07, ease: 'easeOut' }} style={{ height: '100%', borderRadius: 999, background: accent }} />
+              </div>
+              <p data-region-count style={{ margin: '0 0 10px', fontSize: 9.5, fontFamily: MONO, color: th.soft, whiteSpace: 'nowrap', lineHeight: 1.3 }}>{b.count.toLocaleString('pt-BR')} venda{b.count === 1 ? '' : 's'}</p>
+              <div data-region-tiles style={{ display: 'grid', gap: R_TGAP, gridTemplateColumns: `repeat(${cols}, ${T}px)`, gridAutoRows: `${tileH}px` }}>
+                {b.states.map((st, i) => <StateTile key={st.uf} th={th} s={st} accent={accent} index={bi * 3 + i} size={T} />)}
+              </div>
+            </motion.div>
+          )
+        })}
+      </div>
     </div>
   )
 }

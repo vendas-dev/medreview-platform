@@ -1,13 +1,15 @@
 'use client'
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Maximize2, Settings, RefreshCw, SlidersHorizontal, X, Volume2, VolumeX, TrendingUp, Award, Target, Zap, Rocket } from 'lucide-react'
+import { Maximize2, Settings, RefreshCw, SlidersHorizontal, X, Volume2, VolumeX, TrendingUp, Award, Target, Zap, Rocket, Expand, Shrink } from 'lucide-react'
 import Link from 'next/link'
 import { useLiveData, LiveDataProvider } from '@/hooks/useLiveData'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import { VERTICALS, VERTICAL_LIST, GOLD, VerticalId, FilterState, EMPTY_FILTER, Closer, TelaoEvent, CloserStats } from '@/lib/telao/types'
 import { computeCloserStats, fmtBRL, todayKey, monthKey, monthStart, initials, timeAgo, eventMoneyLeftOnTable } from '@/lib/telao/format'
 import { todayInSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, hourInSaoPaulo, weekdayInSaoPaulo, dateInSaoPaulo } from '@/lib/timezone'
+import { DailyRevenueChart, useMonthSales } from './DailyRevenueChart'
+import { FitColumn, useFitRoot } from './FitColumn'
 
 // ── Persistência de celebrações já vistas ────────────────────────
 // Sem isso, o Set fica só na memória do componente — toda vez que a página
@@ -1140,6 +1142,17 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const [allUserEvs,    setAllUserEvs]    = useState<TelaoEvent[]>([])
   const [allFetched,    setAllFetched]    = useState(false)
 
+  // Receita por dia do mês (gráfico abaixo dos canais): o histórico do mês é buscado à parte (paginado);
+  // o dia de hoje vem do `events` ao vivo. `chartTick` faz o botão de atualizar refazer o histórico também.
+  const [chartTick, setChartTick] = useState(0)
+  const monthSales = useMonthSales(isAdmin, chartTick)
+
+  // "Ajustar à tela": o telão ocupa exatamente a área visível, sem rolagem (só admin, telas ≥ 961px). Escolha lembrada neste navegador.
+  const [fit, setFit] = useState(true)
+  useEffect(() => { try { if (localStorage.getItem('telao_fit') === '0') setFit(false) } catch {} }, [])
+  const toggleFit = () => setFit(f => { const n = !f; try { localStorage.setItem('telao_fit', n ? '1' : '0') } catch {} return n })
+  const fitRoot = useFitRoot(isAdmin && fit)
+
   // ── Maps de lookup ─── CORRIGIDO: byHubId para todos os componentes
   const byId    = useMemo(() => Object.fromEntries(closers.map(c => [c.id, c])), [closers])
   const byHubId = useMemo(() => Object.fromEntries(
@@ -1751,8 +1764,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
   return (
     <div
+      ref={fitRoot.ref}
+      className={fitRoot.active ? 'tw-fit' : undefined}
       style={{
-        background:TH.bg, minHeight:'100vh', color:TH.text,
+        background:TH.bg, minHeight:fitRoot.active?0:'100vh', height:fitRoot.active?fitRoot.height:undefined, color:TH.text,
         fontFamily:"'Space Grotesk',sans-serif", position:'relative', overflowX:'hidden',
         '--tw-card'      : TH.card,
         '--tw-border'    : TH.border,
@@ -1773,6 +1788,10 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
         @keyframes cellPulse{0%{box-shadow:0 0 0 0 ${accent}88}70%{box-shadow:0 0 0 10px ${accent}00}100%{box-shadow:0 0 0 0 ${accent}00}}
         @media(max-width:960px){.tw-main{grid-template-columns:1fr!important;}.tw-vert{grid-template-columns:repeat(2,1fr)!important;}.sd-hero-row{flex-direction:column!important;}.sd-hero-trend{width:100%!important;padding-top:8px!important;}.tw-side{position:static!important;height:auto!important;overflow:visible!important;}.tw-side .tw-feed{flex:none!important;height:360px!important;}}
         @media(max-width:640px){.tw-canais-row{grid-template-columns:1fr!important;}}
+        .tw-fit{display:flex!important;flex-direction:column!important;overflow:hidden!important;}
+        .tw-fit>*{flex-shrink:0;}
+        .tw-fit>.tw-main{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;grid-template-rows:minmax(0,1fr)!important;}
+        .tw-fit .tw-side{position:static!important;height:auto!important;min-height:0!important;}
         @media(max-height:820px) and (min-width:961px){.tw-side{gap:8px!important;}.tw-side .tw-panel{padding:10px 12px!important;}.tw-side .tw-feed{min-height:110px!important;}}
       `}</style>
 
@@ -1809,13 +1828,19 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:audioOn?'rgba(168,85,247,.12)':'rgba(255,255,255,.02)',color:audioOn?'#c4b5fd':'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               {audioOn?<Volume2 size={13}/>:<VolumeX size={13}/>}
             </motion.button>
-            <motion.button whileTap={{scale:.95}} onClick={refetch} style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <motion.button whileTap={{scale:.95}} onClick={()=>{ refetch(); setChartTick(t=>t+1) }} style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <RefreshCw size={13} style={{animation:(loading||rangeFetching)?'spin 1s linear infinite':'none'}}/>
             </motion.button>
             {isAdmin&&(
               <Link href="/intel/goals" style={{display:'flex',alignItems:'center',gap:5,height:34,padding:'0 12px',borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#9d8bc4',fontSize:11,fontWeight:700,textDecoration:'none'}}>
                 <Settings size={12}/> Meta
               </Link>
+            )}
+            {isAdmin&&(
+              <motion.button whileTap={{scale:.95}} onClick={toggleFit} aria-pressed={fit} title={fit?'Ajustar à tela: ligado (clique para desligar)':'Ajustar à tela: desligado (clique para ligar)'}
+                style={{width:34,height:34,borderRadius:10,border:`1px solid ${fit?'rgba(168,85,247,.5)':'rgba(168,85,247,.15)'}`,background:fit?'rgba(168,85,247,.14)':'rgba(255,255,255,.02)',color:fit?'#c4b5fd':'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {fit?<Shrink size={13}/>:<Expand size={13}/>}
+              </motion.button>
             )}
             <motion.button whileTap={{scale:.95}} onClick={()=>document.documentElement.requestFullscreen?.()} style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <Maximize2 size={13}/>
@@ -1831,7 +1856,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       <div className="tw-main" style={{display:'grid',gridTemplateColumns:isAdmin?'minmax(0,1fr) clamp(320px,22vw,420px)':'1fr',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
 
         {/* Esquerda */}
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <FitColumn enabled={fitRoot.active} gap={12} chart={h => isAdmin ? <DailyRevenueChart sales={monthSales} todayEvents={events} vf={vf} closerKeys={filter.closerKeys} accent={accent} mounted={mounted} height={h}/> : null}>
           <ScoreboardHero events={viewEvents} accent={accent} vf={vf} isDark={isDark}
             yesterdayRev={isAdmin?yesterdayRevAdmin:yesterdayRev}
             yesterdaySameHourRev={isAdmin?yesterdaySameHourRevAdmin:yesterdaySameHourRevUser}
@@ -1914,7 +1939,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               linha, logo abaixo do Ritmo de Vendas, no mesmo estilo do resto
               do painel. Só admin, como antes. */}
           {isAdmin && <CanaisRow self={canais.self} ambassador={canais.ambassador} imparaveis={canais.imparaveis} accent={accent} isDark={isDark}/>}
-        </div>
+        </FitColumn>
 
         {/* Direita — Feed + Ranking do Time. A altura é TRAVADA na
             tela (100vh - cabeçalho), então nada vaza pra fora: o Feed é

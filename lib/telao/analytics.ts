@@ -367,6 +367,86 @@ export function topStates(items: { uf: string; revenue: number; count: number }[
   return [...items].sort((a, b) => b.revenue - a.revenue).slice(0, n).map(i => ({ ...i, sharePct: total > 0 ? (i.revenue / total) * 100 : 0, region: REGION_OF[i.uf] }))
 }
 
+// ══ Região × estado: média por estado e intensidade da cor ════════════════════
+// Alimenta o painel "Receita por região e estado": os estados ficam agrupados por região e a cor de cada quadrado diz
+// se o estado vende MAIS ou MENOS que a média (e o mesmo vale para a região inteira).
+
+/** Todos os estados de cada região (inclusive os sem venda), em ordem alfabética. */
+export const UFS_OF: Record<Region, string[]> = Object.fromEntries(
+  REGIONS.map(r => [r, Object.keys(REGION_OF).filter(u => REGION_OF[u] === r).sort()]),
+) as Record<Region, string[]>
+
+/** Média por estado = receita ÷ nº de estados COM venda (estado sem venda não puxa a média pra baixo). */
+export function stateAverage(items: { revenue: number }[]): { avg: number; n: number; total: number } {
+  const act = items.filter(i => i.revenue > 0), total = act.reduce((a, i) => a + i.revenue, 0)
+  return { avg: act.length ? total / act.length : 0, n: act.length, total }
+}
+
+/**
+ * Intensidade da cor (0 a 1) em função de  ratio = valor ÷ média.
+ *   sem venda (ratio 0)  → 0
+ *   abaixo da média      → de 0,12 (quase nada) até 0,50 (na média)
+ *   acima da média       → de 0,50 até 1,00 — satura em 3× a média
+ * É contínua e nunca diminui: quem vende mais nunca fica com a cor mais fraca.
+ */
+export function levelOfRatio(ratio: number): number {
+  if (!(ratio > 0)) return 0
+  if (ratio < 1) return 0.12 + 0.38 * ratio
+  return 0.5 + 0.5 * Math.min((ratio - 1) / 2, 1)
+}
+
+export interface StateCell {
+  uf: string; revenue: number; count: number
+  sharePct: number            // % da receita total (das vendas com estado)
+  ratio: number               // receita ÷ média por estado
+  level: number               // intensidade da cor, 0..1
+  deltaPct: number | null     // quanto acima (+) ou abaixo (−) da média por estado; null se não vendeu
+  isTop: boolean              // o estado que mais vendeu NA REGIÃO
+}
+export interface RegionBlock {
+  region: Region; label: string
+  revenue: number; count: number; sharePct: number
+  rank: number | null         // 1 = a região que mais vende; null se não vendeu
+  activeStates: number; totalStates: number
+  avgPerState: number         // receita da região ÷ estados dela com venda
+  stateDeltaPct: number | null  // essa média por estado contra a média por estado do país
+  ratio: number               // receita da região ÷ média por região
+  level: number               // intensidade da cor da região, 0..1
+  deltaPct: number | null     // receita da região contra a média por região
+  states: StateCell[]         // todos os estados da região: quem mais vende primeiro, os sem venda no fim
+}
+/**
+ * Organiza a receita por região (na ordem Norte → Sul) com todos os estados de cada uma.
+ *  • média por estado = receita ÷ estados com venda (do país inteiro)
+ *  • média por região = receita ÷ regiões com venda
+ *  • a intensidade da cor de cada estado/região é relativa a essas médias (levelOfRatio)
+ */
+export function regionBlocks(items: { uf: string; revenue: number; count: number }[]): { blocks: RegionBlock[]; stateAvg: { avg: number; n: number; total: number }; regionAvg: number; regionsActive: number } {
+  const known = items.filter(i => REGION_OF[i.uf])
+  const stateAvg = stateAverage(known), total = stateAvg.total
+  const byUf = new Map(known.map(i => [i.uf, i]))
+  const rev = (r: Region) => UFS_OF[r].reduce((a, u) => a + (byUf.get(u)?.revenue ?? 0), 0)
+  const regionsActive = REGIONS.filter(r => rev(r) > 0).length
+  const regionAvg = regionsActive ? total / regionsActive : 0
+  const order = [...REGIONS].sort((a, b) => rev(b) - rev(a) || REGIONS.indexOf(a) - REGIONS.indexOf(b))
+  const blocks = REGIONS.map<RegionBlock>(r => {
+    const revenue = rev(r)
+    const states = UFS_OF[r].map<StateCell>(uf => {
+      const it = byUf.get(uf), v = it?.revenue ?? 0, ratio = stateAvg.avg > 0 ? v / stateAvg.avg : 0
+      return { uf, revenue: v, count: it?.count ?? 0, sharePct: total > 0 ? (v / total) * 100 : 0, ratio, level: levelOfRatio(ratio), deltaPct: v > 0 && stateAvg.avg > 0 ? (ratio - 1) * 100 : null, isTop: false }
+    }).sort((a, b) => b.revenue - a.revenue || a.uf.localeCompare(b.uf))
+    if (states[0] && states[0].revenue > 0) states[0].isTop = true
+    const active = states.filter(x => x.revenue > 0).length, avgPerState = active ? revenue / active : 0, ratio = regionAvg > 0 ? revenue / regionAvg : 0
+    return {
+      region: r, label: REGION_LABEL[r], revenue, count: states.reduce((a, x) => a + x.count, 0), sharePct: total > 0 ? (revenue / total) * 100 : 0,
+      rank: revenue > 0 ? order.indexOf(r) + 1 : null, activeStates: active, totalStates: states.length, avgPerState,
+      stateDeltaPct: avgPerState > 0 && stateAvg.avg > 0 ? (avgPerState / stateAvg.avg - 1) * 100 : null,
+      ratio, level: levelOfRatio(ratio), deltaPct: revenue > 0 && regionAvg > 0 ? (ratio - 1) * 100 : null, states,
+    }
+  })
+  return { blocks, stateAvg, regionAvg, regionsActive }
+}
+
 // ══ Como o cliente paga: à vista × parcelado e as formas mais usadas ═══════════
 export interface PayForm { kind: 'avista' | 'parcelado'; label: string; n: number }
 /**
