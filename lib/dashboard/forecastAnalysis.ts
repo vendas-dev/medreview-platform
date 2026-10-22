@@ -38,11 +38,24 @@ const num = (v: any) => Number(v) || 0
 
 // Links consultados com a marca de "negócio Perdido" (deal_lost_at, vem do webhook do HubSpot). Se a coluna ainda não existe (migração
 // "links perdido" não rodada), refaz sem ela: o forecast continua funcionando, só sem o filtro de Perdido.
-async function queryLinks(admin: any, cols: string, apply: (q: any) => any) {
-  let res = await apply(admin.from('geracoes_links').select(`${cols}, deal_lost_at`))
-  if (res.error && /deal_lost_at|42703/.test(`${res.error.code ?? ''} ${res.error.message ?? ''}`)) {
+export async function queryLinks(admin: any, cols: string, apply: (q: any) => any) {
+  // O Supabase devolve no máximo 1000 linhas por consulta e ignora limit(999999): lê em páginas de 1000 até acabar,
+  // senão um período com mais de 1000 links vinha truncado (e a conta e a lista do popup divergiriam da realidade).
+  const all = async (c: string) => {
+    const rows: any[] = []
+    for (let from = 0; from < 200_000; from += 1000) {
+      const res = await apply(admin.from('geracoes_links').select(c)).order('id', { ascending: true }).range(from, from + 999)
+      if (res.error) return { data: null, error: res.error }
+      const got = (res.data ?? []) as any[]
+      rows.push(...got)
+      if (got.length < 1000) break
+    }
+    return { data: rows, error: null }
+  }
+  let res = await all(`${cols}, deal_lost_at`)
+  if (res.error && /deal_lost_at|42703/.test(`${(res.error as any).code ?? ''} ${(res.error as any).message ?? ''}`)) {
     console.error('[forecast] coluna deal_lost_at ausente — rode a migração supabase-migration-links-perdido.sql')
-    res = await apply(admin.from('geracoes_links').select(cols))
+    res = await all(cols)
   }
   return res
 }
@@ -53,9 +66,9 @@ async function queryLinks(admin: any, cols: string, apply: (q: any) => any) {
 // os outros links do mesmo deal_id como substituídos (superseded). Então a
 // unidade certa é o NEGÓCIO, valendo o link mais recente — reemissão
 // sobrescreve. Link sem deal_id conta sozinho (a chave é o próprio id).
-const dealKey = (l: any) => String(l.deal_id ?? l.id)
+export const dealKey = (l: any) => String(l.deal_id ?? l.id)
 
-function groupByDeal(links: any[]): Map<string, any[]> {
+export function groupByDeal(links: any[]): Map<string, any[]> {
   const m = new Map<string, any[]>()
   for (const l of links) {
     const k = dealKey(l)
@@ -64,12 +77,12 @@ function groupByDeal(links: any[]): Map<string, any[]> {
   }
   return m
 }
-const latestLink = (links: any[]) => links.reduce((a, b) => (String(b.generated_at) > String(a.generated_at) ? b : a))
+export const latestLink = (links: any[]) => links.reduce((a, b) => (String(b.generated_at) > String(a.generated_at) ? b : a))
 
 // Negócio resolvido (pago): tem um link convertido, ou foi substituído por um
 // que converteu. O valor é o do link que pagou; se ele não está no conjunto
 // (pago por um link de outro dia), usa o mais recente.
-function dealOutcome(links: any[]) {
+export function dealOutcome(links: any[]) {
   const winner = links.find(l => l.converted_at)
   const paid = !!winner || links.some(l => l.superseded_by_link_id)
   const rep = latestLink(links)
@@ -99,12 +112,12 @@ export async function computeForecastLive(admin: any, since?: string | null) {
 
   const [linksRes, validRes, salesRes, companyGoalsRes, closerGoalsRes] = await Promise.all([
     queryLinks(admin, 'id, deal_id, deal_value, generated_at, vertical, converted_at, superseded_by_link_id',
-      q => q.gte('generated_at', dStart).lte('generated_at', dEnd).is('dismissed_at', null).limit(999999)),
+      q => q.gte('generated_at', dStart).lte('generated_at', dEnd).is('dismissed_at', null)),
     // Links ainda VÁLIDOS: não pagos, não substituídos, não excluídos e com
     // vencimento no futuro (expires_at nulo não entra — não dá pra saber se vale).
     queryLinks(admin, 'id, deal_id, deal_value, generated_at',
       q => q.is('converted_at', null).is('superseded_by_link_id', null).is('dismissed_at', null)
-        .gt('expires_at', nowIso).gte('generated_at', validFrom).limit(999999)),
+        .gt('expires_at', nowIso).gte('generated_at', validFrom)),
     admin.from('telao_events').select('value, vertical, sale_type, occurred_at')
       .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd).limit(999999),
     admin.from('company_goals').select('scope, goal_value').eq('month', monthKey),
@@ -116,14 +129,15 @@ export async function computeForecastLive(admin: any, since?: string | null) {
 
   // ── links de hoje
   const todayLinks = (linksRes.data ?? []) as any[]
-  const open = todayLinks.filter(l => !l.converted_at && !l.superseded_by_link_id && !l.deal_lost_at)   // negócio Perdido não é pipeline
+  const open = todayLinks.filter(l => !l.converted_at && !l.superseded_by_link_id)
   const latestByDeal = new Map<string, any>()
   for (const l of open) {
     const key = String(l.deal_id ?? l.id)
     const cur = latestByDeal.get(key)
     if (!cur || String(l.generated_at) > String(cur.generated_at)) latestByDeal.set(key, l)
   }
-  const pending = [...latestByDeal.values()]
+  // Perdido é do NEGÓCIO: se o link mais recente dele está marcado, o negócio não é pipeline (mesma regra do histórico e da lista do popup)
+  const pending = [...latestByDeal.values()].filter(l => !l.deal_lost_at)
 
   const byVertical = emptyByV()
   const hoursMap = new Map<number, { value: number; count: number; byVertical: ByV }>()
@@ -146,12 +160,11 @@ export async function computeForecastLive(admin: any, since?: string | null) {
   // ── pipeline de links ainda válidos (qualquer dia de geração), um por negócio
   const validByDeal = new Map<string, any>()
   for (const l of ((validRes.data ?? []) as any[])) {
-    if (l.deal_lost_at) continue                                // negócio Perdido: o link até pode estar no prazo, mas não vai pagar
     const key = String(l.deal_id ?? l.id)
     const cur = validByDeal.get(key)
     if (!cur || String(l.generated_at) > String(cur.generated_at)) validByDeal.set(key, l)
   }
-  const validLinks = [...validByDeal.values()]
+  const validLinks = [...validByDeal.values()].filter(l => !l.deal_lost_at)   // negócio Perdido: o link até pode estar no prazo, mas não vai pagar
   const validValue = validLinks.reduce((s, l) => s + num(l.deal_value), 0)
 
   // Contadores do dia por NEGÓCIO (reemissão do mesmo negócio vale uma vez)
@@ -227,7 +240,7 @@ export async function computeForecastHistory(admin: any) {
   const { end } = dayBoundsSaoPaulo(toDate)
 
   const { data, error } = await queryLinks(admin, 'id, deal_id, deal_value, generated_at, vertical, converted_at, superseded_by_link_id',
-    q => q.gte('generated_at', start).lte('generated_at', end).is('dismissed_at', null).limit(999999))
+    q => q.gte('generated_at', start).lte('generated_at', end).is('dismissed_at', null))
   if (error) console.error('[forecast] histórico:', error.message)
 
   const days = Array.from({ length: HISTORY_DAYS }, (_, i) => addDaysToDateStr(fromDate, i))
