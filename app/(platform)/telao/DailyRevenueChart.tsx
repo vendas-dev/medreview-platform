@@ -149,12 +149,16 @@ interface Props {
   closerKeys: string[]              // filtro de closer da barra de filtros
   accent: string
   mounted: boolean                  // só calcula "hoje" depois de hidratar (evita erro de hydration na virada do dia)
+  range?: { start: string; end: string } | null   // filtro de data ativo: o gráfico mostra SÓ as barras desse período (null = o mês inteiro)
+  rangeRows?: DaySale[] | null      // vendas do período (a mesma busca do resto do telão); só no modo período
+  rangeLoading?: boolean            // o período ainda está carregando
   height?: number | null            // modo "ajustar à tela": o quadro ocupa EXATAMENTE essa altura e as barras se esticam/encolhem nela (null = tamanho natural)
 }
 
 const LABELS_H = 38                     // faixa dos números de dia + dia da semana, embaixo das barras
 
-export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, mounted, height = null }: Props) {
+export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, mounted, range = null, rangeRows = null, rangeLoading = false, height = null }: Props) {
+  const inRange = !!range && !!range.start
   const fill = height != null
   const reduce = useReducedMotion()
   const today = mounted ? todayInSaoPaulo() : ''
@@ -162,10 +166,10 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
   const closerSig = closerKeys.join('|')
 
   const series = useMemo(() => mounted
-    ? buildDailySeries({ monthKey, today, history: sales.rows, todayEvents, vertical: vf, closerKeys })
+    ? buildDailySeries({ monthKey, today, history: inRange ? (rangeRows ?? []) : sales.rows, todayEvents, vertical: vf, closerKeys, range: inRange ? range : null })
     : null,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [mounted, monthKey, today, sales.rows, todayEvents, vf, closerSig])
+  [mounted, monthKey, today, sales.rows, rangeRows, range?.start, range?.end, todayEvents, vf, closerSig])
 
   // largura disponível → define quantos rótulos cabem
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -201,9 +205,11 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
   if (!mounted || !series) return <div data-daily-chart="pending" style={fill ? { ...shell, height: height! } : { ...shell, minHeight: 330 }} />
 
   const n = series.days.length
+  const few = n <= 7                  // poucos dias (ex.: 1 dia): colunas largas e centralizadas, em vez de esticar uma barra na tela toda
   const compactW = W > 0 && W < 520
   const gutter = W >= 420 ? 40 : 0
-  const slot = W > 0 ? (W - gutter) / n : 24
+  const slot = W > 0 ? (few ? 96 : (W - gutter) / n) : 24
+  const startX = few ? gutter + Math.max(0, (W - gutter - n * slot) / 2) : gutter
   const dayEvery = slot >= 19 ? 1 : slot >= 11 ? 2 : 5
   const showWeekday = slot >= 19
   const labelMode: 'all-h' | 'all-v' | 'few' = slot >= 38 ? 'all-h' : slot >= 15 ? 'all-v' : 'few'
@@ -212,29 +218,31 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
   const plotH = fill ? Math.max(64, Math.min(380, Math.floor(H - topPad - LABELS_H))) : (compactW ? 128 : 168)
   // quais números de dia aparecem: sempre o 1º, hoje e o último; os demais de N em N — mas sem colar num dos fixos
   // (ex.: com hoje = 19, o "20" some; com 31 dias, o "30" some), senão vira "1920" / "3031"
-  const must = [1, series.days.find(d => d.isToday)?.day ?? -1, n].filter(x => x > 0)
+  const todayIdx = series.days.findIndex(d => d.isToday)
+  const must = [1, todayIdx >= 0 ? todayIdx + 1 : -1, n].filter(x => x > 0)
   const minGap = Math.max(1, Math.ceil(dayEvery / 2))
   const showDay = (day: number) => must.includes(day) || (day % dayEvery === 0 && must.every(m => Math.abs(day - m) >= minGap))
   const top = niceMax(series.max)
   const hOf = (v: number) => (v <= 0 ? 0 : Math.max((v / top) * plotH, 4))
   const monthName = (() => { const s = new Intl.DateTimeFormat('pt-BR', { month: 'long', timeZone: 'UTC' }).format(new Date(`${monthKey}-01T12:00:00Z`)); return s.charAt(0).toUpperCase() + s.slice(1) })()
   const spring = (i: number) => reduce ? { duration: 0 } : { type: 'spring' as const, stiffness: 150, damping: 20, mass: 0.7, delay: Math.min(i * 0.012, 0.35) }
-  const loading = sales.status === 'loading' && sales.rows.length === 0
-  const failed = sales.status === 'error'
+  const loading = inRange ? rangeLoading : (sales.status === 'loading' && sales.rows.length === 0)
+  const failed = inRange ? false : sales.status === 'error'
   const empty = !loading && series.total <= 0 && !series.days.some(d => d.count > 0)
   const avgH = series.closedAvg != null ? hOf(series.closedAvg) : null
   const hoverDay = hover != null ? series.days[hover] : null
   const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+  const periodText = inRange ? (range!.start === range!.end ? dm(range!.start) : `${dm(range!.start)} – ${dm(range!.end)}`) : monthName
 
   return (
-    <motion.section data-daily-chart="ready" data-panel={panelKey} data-month={monthKey} data-total={series.total} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} style={boxStyle}
-      aria-label={`Receita por dia de ${monthName}, painel ${panelLabel}: total ${fmtBRL(series.total)} em ${series.count} vendas`}>
+    <motion.section data-daily-chart="ready" data-panel={panelKey} data-month={inRange ? undefined : monthKey} data-range={inRange ? `${range!.start}..${range!.end}` : undefined} data-total={series.total} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} style={boxStyle}
+      aria-label={`Receita por dia de ${periodText}, painel ${panelLabel}: total ${fmtBRL(series.total)} em ${series.count} vendas`}>
       <style>{`@keyframes dcPulse{0%{box-shadow:0 0 0 0 ${accent}88}70%{box-shadow:0 0 0 7px ${accent}00}100%{box-shadow:0 0 0 0 ${accent}00}}@keyframes dcShimmer{0%,100%{opacity:.35}50%{opacity:.7}}@media(prefers-reduced-motion:reduce){[data-daily-chart] *{animation:none!important}}`}</style>
 
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: fill ? 8 : 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 26 }}>
-          <p style={{ margin: 0, fontSize: 11, fontWeight: 900, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '.12em', fontFamily: MONO }}>📅 Receita por dia · {monthName}</p>
+          <p style={{ margin: 0, fontSize: 11, fontWeight: 900, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '.12em', fontFamily: MONO }}>📅 Receita por dia · {periodText}</p>
           <AnimatePresence mode="wait" initial={false}>
             <motion.span key={panelKey} data-panel-chip initial={{ opacity: 0, y: -5, scale: 0.92 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 5, scale: 0.92 }} transition={{ duration: 0.18 }}
               style={{ fontSize: 10, fontWeight: 900, color: accent, background: `${accent}22`, borderRadius: 8, padding: '3px 9px', fontFamily: MONO, letterSpacing: '.08em' }}>{panelLabel}</motion.span>
@@ -242,10 +250,10 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
           {closerKeys.length > 0 && <span data-closer-filter style={{ fontSize: 9, fontWeight: 800, color: muted2, border: `1px dashed ${grid}`, borderRadius: 8, padding: '2px 7px', fontFamily: MONO }}>filtro de closer ativo</span>}
         </div>
         <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
-          <Stat k="total" label="Total no mês" text={text} muted2={muted2} color={accent} sub={loading ? 'carregando…' : `${series.count} ${series.count === 1 ? 'venda' : 'vendas'}`}>
+          <Stat k="total" label={inRange ? 'Total no período' : 'Total no mês'} text={text} muted2={muted2} color={accent} sub={loading ? 'carregando…' : `${series.count} ${series.count === 1 ? 'venda' : 'vendas'}`}>
             <CountUp value={series.total} format={fmtBRL} />
           </Stat>
-          <Stat k="avg" label="Média por dia" text={text} muted2={muted2} sub={series.closedAvg == null ? '1º dia do mês' : `${series.closedDays} ${series.closedDays === 1 ? 'dia fechado' : 'dias fechados'}`}>
+          <Stat k="avg" label="Média por dia" text={text} muted2={muted2} sub={series.closedAvg == null ? (inRange ? 'dia em andamento' : '1º dia do mês') : `${series.closedDays} ${series.closedDays === 1 ? 'dia fechado' : 'dias fechados'}`}>
             {series.closedAvg == null ? '—' : <CountUp value={series.closedAvg} format={fmtBRL} />}
           </Stat>
           <Stat k="best" label="Melhor dia" text={text} muted2={muted2} color={series.best ? GOLD : undefined} sub={series.best ? `${WEEKDAY_LONG[series.best.weekday]} · ${series.best.count} ${series.best.count === 1 ? 'venda' : 'vendas'}` : 'sem vendas ainda'}>
@@ -285,18 +293,18 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
           )}
 
           {/* colunas (uma por dia) */}
-          <div role="img" aria-label={`Barras de receita diária de ${monthName}`} style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: gutter, gap: slot >= 22 ? 5 : slot >= 14 ? 3 : 2 }}>
+          <div role="img" aria-label={`Barras de receita diária de ${periodText}`} style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: gutter, justifyContent: few ? 'center' : 'flex-start', gap: slot >= 22 ? 5 : slot >= 14 ? 3 : 2 }}>
             {series.days.map((d, i) => {
               const h = hOf(d.total), hasSales = d.total > 0 || d.count > 0
               const weekend = d.weekday === 0 || d.weekday === 6
               const isBest = series.best?.date === d.date
               const showValue = hasSales && d.total > 0 && (labelMode !== 'few' || isBest || d.isToday)
               const barColor = weekend ? `${accent}99` : accent
-              const showDayNum = showDay(d.day)
+              const showDayNum = showDay(i + 1)
               const fut = d.isFuture && !hasSales
               return (
                 <div key={d.date} data-day={d.date} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => setHover(hover === i ? null : i)}
-                  style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'default' }}>
+                  style={{ flex: few ? `0 0 ${slot}px` : 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'default' }}>
                   <div style={{ width: '100%', height: plotH, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', position: 'relative' }}>
                     {showValue && (
                       <motion.span key={`${panelKey}-${d.total}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35, delay: reduce ? 0 : 0.25 }}
@@ -309,7 +317,7 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
                     <motion.div data-bar data-date={d.date} data-total={d.total} data-count={d.count}
                       initial={{ height: 0 }} animate={{ height: fut ? 3 : hasSales ? h : 3 }} transition={spring(i)}
                       style={{
-                        position: 'relative', width: '72%', maxWidth: 30, borderRadius: '5px 5px 2px 2px', overflow: 'hidden',
+                        position: 'relative', width: '72%', maxWidth: few ? 56 : 30, borderRadius: '5px 5px 2px 2px', overflow: 'hidden',
                         backgroundColor: fut ? 'transparent' : hasSales ? barColor : `${accent}33`,
                         backgroundImage: hasSales ? 'linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,0) 70%)' : 'none',
                         border: fut ? `1px dashed ${grid}` : isBest ? `1.5px solid ${GOLD}` : 'none',
@@ -339,7 +347,7 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
           {/* detalhe do dia (passar o mouse / tocar) */}
           <AnimatePresence>
             {hoverDay && (() => {
-              const center = gutter + (hover! + 0.5) * slot
+              const center = startX + (hover! + 0.5) * slot
               const left = Math.min(Math.max(center, gutter + 88), Math.max(W - 88, gutter + 88))
               return (
                 <motion.div key="tip" data-tooltip initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}

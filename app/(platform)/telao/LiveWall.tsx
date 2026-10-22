@@ -9,6 +9,7 @@ import { VERTICALS, VERTICAL_LIST, GOLD, VerticalId, FilterState, EMPTY_FILTER, 
 import { computeCloserStats, fmtBRL, todayKey, monthKey, monthStart, initials, timeAgo, eventMoneyLeftOnTable } from '@/lib/telao/format'
 import { todayInSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, hourInSaoPaulo, weekdayInSaoPaulo, dateInSaoPaulo } from '@/lib/timezone'
 import { DailyRevenueChart, useMonthSales } from './DailyRevenueChart'
+import { matchesCloserFilter } from '@/lib/telao/dailySeries'
 import { FitColumn, useFitRoot } from './FitColumn'
 
 // ── Persistência de celebrações já vistas ────────────────────────
@@ -39,6 +40,13 @@ const playSale = () => [523,659,784,1047].forEach((f,i) => setTimeout(() => tone
 const playCert = () => [523,523,784,659,784,1047].forEach((f,i) => setTimeout(() => tone(f,.22,'triangle',.28), i*85))
 
 // ── Confete ───────────────────────────────────────────────────
+// Formatadores criados UMA vez. `hourInSaoPaulo`/`dateInSaoPaulo` criam um Intl.DateTimeFormat a CADA chamada: com um período grande
+// (milhares de vendas × 24 horas) isso congelava a tela por vários segundos. Mesmo resultado, muito mais rápido.
+const SP_HOUR_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hourCycle: 'h23', hour: '2-digit' })
+const SP_DAY_FMT  = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' })
+const spHourOf = (iso: string) => Number(SP_HOUR_FMT.format(new Date(iso)))
+const spDayOf  = (iso: string) => SP_DAY_FMT.format(new Date(iso))
+
 function Confete({ color }: { color: string }) {
   const ps = useMemo(() => Array.from({length:80},(_,i) => ({ x:Math.random()*100, y:-5-Math.random()*15, s:Math.random()*10+4, delay:Math.random()*1.5, dur:2.5+Math.random()*2, dx:(Math.random()-.5)*25, c:[color,'#c4b5fd',GOLD,'#fff','#a855f7'][i%5] })),[color])
   return (
@@ -178,12 +186,13 @@ function ScoreboardHero({
   events, accent, vf, isDark=true, trend,
   yesterdayRev, yesterdaySameHourRev,
   showGoals, metaDiaAtual, metaMesAtual, mesAcumulado,
-  expectedRevenueNow, horasRestantesHoje,
+  expectedRevenueNow, horasRestantesHoje, periodLabel=null, periodHours,
 }: {
   events:TelaoEvent[]; accent:string; vf:VerticalId|null; isDark?:boolean; trend?:{label:string;value:number}[]
   yesterdayRev?:number; yesterdaySameHourRev?:number
   showGoals:boolean; metaDiaAtual:number; metaMesAtual:number; mesAcumulado:number
   expectedRevenueNow:number|null; horasRestantesHoje:number
+  periodLabel?:string|null; periodHours?:number      // filtro de data ativo: rótulo do período e quantas horas ele tem
 }) {
   const sales=events.filter(e=>e.event_type==='sale'), certs=events.filter(e=>e.event_type==='ambassador_certified')
   const revenue=sales.reduce((s,e)=>s+(e.value??0),0)
@@ -192,7 +201,7 @@ function ScoreboardHero({
   const novaSalesForTicket = sales.filter(e => (e.sale_type ?? 'nova') === 'nova')
   const novaRevForTicket = novaSalesForTicket.reduce((s,e)=>s+(e.value??0),0)
   const avgTicket = novaSalesForTicket.length>0 ? novaRevForTicket/novaSalesForTicket.length : 0
-  const hoursElapsed = Math.max(hourInSaoPaulo(new Date()) + (new Date().getMinutes()/60), 1)
+  const hoursElapsed = periodLabel ? Math.max(periodHours ?? 24, 1) : Math.max(hourInSaoPaulo(new Date()) + (new Date().getMinutes()/60), 1)
   const salesPerHour = sales.length/hoursElapsed
 
   const pctVsSameHour = (yesterdaySameHourRev && yesterdaySameHourRev>0) ? ((revenue-yesterdaySameHourRev)/yesterdaySameHourRev)*100 : null
@@ -215,7 +224,7 @@ function ScoreboardHero({
   const heroText   = isDark ? '#e9d5ff' : '#3b0764'
 
   return (
-    <div style={{background:isDark?'linear-gradient(135deg,rgba(88,28,135,.35),rgba(59,7,100,.25),rgba(15,3,25,.4))':'linear-gradient(135deg,rgba(196,181,253,.55),rgba(233,213,255,.65),rgba(255,255,255,.5))',border:isDark?'1px solid rgba(168,85,247,.25)':'1px solid rgba(139,92,246,.35)',borderRadius:24,padding:'18px 24px',position:'relative',overflow:'hidden',backdropFilter:'blur(20px)',boxShadow:isDark?'0 0 60px rgba(88,28,135,.2),inset 0 1px 0 rgba(255,255,255,.06)':'0 8px 32px rgba(139,92,246,.18),inset 0 1px 0 rgba(255,255,255,.5)'}}>
+    <div data-hero data-hero-total={revenue} data-hero-count={sales.length} data-hero-label={periodLabel ?? 'hoje'} style={{background:isDark?'linear-gradient(135deg,rgba(88,28,135,.35),rgba(59,7,100,.25),rgba(15,3,25,.4))':'linear-gradient(135deg,rgba(196,181,253,.55),rgba(233,213,255,.65),rgba(255,255,255,.5))',border:isDark?'1px solid rgba(168,85,247,.25)':'1px solid rgba(139,92,246,.35)',borderRadius:24,padding:'18px 24px',position:'relative',overflow:'hidden',backdropFilter:'blur(20px)',boxShadow:isDark?'0 0 60px rgba(88,28,135,.2),inset 0 1px 0 rgba(255,255,255,.06)':'0 8px 32px rgba(139,92,246,.18),inset 0 1px 0 rgba(255,255,255,.5)'}}>
       <div style={{position:'absolute',top:-60,right:-60,width:240,height:240,borderRadius:'50%',background:`radial-gradient(${accent}${isDark?'22':'33'},transparent 70%)`,pointerEvents:'none'}}/>
       {vert&&<motion.img src={vert.mascot} alt={vert.label} initial={{opacity:0,scale:.8,x:20}} animate={{opacity:.16,scale:1,x:0}} transition={{type:'spring',stiffness:220,damping:18}} style={{position:'absolute',right:16,bottom:0,height:110,objectFit:'contain',filter:'grayscale(.3)',pointerEvents:'none',zIndex:0}}/>}
 
@@ -225,7 +234,7 @@ function ScoreboardHero({
           o termômetro fixo no topo. Empilha em telas estreitas via .sd-hero-row. */}
       <div className="sd-hero-row" style={{position:'relative',zIndex:1,display:'flex',gap:24,alignItems:'stretch',justifyContent:'space-between'}}>
         <div style={{flex:'0 1 620px',minWidth:0,maxWidth:620}}>
-          <p style={{fontSize:10,fontWeight:800,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.14em',margin:'0 0 2px',fontFamily:"'JetBrains Mono',monospace"}}>{vert?`${vert.label} · Hoje`:'Geral · Hoje'}</p>
+          <p style={{fontSize:10,fontWeight:800,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.14em',margin:'0 0 2px',fontFamily:"'JetBrains Mono',monospace"}}>{`${vert?vert.label:'Geral'} · ${periodLabel ?? 'Hoje'}`}</p>
           <p style={{fontSize:42,fontWeight:900,color:accent,margin:'4px 0 14px',fontVariantNumeric:'tabular-nums',fontFamily:"'Space Grotesk',sans-serif",letterSpacing:'-.03em',lineHeight:1}}><CountUp value={revenue} format={fmtBRL}/></p>
 
           {/* Chips de KPI — fundo neutro (quase igual ao card principal),
@@ -251,15 +260,15 @@ function ScoreboardHero({
           </div>
 
           {/* Comparação principal — só uma domina, a outra fica discreta */}
-          <div style={{display:'flex',alignItems:'baseline',gap:16,flexWrap:'wrap',marginBottom:14}}>
+          {!periodLabel && <div style={{display:'flex',alignItems:'baseline',gap:16,flexWrap:'wrap',marginBottom:14}}>
             <TrendBadge label="vs mesma hora ontem" pct={pctVsSameHour} isDark={isDark}/>
             <span style={{fontSize:9,opacity:.55}}><TrendBadge label="vs ontem" pct={pctVsYesterday} isDark={isDark}/></span>
-          </div>
+          </div>}
 
           {showGoals && metaDiaAtual>0 && (
             <div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:6}}>
-                <p style={{fontSize:11,fontWeight:800,color:labelMuted,textTransform:'uppercase',letterSpacing:'.1em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>Meta de hoje</p>
+                <p style={{fontSize:11,fontWeight:800,color:labelMuted,textTransform:'uppercase',letterSpacing:'.1em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>{periodLabel ? 'Meta do dia' : 'Meta de hoje'}</p>
                 <p style={{fontSize:13,fontWeight:800,margin:0,fontFamily:"'JetBrains Mono',monospace"}}><span style={{color:accent}}>{fmtBRL(revenue)}</span><span style={{color:labelMuted,fontWeight:600}}> / {fmtBRL(metaDiaAtual)}</span></p>
               </div>
               <div style={{height:14,background:isDark?'rgba(168,85,247,.12)':'rgba(139,92,246,.18)',borderRadius:999,overflow:'hidden',marginBottom:7}}>
@@ -281,11 +290,11 @@ function ScoreboardHero({
 
         {trend && (
           <div className="sd-hero-trend" style={{flexShrink:0,width:vert?200:290,display:'flex',flexDirection:'column'}}>
-            {showGoals && <div style={{display:'flex',justifyContent:'flex-end',marginBottom:4}}><PaceThermometer status={status} isDark={isDark}/></div>}
+            {showGoals && !periodLabel && <div style={{display:'flex',justifyContent:'flex-end',marginBottom:4}}><PaceThermometer status={status} isDark={isDark}/></div>}
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',minHeight:110}}>
               <Sparkline data={trend} accent={accent} compact={!!vert} isDark={isDark}/>
             </div>
-            {showGoals && metaMesAtual>0 && (
+            {showGoals && !periodLabel && metaMesAtual>0 && (
               <p style={{fontSize:10,color:labelMuted,margin:'6px 0 0',textAlign:'right',fontFamily:"'JetBrains Mono',monospace",fontWeight:700,letterSpacing:'.04em'}}>
                 MÊS · <span style={{color:accent,fontWeight:900}}>{fmtBRL(mesAcumulado)}</span> / {fmtBRL(metaMesAtual)} · {pctMes.toFixed(0)}%
               </p>
@@ -456,7 +465,7 @@ function VerticalCards({ events, selected, onSelect, isDark, verticals=VERTICAL_
         const revenue=events.filter(e=>e.vertical===v.id&&e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0)
         const active=selected===v.id
         return (
-          <motion.button key={v.id} whileHover={{scale:1.02}} whileTap={{scale:.98}} onClick={()=>onSelect(active?null:v.id)}
+          <motion.button key={v.id} data-vcard={v.id} data-total={revenue} data-count={count} whileHover={{scale:1.02}} whileTap={{scale:.98}} onClick={()=>onSelect(active?null:v.id)}
             style={{background:active?`linear-gradient(135deg,${v.accent}25,${v.accent}10)`:'rgba(255,255,255,.02)',border:`1.5px solid ${active?v.accent+'66':'rgba(255,255,255,.06)'}`,borderRadius:18,padding:'14px 14px 8px',cursor:'pointer',textAlign:'left',position:'relative',overflow:'hidden',backdropFilter:'blur(8px)',boxShadow:active?`0 0 24px ${v.glow},inset 0 1px 0 rgba(255,255,255,.06)`:'none',transition:'all .2s'}}>
             <img src={v.mascot} alt={v.label} style={{position:'absolute',right:-10,bottom:-6,height:72,objectFit:'contain',opacity:active?1:(isDark?0.35:0.72),filter:`drop-shadow(0 0 12px ${active?v.accent+'99':v.accent+'44'})`,transition:'opacity .2s, filter .2s',pointerEvents:'none'}}/>
             <div style={{position:'relative',zIndex:1}}>
@@ -573,7 +582,7 @@ function CanaisRow({ self, ambassador, imparaveis, accent, isDark=true }: { self
   const muted2 = isDark ? '#9d8bc4' : '#7c3aed'   // linha de apoio
 
   return (
-    <div className="tw-canais-row" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+    <div className="tw-canais-row" data-canais data-imp={imparaveis.revenue} data-imp-count={imparaveis.count} data-self={self.revenue} data-self-count={self.count} data-amb={ambassador.revenue} data-amb-count={ambassador.count} style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
       {items.map((c, i) => {
         const share = total > 0 ? (c.data.revenue / total) * 100 : 0
         const empty = c.data.revenue <= 0 && c.data.count <= 0
@@ -667,16 +676,17 @@ function Ranking({ stats, accent, peek=false }: { stats:CloserStats[]; accent:st
 }
 
 // ── HourlyChart ─── Heatmap de vendas por hora (últimas 12h) ──
-function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, isDark=true }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string; pulseHour?:number|null; bestHour?:number|null; isDark?:boolean }) {
+function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, isDark=true, allDay=false }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string; pulseHour?:number|null; bestHour?:number|null; isDark?:boolean; allDay?:boolean }) {
   const byId = useMemo(() => Object.fromEntries(closers.map(c=>[c.id,c])), [closers])
 
   const buckets = useMemo(() => {
     const curHour = hourInSaoPaulo(new Date())
-    const hours = Array.from({length:12}, (_,i) => (curHour-11+i+24)%24)
+    // Com filtro de data: as 24 horas do dia (somando o período). Sem filtro: as 12 horas até agora.
+    const hours = allDay ? Array.from({length:24}, (_,i) => i) : Array.from({length:12}, (_,i) => (curHour-11+i+24)%24)
     const b = hours.map(h => ({ hour:h, total:0, count:0, topName:null as string|null, topRevenue:0, topHubId:null as string|null, topCloserId:null as string|null }))
     events.forEach(e => {
       if (e.event_type!=='sale') return
-      const h = hourInSaoPaulo(e.occurred_at)
+      const h = spHourOf(e.occurred_at)
       const bucket = b.find(x=>x.hour===h)
       if (!bucket) return
       bucket.total += (e.value??0)
@@ -689,7 +699,7 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
       }
     })
     return b
-  }, [events])
+  }, [events, allDay])
 
   const maxTotal = Math.max(...buckets.map(b=>b.total), 1)
   const curHour = hourInSaoPaulo(new Date())
@@ -699,10 +709,10 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
   const emptyBorder = isDark ? '1px solid rgba(255,255,255,.03)' : '1px solid rgba(139,92,246,.08)'
 
   return (
-    <div style={{display:'flex',gap:5}}>
+    <div data-hourly={allDay?'24':'12'} style={{display:'flex',gap:allDay?3:5}}>
       {buckets.map(b=>{
         const intensity = b.total/maxTotal // 0..1
-        const isNow = b.hour===curHour
+        const isNow = !allDay && b.hour===curHour
         const isBest = bestHour!=null && b.hour===bestHour && b.total>0
         const closer = b.topCloserId ? byId[b.topCloserId] : (b.topHubId ? byHubId[b.topHubId] : null)
         const label = String(b.hour).padStart(2,'0')+'h'
@@ -713,7 +723,7 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
           ? `linear-gradient(180deg, ${accent}${Math.round(28+intensity*72).toString(16).padStart(2,'0')} 0%, ${accent}${Math.round(10+intensity*30).toString(16).padStart(2,'0')} 100%)`
           : emptyBg
         return (
-          <div key={b.hour} title={b.total>0?`${label} — ${fmtBRL(b.total)} · ${b.count}v${b.topName?` · top: ${b.topName}`:''}`:label}
+          <div key={b.hour} data-hour={b.hour} data-total={b.total} title={b.total>0?`${label} — ${fmtBRL(b.total)} · ${b.count}v${b.topName?` · top: ${b.topName}`:''}`:label}
             style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
             <div style={{
               width:'100%',height:92,borderRadius:14,position:'relative',overflow:'hidden',
@@ -725,16 +735,16 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
               transition:'background .4s ease, border-color .3s ease',
             }}>
               {isBest && <span style={{position:'absolute',top:4,left:4,fontSize:11}}>🔥</span>}
-              {closer && b.total>0 && (
+              {closer && b.total>0 && !allDay && (
                 <div style={{position:'absolute',top:4,right:4}}><Avatar closer={closer} name={b.topName||'?'} size={20}/></div>
               )}
               {b.total>0 && (
-                <span style={{fontSize:intensity>.45?13:12,fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
+                <span style={{fontSize:allDay?(intensity>.45?11:10):(intensity>.45?13:12),fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
                   {b.total>=1000?`${(b.total/1000).toFixed(1)}k`:b.total.toFixed(0)}
                 </span>
               )}
             </div>
-            <span style={{fontSize:10,color:isNow?accent:(isDark?'#9d8bc4':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
+            <span style={{fontSize:allDay?9:10,color:isNow?accent:(isDark?'#9d8bc4':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
           </div>
         )
       })}
@@ -866,6 +876,20 @@ function Celebration({ ev, byId, byHubId, onDone }: { ev:TelaoEvent; byId:Record
 }
 
 // ── Presets rápidos de data (estilo HubSpot), sempre em horário de SP ──
+// ── Período ativo (filtro de data) ────────────────────────────
+// TODA a tela do telão acompanha esse período: placar, cards de vertical, canais, mesa, gráfico por dia, feed e rankings.
+interface PeriodInfo { start:string; end:string; startISO:string; endISO:string; singleDay:boolean; isTodayOnly:boolean; label:string; days:number; key:string }
+function periodInfo(f: FilterState, today: string): PeriodInfo | null {
+  if (!f.start) return null
+  const a = f.start, b = f.end ?? f.start
+  const start = a <= b ? a : b, end = a <= b ? b : a          // De/Até invertidos: usa o intervalo certo
+  const dm = (d:string) => `${d.slice(8,10)}/${d.slice(5,7)}`
+  const singleDay = start === end
+  const label = singleDay ? (start === today ? 'Hoje' : start === addDaysToDateStr(today,-1) ? `Ontem · ${dm(start)}` : dm(start)) : `${dm(start)} – ${dm(end)}`
+  const days = Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000) + 1
+  return { start, end, startISO: dayBoundsSaoPaulo(start).start, endISO: dayBoundsSaoPaulo(end).end, singleDay, isTodayOnly: singleDay && start === today, label, days, key: `${start}|${end}` }
+}
+
 function datePresets(): { label:string; start:string; end:string }[] {
   const today = todayInSaoPaulo()
   const wd = weekdayInSaoPaulo(new Date()) // 0=dom..6=sáb
@@ -887,7 +911,7 @@ function MoneyLeftOnTable({ value, totalRevenue, isDark=true }: { value:number; 
   const pct = totalRevenue>0 ? (value/totalRevenue)*100 : 0
   const empty = value === 0
   return (
-    <div style={{background:empty?(isDark?'rgba(255,255,255,.02)':'rgba(255,255,255,.5)'):(isDark?'linear-gradient(135deg,rgba(245,158,11,.06),rgba(255,255,255,.02))':'linear-gradient(135deg,rgba(245,158,11,.1),rgba(255,255,255,.5))'),border:empty?(isDark?'1px solid rgba(168,85,247,.1)':'1px solid rgba(139,92,246,.2)'):(isDark?'1px solid rgba(245,158,11,.15)':'1px solid rgba(245,158,11,.3)'),borderRadius:14,padding:empty?'8px 14px':'11px 16px',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',gap:12,transition:'padding .3s ease'}}>
+    <div data-mesa={value} style={{background:empty?(isDark?'rgba(255,255,255,.02)':'rgba(255,255,255,.5)'):(isDark?'linear-gradient(135deg,rgba(245,158,11,.06),rgba(255,255,255,.02))':'linear-gradient(135deg,rgba(245,158,11,.1),rgba(255,255,255,.5))'),border:empty?(isDark?'1px solid rgba(168,85,247,.1)':'1px solid rgba(139,92,246,.2)'):(isDark?'1px solid rgba(245,158,11,.15)':'1px solid rgba(245,158,11,.3)'),borderRadius:14,padding:empty?'8px 14px':'11px 16px',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',gap:12,transition:'padding .3s ease'}}>
       <div style={{width:empty?28:38,height:empty?28:38,borderRadius:empty?8:11,background:'rgba(245,158,11,.15)',border:'1px solid rgba(245,158,11,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:empty?13:18,flexShrink:0,transition:'all .3s ease'}}>💸</div>
       <div style={{flex:1,minWidth:0}}>
         <p style={{fontSize:empty?10:12,fontWeight:900,color:'#d97706',textTransform:'uppercase',letterSpacing:'.1em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>Deixado na Mesa</p>
@@ -1141,6 +1165,13 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const [rangeFetching, setRangeFetching] = useState(false)
   const [allUserEvs,    setAllUserEvs]    = useState<TelaoEvent[]>([])
   const [allFetched,    setAllFetched]    = useState(false)
+  // Filtro de data: `period` é o que o usuário escolheu; `heroPeriod` é o mesmo, exceto "só hoje" (que é a tela ao vivo normal).
+  const period     = useMemo(()=>periodInfo(filter, todayInSaoPaulo()),[filter.start, filter.end])  // eslint-disable-line react-hooks/exhaustive-deps
+  const heroPeriod = period && !period.isTodayOnly ? period : null
+  const [rangeKey,   setRangeKey]   = useState<string | null>(null)      // qual período as vendas de `rangeEvents` já cobrem
+  const [rangeError, setRangeError] = useState(false)
+  const [rangeTick,  setRangeTick]  = useState(0)
+  const rangeLoading = !!heroPeriod && rangeKey !== heroPeriod.key
 
   // Receita por dia do mês (gráfico abaixo dos canais): o histórico do mês é buscado à parte (paginado);
   // o dia de hoje vem do `events` ao vivo. `chartTick` faz o botão de atualizar refazer o histórico também.
@@ -1260,7 +1291,16 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
         ? VERTICAL_LIST.filter(v => v.id !== 'medreview')
         : VERTICAL_LIST
 
-  const sourceEvents = rangeEvents ?? events
+  // Sem filtro (ou só "Hoje"): os eventos ao vivo. Com período: as vendas do período (busca paginada) + as ao vivo que entraram depois
+  // da busca e caem dentro dele. Enquanto o período carrega NUNCA mostra os números de hoje como se fossem dele.
+  const sourceEvents = useMemo(()=>{
+    if(!heroPeriod) return events
+    if(rangeLoading || !rangeEvents) return rangeEvents ?? []
+    const seen = new Set(rangeEvents.map(e=>e.id))
+    const sMs = Date.parse(heroPeriod.startISO), eMs = Date.parse(heroPeriod.endISO)      // por instante, não por texto ("…59Z" × "…59.999Z" não compara letra a letra)
+    const live = events.filter(e=>{ if(seen.has(e.id)) return false; const t = Date.parse(e.occurred_at); return t>=sMs && t<=eMs })
+    return live.length ? [...live, ...rangeEvents] : rangeEvents
+  },[heroPeriod, events, rangeEvents, rangeLoading])
 
   const baseEvents = useMemo(()=>{
     if(isAdmin) return sourceEvents
@@ -1282,6 +1322,20 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       evs=evs.filter(e=>e.is_self_checkout?filter.closerKeys.includes('self'):(filter.closerKeys.includes(e.closer_id??'')||filter.closerKeys.includes(`name-${e.closer_name??''}`)))
     return evs
   },[baseEvents,vf,filter,rangeEvents])
+
+  // Os 4 cards de vertical mostram TODAS as verticais (clicar escolhe uma), então não aplicam `vf` — mas seguem o período e o closer.
+  const cardEvents = useMemo(()=>filter.closerKeys.length>0 ? baseEvents.filter(e=>matchesCloserFilter(e, filter.closerKeys)) : baseEvents,[baseEvents, filter.closerKeys])
+  const periodHours = useMemo(()=>heroPeriod ? Math.max(1,(Math.min(Date.now(), Date.parse(heroPeriod.endISO)) - Date.parse(heroPeriod.startISO))/3600000) : 24,[heroPeriod, viewEvents]) // eslint-disable-line react-hooks/exhaustive-deps
+  // meta do dia: só quando o período é UM dia e existe meta cadastrada pra ele (admin); em períodos longos a barra de meta some
+  const periodGoal = useMemo(()=>(isAdmin && heroPeriod?.singleDay) ? (goals.find(g=>g.period==='day'&&g.period_key===heroPeriod.start&&g.vertical===vf)?.target_value ?? 0) : 0,[isAdmin, heroPeriod, goals, vf])
+  // mini-gráfico do placar: um ponto por dia do período (últimos 31 dias dele); com um dia só, não há tendência
+  const periodTrend = useMemo(()=>{
+    if(!heroPeriod || heroPeriod.days<2) return undefined
+    const sums = new Map<string,number>()
+    viewEvents.forEach(e=>{ if(e.event_type==='sale'){ const d=spDayOf(e.occurred_at); sums.set(d,(sums.get(d)??0)+(e.value??0)) } })
+    const first = Math.max(0, heroPeriod.days-31)
+    return Array.from({length: heroPeriod.days-first},(_,i)=>{ const d=addDaysToDateStr(heroPeriod.start, first+i); return { label:`${d.slice(8,10)}/${d.slice(5,7)}`, value: sums.get(d)??0 } })
+  },[heroPeriod, viewEvents])
 
   // ── Stats com enriquecimento via hubspot_id ────────────────
   const stats = useMemo(() => {
@@ -1354,19 +1408,18 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   // do período, e o ritmo da hora corrente (quanto já entrou nessa hora).
   const paceHighlights = useMemo(() => {
     const curHour = hourInSaoPaulo(new Date())
-    const hours = Array.from({ length: 12 }, (_, i) => (curHour - 11 + i + 24) % 24)
-    const totals = hours.map(h => ({
-      hour: h,
-      total: viewEvents.filter(e => e.event_type === 'sale' && hourInSaoPaulo(e.occurred_at) === h)
-        .reduce((s, e) => s + (e.value ?? 0), 0),
-    }))
+    const hours = heroPeriod ? Array.from({ length: 24 }, (_, i) => i) : Array.from({ length: 12 }, (_, i) => (curHour - 11 + i + 24) % 24)
+    // UMA passada pelas vendas (antes: uma passada por hora, cada uma criando um formatador de data por venda)
+    const byHour = new Array<number>(24).fill(0)
+    viewEvents.forEach(e => { if (e.event_type === 'sale') byHour[spHourOf(e.occurred_at)] += (e.value ?? 0) })
+    const totals = hours.map(h => ({ hour: h, total: byHour[h] }))
     const best = [...totals].sort((a, b) => b.total - a.total)[0]
     const current = totals.find(t => t.hour === curHour)
     return {
       bestHour: best && best.total > 0 ? best : null,
       currentHourRevenue: current?.total ?? 0,
     }
-  }, [viewEvents])
+  }, [viewEvents, heroPeriod])
 
   const todayRev = useMemo(()=>viewEvents.filter(e=>e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0),[viewEvents])
   const monthRev = vf?(monthRevenue.byVertical[vf]??0):monthRevenue.overall
@@ -1685,17 +1738,34 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
 
   const streak = viewEvents.filter(e=>Date.now()-new Date(e.occurred_at).getTime()<90000).length
 
+  // Busca PAGINADA (1000 por página): o Supabase corta em 1000 linhas e ignora o limit(999999) — um período grande vinha truncado.
   useEffect(()=>{
-    if(!filter.start){ setRangeEvents(null); return }
+    if(!heroPeriod){ setRangeEvents(null); setRangeKey(null); setRangeError(false); setRangeFetching(false); return }
+    let cancelled = false
     const supabase = createBrowserClient()
-    setRangeFetching(true)
-    const { start: startISO } = dayBoundsSaoPaulo(filter.start)
-    const { end:   endISO }   = dayBoundsSaoPaulo(filter.end ?? filter.start)
-    supabase.from('telao_events')
-      .select('*').gte('occurred_at', startISO).lte('occurred_at', endISO)
-      .order('occurred_at', { ascending: false }).limit(999999)
-      .then(({ data }) => { setRangeEvents((data??[]) as TelaoEvent[]); setRangeFetching(false) })
-  },[filter.start, filter.end])
+    setRangeFetching(true); setRangeError(false)
+    ;(async()=>{
+      try {
+        const rows: TelaoEvent[] = []
+        for(let page=0; page<200; page++){
+          const from = page*1000
+          const { data, error } = await supabase.from('telao_events').select('*')
+            .gte('occurred_at', heroPeriod.startISO).lte('occurred_at', heroPeriod.endISO)
+            .order('occurred_at', { ascending: false }).order('id', { ascending: false }).range(from, from+999)
+          if(error) throw error
+          const got = (data??[]) as TelaoEvent[]
+          rows.push(...got)
+          if(got.length < 1000) break
+        }
+        if(cancelled) return
+        const seen = new Set<string>()
+        setRangeEvents(rows.filter(e=>!seen.has(e.id) && (seen.add(e.id), true))); setRangeKey(heroPeriod.key)
+      } catch {
+        if(!cancelled){ setRangeError(true); setRangeEvents([]); setRangeKey(heroPeriod.key) }
+      } finally { if(!cancelled) setRangeFetching(false) }
+    })()
+    return ()=>{ cancelled = true }
+  },[heroPeriod?.key, rangeTick])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
     if(!latest) return
@@ -1851,36 +1921,43 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
       </div>
 
       <div style={{position:'relative',zIndex:1}}><Ticker events={viewEvents}/></div>
+      {rangeError && <div data-range-error style={{position:'relative',zIndex:1,margin:'10px 20px 0',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',padding:'8px 12px',borderRadius:12,background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.4)',fontSize:11,color:'#fcd34d',fontFamily:"'JetBrains Mono',monospace"}}>
+        ⚠ Não consegui carregar o período — a tela está vazia, não com números de hoje.
+        <button type="button" onClick={()=>setRangeTick(t=>t+1)} style={{marginLeft:'auto',border:'1px solid rgba(245,158,11,.5)',background:'transparent',color:'inherit',borderRadius:8,padding:'3px 10px',fontSize:10.5,fontWeight:800,fontFamily:'inherit',cursor:'pointer'}}>Tentar de novo</button>
+      </div>}
 
       {/* Grid principal */}
-      <div className="tw-main" style={{display:'grid',gridTemplateColumns:isAdmin?'minmax(0,1fr) clamp(320px,22vw,420px)':'1fr',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
+      <div className="tw-main" data-range-loading={rangeLoading?'1':'0'} style={{opacity:rangeLoading?.55:1,transition:'opacity .2s',display:'grid',gridTemplateColumns:isAdmin?'minmax(0,1fr) clamp(320px,22vw,420px)':'1fr',gap:16,padding:'16px 20px',position:'relative',zIndex:1}}>
 
         {/* Esquerda */}
-        <FitColumn enabled={fitRoot.active} gap={12} chart={h => isAdmin ? <DailyRevenueChart sales={monthSales} todayEvents={events} vf={vf} closerKeys={filter.closerKeys} accent={accent} mounted={mounted} height={h}/> : null}>
+        <FitColumn enabled={fitRoot.active} gap={12} chart={h => isAdmin ? <DailyRevenueChart sales={monthSales} todayEvents={events} vf={vf} closerKeys={filter.closerKeys} accent={accent} mounted={mounted} range={period ? { start: period.start, end: period.end } : null} rangeRows={heroPeriod ? rangeEvents : null} rangeLoading={rangeLoading} height={h}/> : null}>
           <ScoreboardHero events={viewEvents} accent={accent} vf={vf} isDark={isDark}
             yesterdayRev={isAdmin?yesterdayRevAdmin:yesterdayRev}
             yesterdaySameHourRev={isAdmin?yesterdaySameHourRevAdmin:yesterdaySameHourRevUser}
-            trend={isAdmin?trendAdmin:trendUser}
+            trend={heroPeriod ? periodTrend : (isAdmin?trendAdmin:trendUser)}
             showGoals={mounted && (isAdmin || myMonthGoal>0)}
-            metaDiaAtual={isAdmin?metaDiaAtual:metaDiaUser}
+            metaDiaAtual={heroPeriod ? periodGoal : (isAdmin?metaDiaAtual:metaDiaUser)}
             metaMesAtual={isAdmin?metaMesAtual:myMonthGoal}
             mesAcumulado={isAdmin?monthRev:monthRevUser}
-            expectedRevenueNow={isAdmin?expectedRevenueNow:expectedRevenueNowUser}
-            horasRestantesHoje={isAdmin?horasRestantesHoje:horasRestantesHojeUser}/>
+            expectedRevenueNow={heroPeriod ? null : (isAdmin?expectedRevenueNow:expectedRevenueNowUser)}
+            horasRestantesHoje={isAdmin?horasRestantesHoje:horasRestantesHojeUser}
+            periodLabel={heroPeriod?.label ?? null} periodHours={periodHours}/>
 
           {/* Painel acumulado — apenas consultor */}
           {!isAdmin && (
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+              <div style={{display:'grid',gridTemplateColumns:`repeat(${heroPeriod?2:3},1fr)`,gap:10}}>
                 <div style={{background:'rgba(255,255,255,.03)',border:'1px solid rgba(168,85,247,.2)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
-                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>💰 Hoje{vf?` · ${VERTICALS[vf].short}`:''}</p>
+                  <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>💰 {heroPeriod ? heroPeriod.label : 'Hoje'}{vf?` · ${VERTICALS[vf].short}`:''}</p>
                   <p style={{margin:0,fontSize:22,fontWeight:900,color:'#c4b5fd',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(todayRev)}</p>
-                  <p style={{margin:'3px 0 0',fontSize:8,color:'#a898c9',fontFamily:"'JetBrains Mono',monospace"}}>{viewEvents.filter(e=>e.event_type==='sale').length}v hoje</p>
+                  <p style={{margin:'3px 0 0',fontSize:8,color:'#a898c9',fontFamily:"'JetBrains Mono',monospace"}}>{viewEvents.filter(e=>e.event_type==='sale').length}v {heroPeriod ? 'no período' : 'hoje'}</p>
                 </div>
+                {!heroPeriod && (
                 <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
                   <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.4)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📅 Ontem</p>
                   <p style={{margin:0,fontSize:22,fontWeight:900,color:'rgba(196,181,253,.7)',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(yesterdayRev)}</p>
                 </div>
+                )}
                 <div style={{background:'rgba(168,85,247,.06)',border:'1px solid rgba(168,85,247,.25)',borderRadius:16,padding:'14px 18px',backdropFilter:'blur(8px)'}}>
                   <p style={{margin:'0 0 4px',fontSize:8,fontWeight:900,color:'rgba(168,85,247,.5)',fontFamily:"'JetBrains Mono',monospace",textTransform:'uppercase',letterSpacing:'.12em'}}>📊 Feito no mês</p>
                   <p style={{margin:0,fontSize:22,fontWeight:900,color:'#e9d5ff',letterSpacing:'-0.03em',fontVariantNumeric:'tabular-nums'}}>{fmtBRL(monthRevUser)}</p>
@@ -1908,7 +1985,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
             </div>
           )}
 
-          <div className="tw-vert"><VerticalCards events={isAdmin?events:baseEvents} selected={vf} onSelect={v=>setVf(v)} isDark={isDark} verticals={visibleVerticals}/></div>
+          <div className="tw-vert"><VerticalCards events={cardEvents} selected={vf} onSelect={v=>setVf(v)} isDark={isDark} verticals={visibleVerticals}/></div>
 
           <MoneyLeftOnTable value={moneyLeftTotal} totalRevenue={todayRev} isDark={isDark}/>
 
@@ -1917,21 +1994,21 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
           {isAdmin && (
             <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:22,padding:'20px 22px',backdropFilter:'blur(8px)'}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,marginBottom:16}}>
-                <p style={{fontSize:11,fontWeight:900,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.12em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>⚡ Ritmo de Vendas</p>
+                <p style={{fontSize:11,fontWeight:900,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.12em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>⚡ Ritmo de Vendas{heroPeriod ? ` · por hora do dia · ${heroPeriod.label}` : ''}</p>
                 <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
                   {mounted && paceHighlights.bestHour && (
                     <span style={{fontSize:11,fontWeight:800,color:'#f97316',fontFamily:"'JetBrains Mono',monospace",display:'flex',alignItems:'center',gap:5}}>
                       🔥 Melhor hora: {String(paceHighlights.bestHour.hour).padStart(2,'0')}h — {fmtBRL(paceHighlights.bestHour.total)}
                     </span>
                   )}
-                  {mounted && (
+                  {mounted && !heroPeriod && (
                     <span style={{fontSize:11,fontWeight:800,color:accent,fontFamily:"'JetBrains Mono',monospace",display:'flex',alignItems:'center',gap:5}}>
                       🚀 Ritmo atual: {fmtBRL(paceHighlights.currentHourRevenue)}/h
                     </span>
                   )}
                 </div>
               </div>
-              <HourlyChart events={viewEvents} closers={closers} byHubId={byHubId} accent={accent} pulseHour={pulseHour} bestHour={paceHighlights.bestHour?.hour ?? null} isDark={isDark}/>
+              <HourlyChart events={viewEvents} closers={closers} byHubId={byHubId} accent={accent} pulseHour={pulseHour} bestHour={paceHighlights.bestHour?.hour ?? null} isDark={isDark} allDay={!!heroPeriod}/>
             </div>
           )}
 
@@ -1950,18 +2027,18 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
             scroll em vez de cortar o conteúdo. */}
         {isAdmin && <div className="tw-side" style={{display:'flex',flexDirection:'column',gap:12,position:'sticky',top:76,height:'calc(100vh - 92px)',minHeight:0,overflowY:'auto',overflowX:'hidden'}}>
           <div className="tw-feed tw-panel" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.1)',borderRadius:20,padding:'14px 16px',flex:'1 1 0',display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)',minHeight:140}}>
-            <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>⚡ Feed ao vivo — {viewEvents.length} eventos</p>
+            <p style={{fontSize:9,fontWeight:800,color:'#9d8bc4',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}><span data-feed-count={viewEvents.length}>{heroPeriod ? `📋 Vendas do período · ${heroPeriod.label}` : '⚡ Feed ao vivo'} — {viewEvents.length} eventos</span></p>
             <EventFeed events={viewEvents} byId={byId} byHubId={byHubId}/>
           </div>
 
           {/* OAO e R1 nunca competem entre si (tickets muito diferentes). */}
           {showRankOAO && <div className="tw-panel" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(59,130,246,.18)',borderRadius:20,padding:'14px 16px',flex:'0 1 auto',minHeight:104,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)'}}>
             <p style={{fontSize:10,fontWeight:900,color:'#60a5fa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time OAO{vf?` ${VERTICALS[vf].short}`:''}</p>
-            <Ranking stats={teamStatsOAO} accent={accent} peek/>
+            <div data-rank-team="OAO" style={{display:'contents'}}><Ranking stats={teamStatsOAO} accent={accent} peek/></div>
           </div>}
           {showRankR1 && <div className="tw-panel" style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(139,92,246,.18)',borderRadius:20,padding:'14px 16px',flex:'0 1 auto',minHeight:104,display:'flex',flexDirection:'column',overflow:'hidden',backdropFilter:'blur(8px)'}}>
             <p style={{fontSize:10,fontWeight:900,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'.1em',margin:'0 0 10px',fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>🏆 Ranking do Time R1{vf?` ${VERTICALS[vf].short}`:''}</p>
-            <Ranking stats={teamStatsR1} accent={accent} peek/>
+            <div data-rank-team="R1" style={{display:'contents'}}><Ranking stats={teamStatsR1} accent={accent} peek/></div>
           </div>}
         </div>}
       </div>

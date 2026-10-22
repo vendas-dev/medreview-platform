@@ -12,7 +12,7 @@ import {
   CountUp, TrendBadge, PaceThermometer, Clock, Ticker, MoneyLeftOnTable, Celebration, GoalCelebration, MonthGoalCelebration, CloserGoalCelebration,
   initAudio, loadCelebratedGoals, persistCelebratedGoal,
 } from './animations'
-import { Panel, Legend, LineChart, StackBars, ShareArea, Donut, HeatGrid, RegionMap, IntensityLegend, HBars, makeTheme, fmtCompact, fmtDM, Th, StackKey } from './charts'
+import { Panel, Legend, LineChart, StackBars, ShareArea, Donut, HeatGrid, RegionMap, IntensityLegend, REGION_MAX_WIDTH, HBars, makeTheme, fmtCompact, fmtDM, Th, StackKey } from './charts'
 
 // ══ Telão Completo — visão dos fundadores ═════════════════════════════════════
 // Histórico + acumulado, 5 painéis (Geral/Anest/Oft/Ortop/R1) que filtram TUDO.
@@ -302,9 +302,9 @@ function RegionPanel({ th, uf, accent }: { th: Th; uf: ReturnType<typeof A.byUF>
   return (
     <Panel th={th} title="Receita por região e estado" sub={`% sobre as vendas com estado informado (${uf.coveragePct.toFixed(0)}% do total) · estados agrupados por região, em uma linha`} accent={accent} className="tc-s12" id="mapa">
       {uf.items.length === 0 ? <p style={{ margin: 0, fontSize: 12, color: th.muted, fontFamily: SANS }}>Sem vendas com estado informado no período.</p> : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px 28px' }}>
-            <div style={{ flex: '1 1 520px', minWidth: 0 }}>
+        <div data-region-content style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%', maxWidth: REGION_MAX_WIDTH, margin: '0 auto' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '12px 24px' }}>
+            <div style={{ flex: '1 1 480px', minWidth: 0 }}>
               <p style={lab}>Top 3 estados · % do total</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 8 }}>
                 {top3.map((st, i) => (
@@ -320,7 +320,7 @@ function RegionPanel({ th, uf, accent }: { th: Th; uf: ReturnType<typeof A.byUF>
                 ))}
               </div>
             </div>
-            <div style={{ flex: '0 1 260px', minWidth: 200 }}>
+            <div style={{ flex: '0 1 230px', minWidth: 180 }}>
               <p style={lab}>Cor dos estados</p>
               <IntensityLegend th={th} accent={accent} />
             </div>

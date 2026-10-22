@@ -1,4 +1,8 @@
-import { dateInSaoPaulo, weekdayInSaoPaulo } from '@/lib/timezone'
+import { weekdayInSaoPaulo } from '@/lib/timezone'
+
+// Formatador criado UMA vez (o dateInSaoPaulo cria um novo a cada chamada — com milhares de vendas isso pesava).
+const SP_DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' })
+const dateInSaoPaulo = (iso: string) => SP_DAY_FMT.format(new Date(iso))
 import type { VerticalId } from '@/lib/telao/types'
 
 // ══ Receita por dia do mês (gráfico do Telão) ═══════════════════════════════
@@ -45,6 +49,13 @@ export interface DailySeries {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+/** Todas as datas 'YYYY-MM-DD' de start até end (inclusive), no máximo `cap` dias. */
+export function listDates(start: string, end: string, cap = 400): string[] {
+  const out: string[] = [], t0 = Date.parse(`${start}T00:00:00Z`)
+  for (let i = 0; i < cap; i++) { const d = new Date(t0 + i * 86400000).toISOString().slice(0, 10); if (d > end) break; out.push(d) }
+  return out
+}
+
 /** Quantos dias tem o mês 'YYYY-MM'. */
 export function daysInMonthKey(monthKey: string): number {
   const [y, m] = monthKey.split('-').map(Number)
@@ -66,8 +77,11 @@ export function buildDailySeries(o: {
   todayEvents: DaySale[]           // eventos ao vivo de hoje (qualquer tipo)
   vertical: VerticalId | null      // painel: null = Geral
   closerKeys?: string[]
+  range?: { start: string; end: string } | null   // modo "período": as barras são SÓ os dias de start..end (podem cruzar meses); sem isso, o mês inteiro
 }): DailySeries {
   const { monthKey, today, history, todayEvents, vertical } = o
+  const range = o.range && o.range.start ? o.range : null
+  const inScope = (date: string) => (range ? date >= range.start && date <= range.end : date.slice(0, 7) === monthKey)
   const closerKeys = o.closerKeys ?? []
   const n = daysInMonthKey(monthKey)
   const sums = new Map<string, { total: number; count: number }>()
@@ -87,11 +101,11 @@ export function buildDailySeries(o: {
   for (const e of history) {
     if ((e.event_type ?? 'sale') !== 'sale') continue
     const date = dateInSaoPaulo(e.occurred_at)
-    if (date.slice(0, 7) !== monthKey) continue                   // outro mês (ex.: 23h30 do último dia do mês anterior)
+    if (!inScope(date)) continue                                  // fora do mês/período (ex.: 23h30 do último dia do mês anterior)
     if (date === today) continue                                   // hoje é do ao vivo (o resto, inclusive data errada no futuro, é do histórico)
     add(e, date)
   }
-  if (today.slice(0, 7) === monthKey) {
+  if (inScope(today)) {
     for (const e of todayEvents) {
       if (e.event_type !== 'sale') continue
       if (dateInSaoPaulo(e.occurred_at) !== today) continue
@@ -99,12 +113,12 @@ export function buildDailySeries(o: {
     }
   }
 
+  const dates = range ? listDates(range.start, range.end) : Array.from({ length: n }, (_, i) => `${monthKey}-${String(i + 1).padStart(2, '0')}`)
   const days: DayPoint[] = []
-  for (let d = 1; d <= n; d++) {
-    const date = `${monthKey}-${String(d).padStart(2, '0')}`
+  for (const date of dates) {
     const s = sums.get(date)
     days.push({
-      date, day: d, weekday: weekdayInSaoPaulo(new Date(`${date}T12:00:00-03:00`)),
+      date, day: Number(date.slice(8, 10)), weekday: weekdayInSaoPaulo(new Date(`${date}T12:00:00-03:00`)),
       total: round2(s?.total ?? 0), count: s?.count ?? 0,
       isToday: date === today, isFuture: date > today,
     })
