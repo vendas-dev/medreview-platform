@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { TrendingUp, Flag, Target, Link2, Clock, History, HeartPulse, ArrowRight, CheckCircle2, AlertTriangle, Repeat, Zap } from 'lucide-react'
+import { TrendingUp, Flag, Target, Link2, Clock, History, HeartPulse, CheckCircle2, AlertTriangle, Repeat, Zap } from 'lucide-react'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import { DealsModal } from './ForecastDealsModal'
 import type { DealsQuery } from '@/lib/dashboard/forecastDeals'
@@ -905,8 +905,7 @@ function VitalBlock({ total, monthly, detail }: { total: number; monthly: { labe
     { label: 'já pagas este mês',       count: d.jaPagasMes ?? d.completas,    color: ACCENT,    Icon: CheckCircle2 },
   ]
   return (
-    <Block icon={HeartPulse} title="Sinal vital da recorrência" subtitle="Saúde das assinaturas e o que ainda deve entrar"
-      right={<Link href="/intel" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: ACCENT, textDecoration: 'none', whiteSpace: 'nowrap' }}>Ver detalhe <ArrowRight size={12} /></Link>}>
+    <Block icon={HeartPulse} title="Sinal vital da recorrência" subtitle="Saúde das assinaturas e o que ainda deve entrar">
       <div className="fc-even" style={{ alignItems: 'stretch' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>

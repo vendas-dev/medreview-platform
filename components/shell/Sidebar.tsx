@@ -10,6 +10,7 @@ import {
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
   Target, Image as ImageIcon, PartyPopper, MonitorPlay, Trophy, Megaphone
 } from 'lucide-react'
+import { SalesOpsAiIcon } from '@/components/shell/SalesOpsAiIcon'
 import { logout } from '@/app/(auth)/login/actions'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { canAccessModule } from '@/lib/rbac/permissions'
@@ -85,12 +86,12 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
   ...(isAdmin ? [{
     key: 'administracao', label: 'Administração', icon: Users, href: '/administracao', always: true,
     children: [
-      { label: 'Visão Geral',      icon: BarChart2, href: '/intel' },
       { label: 'Meta dos Closers', icon: Target,    href: '/intel/goals' },
       { label: 'Campanhas',        icon: Trophy,    href: '/admin/campanhas' },
       { label: 'Notificação',      icon: Megaphone, href: '/admin/notificacoes' },
       { label: 'Módulos',          icon: Package,   href: '/admin/modules' },
       { label: 'Usuários',         icon: Users,     href: '/admin' },
+      { label: 'Sales Ops AI', icon: SalesOpsAiIcon, href: '/admin/sales-ops-ai' },
     ],
   } as NavItem] : []),
 ]

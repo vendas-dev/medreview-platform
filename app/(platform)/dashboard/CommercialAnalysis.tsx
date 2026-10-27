@@ -496,7 +496,7 @@ export function CommercialAnalysis({ initialData }: { initialData: InitialData }
       <div className="ca-kpi-bento" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gridTemplateRows: 'auto auto', gap: 12, marginBottom: 20, gridTemplateAreas: '"revenue today ticket" "revenue money money"', opacity: loading ? 0.5 : 1, transition: 'opacity .2s' }}>
         <div style={{ gridArea: 'revenue' }}>
           <KpiMini icon={DollarSign} label="Receita do período" rawValue={data.kpis.totalRevenue} sub={`${data.kpis.totalSales} vendas novas`}
-            grad="linear-gradient(135deg,#22c55e,#16a34a)" color="#22c55e" href="/intel" big />
+            grad="linear-gradient(135deg,#22c55e,#16a34a)" color="#22c55e" big />
         </div>
         <div style={{ gridArea: 'today' }}>
           <KpiMini icon={TrendingUp} label="Receita hoje" rawValue={data.kpis.revenueToday} sub={`${data.kpis.salesToday} vendas · ao vivo`}
@@ -504,7 +504,7 @@ export function CommercialAnalysis({ initialData }: { initialData: InitialData }
         </div>
         <div style={{ gridArea: 'ticket' }}>
           <KpiMini icon={Target} label="Ticket médio" rawValue={data.kpis.avgTicket} sub="média das vendas do período"
-            grad="linear-gradient(135deg,#8b5cf6,#a855f7)" color="#8b5cf6" href="/intel" />
+            grad="linear-gradient(135deg,#8b5cf6,#a855f7)" color="#8b5cf6" />
         </div>
         <div style={{ gridArea: 'money' }}>
           <KpiMini icon={AlertTriangle} label="Deixado na mesa" rawValue={data.kpis.moneyLeft} sub={`${data.kpis.certsCount} embaixadores certificados`}

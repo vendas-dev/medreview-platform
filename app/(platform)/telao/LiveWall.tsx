@@ -240,14 +240,14 @@ function ScoreboardHero({
           {/* Chips de KPI — fundo neutro (quase igual ao card principal),
               só o ícone e o número ganham cor — o R$ de cima continua sendo
               o que mais chama atenção. */}
-          <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:14}}>
+          <div data-hero-kpis style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:14}}>
             {[
               { label:'Vendas',    value:<CountUp value={sales.length} format={v=>Math.round(v).toString()}/>, color:accent, Icon:TrendingUp },
               { label:'Ticket',    value:fmtBRL(avgTicket), color:accent, Icon:Target },
               { label:'Vendas/h',  value:salesPerHour.toFixed(1), color:accent, Icon:Zap },
               ...(certs.length>0 ? [{ label:'Embaixadores', value:certs.length as any, color:GOLD, Icon:Award }] : []),
             ].map((kpi,i) => (
-              <div key={i} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 14px 8px 10px',borderRadius:14,background:isDark?'rgba(255,255,255,.035)':'rgba(255,255,255,.5)'}}>
+              <div key={i} data-hero-kpi style={{display:'flex',alignItems:'center',gap:9,padding:'8px 14px 8px 10px',borderRadius:14,background:isDark?'rgba(255,255,255,.035)':'rgba(255,255,255,.5)'}}>
                 <div style={{width:26,height:26,borderRadius:9,background:`${kpi.color}22`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                   <kpi.Icon size={13} style={{color:kpi.color}}/>
                 </div>
@@ -260,7 +260,7 @@ function ScoreboardHero({
           </div>
 
           {/* Comparação principal — só uma domina, a outra fica discreta */}
-          {!periodLabel && <div style={{display:'flex',alignItems:'baseline',gap:16,flexWrap:'wrap',marginBottom:14}}>
+          {!periodLabel && <div data-hero-compare style={{display:'flex',alignItems:'baseline',gap:16,flexWrap:'wrap',marginBottom:14}}>
             <TrendBadge label="vs mesma hora ontem" pct={pctVsSameHour} isDark={isDark}/>
             <span style={{fontSize:9,opacity:.55}}><TrendBadge label="vs ontem" pct={pctVsYesterday} isDark={isDark}/></span>
           </div>}
@@ -291,7 +291,7 @@ function ScoreboardHero({
         {trend && (
           <div className="sd-hero-trend" style={{flexShrink:0,width:vert?200:290,display:'flex',flexDirection:'column'}}>
             {showGoals && !periodLabel && <div style={{display:'flex',justifyContent:'flex-end',marginBottom:4}}><PaceThermometer status={status} isDark={isDark}/></div>}
-            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',minHeight:110}}>
+            <div data-hero-spark style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',minHeight:110}}>
               <Sparkline data={trend} accent={accent} compact={!!vert} isDark={isDark}/>
             </div>
             {showGoals && !periodLabel && metaMesAtual>0 && (
@@ -675,20 +675,21 @@ function Ranking({ stats, accent, peek=false }: { stats:CloserStats[]; accent:st
   )
 }
 
-// ── HourlyChart ─── Heatmap de vendas por hora (últimas 12h) ──
+// ── HourlyChart ─── Ritmo de vendas hora a hora, JANELA FIXA das 8h às 23h (horário de Brasília) ──
+// Sempre as mesmas 16 horas, na mesma posição: dá pra bater o olho e comparar o dia com o anterior. Horas que ainda não chegaram ficam apagadas;
+// a hora atual fica destacada. Vendas fora dessa janela (antes das 8h ou depois das 23h) não somem do total: o painel avisa quanto foi ("fora de 8h–23h").
+const PACE_FIRST = 8, PACE_LAST = 23
+const PACE_HOURS = Array.from({ length: PACE_LAST - PACE_FIRST + 1 }, (_, i) => PACE_FIRST + i)
 function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, isDark=true, allDay=false }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string; pulseHour?:number|null; bestHour?:number|null; isDark?:boolean; allDay?:boolean }) {
   const byId = useMemo(() => Object.fromEntries(closers.map(c=>[c.id,c])), [closers])
 
   const buckets = useMemo(() => {
-    const curHour = hourInSaoPaulo(new Date())
-    // Com filtro de data: as 24 horas do dia (somando o período). Sem filtro: as 12 horas até agora.
-    const hours = allDay ? Array.from({length:24}, (_,i) => i) : Array.from({length:12}, (_,i) => (curHour-11+i+24)%24)
-    const b = hours.map(h => ({ hour:h, total:0, count:0, topName:null as string|null, topRevenue:0, topHubId:null as string|null, topCloserId:null as string|null }))
+    const b = PACE_HOURS.map(h => ({ hour:h, total:0, count:0, topName:null as string|null, topRevenue:0, topHubId:null as string|null, topCloserId:null as string|null }))
     events.forEach(e => {
       if (e.event_type!=='sale') return
       const h = spHourOf(e.occurred_at)
-      const bucket = b.find(x=>x.hour===h)
-      if (!bucket) return
+      if (h < PACE_FIRST || h > PACE_LAST) return
+      const bucket = b[h - PACE_FIRST]
       bucket.total += (e.value??0)
       bucket.count += 1
       if ((e.value??0) >= bucket.topRevenue) {
@@ -699,52 +700,49 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
       }
     })
     return b
-  }, [events, allDay])
+  }, [events])
 
   const maxTotal = Math.max(...buckets.map(b=>b.total), 1)
   const curHour = hourInSaoPaulo(new Date())
-  // Horas sem venda ficam quase invisíveis — só um traço bem sutil, pra não
-  // competir visualmente com as horas que realmente têm receita.
+  // Horas sem venda ficam quase invisíveis — só um traço bem sutil, pra não competir visualmente com as horas que realmente têm receita.
   const emptyBg     = isDark ? 'rgba(255,255,255,.012)' : 'rgba(139,92,246,.04)'
   const emptyBorder = isDark ? '1px solid rgba(255,255,255,.03)' : '1px solid rgba(139,92,246,.08)'
 
   return (
-    <div data-hourly={allDay?'24':'12'} style={{display:'flex',gap:allDay?3:5}}>
+    <div data-hourly="16" style={{display:'flex',gap:4,overflowX:'auto'}}>
       {buckets.map(b=>{
         const intensity = b.total/maxTotal // 0..1
         const isNow = !allDay && b.hour===curHour
+        const isFuture = !allDay && b.hour>curHour         // hora que ainda não chegou: apagada
         const isBest = bestHour!=null && b.hour===bestHour && b.total>0
         const closer = b.topCloserId ? byId[b.topCloserId] : (b.topHubId ? byHubId[b.topHubId] : null)
         const label = String(b.hour).padStart(2,'0')+'h'
-        // Gradiente suave (não mais um bloco de cor chapada) — intensidade
-        // controla o quão "cheio" o gradiente fica, dando sensação de vidro
-        // fosco em vez de quadradinho de dashboard.
         const cellBg = b.total>0
           ? `linear-gradient(180deg, ${accent}${Math.round(28+intensity*72).toString(16).padStart(2,'0')} 0%, ${accent}${Math.round(10+intensity*30).toString(16).padStart(2,'0')} 100%)`
           : emptyBg
         return (
-          <div key={b.hour} data-hour={b.hour} data-total={b.total} title={b.total>0?`${label} — ${fmtBRL(b.total)} · ${b.count}v${b.topName?` · top: ${b.topName}`:''}`:label}
-            style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
+          <div key={b.hour} data-hour={b.hour} data-total={b.total} data-future={isFuture?'1':'0'} data-now={isNow?'1':'0'} title={b.total>0?`${label} — ${fmtBRL(b.total)} · ${b.count}v${b.topName?` · top: ${b.topName}`:''}`:label}
+            style={{flex:'1 0 46px',minWidth:0,display:'flex',flexDirection:'column',alignItems:'center',gap:3,opacity:isFuture?.5:1}}>
             <div style={{
-              width:'100%',height:92,borderRadius:14,position:'relative',overflow:'hidden',
+              width:'100%',height:46,borderRadius:10,position:'relative',overflow:'hidden',
               background: cellBg,
               border: isBest ? `1.5px solid ${GOLD}` : (isNow ? `1.5px solid ${accent}` : (b.total>0 ? `1px solid ${accent}2a` : emptyBorder)),
-              boxShadow: isBest ? `0 0 16px ${GOLD}66` : (isNow ? `0 0 14px ${accent}55` : 'none'),
+              boxShadow: isBest ? `0 0 12px ${GOLD}66` : (isNow ? `0 0 10px ${accent}55` : 'none'),
               animation: isNow && pulseHour===b.hour ? 'cellPulse .7s ease-out' : 'none',
               display:'flex',alignItems:'center',justifyContent:'center',
               transition:'background .4s ease, border-color .3s ease',
             }}>
-              {isBest && <span style={{position:'absolute',top:4,left:4,fontSize:11}}>🔥</span>}
+              {isBest && <span style={{position:'absolute',top:2,left:3,fontSize:10,lineHeight:1}}>🔥</span>}
               {closer && b.total>0 && !allDay && (
-                <div style={{position:'absolute',top:4,right:4}}><Avatar closer={closer} name={b.topName||'?'} size={20}/></div>
+                <div style={{position:'absolute',top:3,right:3}}><Avatar closer={closer} name={b.topName||'?'} size={16}/></div>
               )}
               {b.total>0 && (
-                <span style={{fontSize:allDay?(intensity>.45?11:10):(intensity>.45?13:12),fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
+                <span style={{fontSize:intensity>.45?13:12,fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
                   {b.total>=1000?`${(b.total/1000).toFixed(1)}k`:b.total.toFixed(0)}
                 </span>
               )}
             </div>
-            <span style={{fontSize:allDay?9:10,color:isNow?accent:(isDark?'#9d8bc4':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
+            <span style={{fontSize:10,color:isNow?accent:(isDark?'#9d8bc4':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
           </div>
         )
       })}
@@ -1403,23 +1401,26 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
     }
   }, [viewEvents])
 
-  // ── Destaques do ritmo por hora — mesma janela de 12h do HourlyChart,
-  // calculado em paralelo (não mexe na lógica interna dele): melhor hora
-  // do período, e o ritmo da hora corrente (quanto já entrou nessa hora).
+  // ── Destaques do ritmo por hora — a MESMA janela fixa do HourlyChart (8h–23h): melhor hora, o ritmo da hora corrente (quanto já entrou nela)
+  // e o que ficou FORA da janela (antes das 8h / depois das 23h), pra o painel mostrar que esse dinheiro existe.
   const paceHighlights = useMemo(() => {
     const curHour = hourInSaoPaulo(new Date())
-    const hours = heroPeriod ? Array.from({ length: 24 }, (_, i) => i) : Array.from({ length: 12 }, (_, i) => (curHour - 11 + i + 24) % 24)
-    // UMA passada pelas vendas (antes: uma passada por hora, cada uma criando um formatador de data por venda)
-    const byHour = new Array<number>(24).fill(0)
-    viewEvents.forEach(e => { if (e.event_type === 'sale') byHour[spHourOf(e.occurred_at)] += (e.value ?? 0) })
-    const totals = hours.map(h => ({ hour: h, total: byHour[h] }))
+    const byHour = new Array<number>(24).fill(0)                                  // UMA passada pelas vendas
+    let outCount = 0, outTotal = 0
+    viewEvents.forEach(e => {
+      if (e.event_type !== 'sale') return
+      const h = spHourOf(e.occurred_at), v = e.value ?? 0
+      byHour[h] += v
+      if (h < PACE_FIRST || h > PACE_LAST) { outCount++; outTotal += v }
+    })
+    const totals = PACE_HOURS.map(h => ({ hour: h, total: byHour[h] }))
     const best = [...totals].sort((a, b) => b.total - a.total)[0]
-    const current = totals.find(t => t.hour === curHour)
     return {
       bestHour: best && best.total > 0 ? best : null,
-      currentHourRevenue: current?.total ?? 0,
+      currentHourRevenue: byHour[curHour] ?? 0,
+      outside: { count: outCount, total: outTotal },
     }
-  }, [viewEvents, heroPeriod])
+  }, [viewEvents])
 
   const todayRev = useMemo(()=>viewEvents.filter(e=>e.event_type==='sale').reduce((s,e)=>s+(e.value??0),0),[viewEvents])
   const monthRev = vf?(monthRevenue.byVertical[vf]??0):monthRevenue.overall
@@ -1992,8 +1993,8 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
           {!isAdmin && <TopDayHourPanel analysis={dayHourAnalysis} accent={accent} isDark={isDark}/>}
 
           {isAdmin && (
-            <div style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:22,padding:'20px 22px',backdropFilter:'blur(8px)'}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,marginBottom:16}}>
+            <div data-ritmo style={{background:'rgba(255,255,255,.02)',border:'1px solid rgba(168,85,247,.15)',borderRadius:18,padding:'12px 16px 10px',backdropFilter:'blur(8px)'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,marginBottom:8}}>
                 <p style={{fontSize:11,fontWeight:900,color:isDark?'#c084fc':'#7c3aed',textTransform:'uppercase',letterSpacing:'.12em',margin:0,fontFamily:"'JetBrains Mono',monospace"}}>⚡ Ritmo de Vendas{heroPeriod ? ` · por hora do dia · ${heroPeriod.label}` : ''}</p>
                 <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
                   {mounted && paceHighlights.bestHour && (
@@ -2004,6 +2005,11 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
                   {mounted && !heroPeriod && (
                     <span style={{fontSize:11,fontWeight:800,color:accent,fontFamily:"'JetBrains Mono',monospace",display:'flex',alignItems:'center',gap:5}}>
                       🚀 Ritmo atual: {fmtBRL(paceHighlights.currentHourRevenue)}/h
+                    </span>
+                  )}
+                  {mounted && paceHighlights.outside.count>0 && (
+                    <span data-pace-outside title="Vendas feitas antes das 8h ou depois das 23h: entram no total do dia, mas não nos quadrados" style={{fontSize:10,fontWeight:700,color:isDark?'#9d8bc4':'#7c3aed',fontFamily:"'JetBrains Mono',monospace",display:'flex',alignItems:'center',gap:5}}>
+                      🌙 fora de {PACE_FIRST}h–{PACE_LAST}h: {paceHighlights.outside.count} {paceHighlights.outside.count===1?'venda':'vendas'} · {fmtBRL(paceHighlights.outside.total)}
                     </span>
                   )}
                 </div>

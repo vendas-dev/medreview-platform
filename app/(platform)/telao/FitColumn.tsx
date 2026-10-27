@@ -41,6 +41,22 @@ export function useFitRoot(enabled: boolean) {
   return { ref, active: enabled && st.active, height: st.height }
 }
 
+// ── Modo compacto dos blocos de CIMA (só no "ajustar à tela") ─────────────────────────────────────────────────────────────────────────
+// Deixa placar, verticais, "deixado na mesa" e canais mais enxutos pra sobrar altura pro gráfico do mês (as barras e os números ficam maiores).
+// Só mexe em espaçamentos (nada de conteúdo some). Fora do modo ajustado, nada disso se aplica. Escopado em [data-fit-column].
+const COMPACT_CSS = `
+[data-fit-column] [data-hero]{padding:12px 20px 10px !important}
+[data-fit-column] [data-hero-kpis]{margin-bottom:6px !important}
+[data-fit-column] [data-hero-kpi]{padding:4px 12px 4px 8px !important}
+[data-fit-column] [data-hero-compare]{margin-bottom:6px !important}
+[data-fit-column] [data-hero-spark]{padding-top:20px !important}          /* reserva o espaço do rótulo "ÚLTIMOS DIAS" (fica 18px acima do mini-gráfico) pra não encostar no selo de ritmo */
+[data-fit-column] [data-vcard]{padding:8px 12px 5px !important}
+[data-fit-column] [data-vcard] img{height:52px !important}
+[data-fit-column] [data-mesa]{padding-top:5px !important;padding-bottom:5px !important}
+[data-fit-column] [data-canais] > div{padding:8px 14px !important}
+[data-fit-column] [data-canais] > div > div:first-child{margin-bottom:4px !important}
+`
+
 interface FitColumnProps {
   enabled: boolean                         // false → renderiza como antes (coluna normal, o gráfico no fim)
   gap?: number                             // espaço entre os blocos (o mesmo da coluna original)
@@ -51,8 +67,8 @@ interface FitColumnProps {
   children: ReactNode                      // os blocos de cima
 }
 
-export function FitColumn({ enabled, gap: gapNormal = 12, chartMin = 270, chartMax = 560, minScale = 0.55, chart, children }: FitColumnProps) {
-  const gap = enabled ? Math.max(8, gapNormal - 2) : gapNormal         // no modo ajustado os blocos ficam um pouco mais juntos (ganha altura)
+export function FitColumn({ enabled, gap: gapNormal = 12, chartMin = 330, chartMax = 760, minScale = 0.55, chart, children }: FitColumnProps) {
+  const gap = enabled ? Math.max(6, gapNormal - 4) : gapNormal         // no modo ajustado os blocos ficam um pouco mais juntos (ganha altura)
   const outer = useRef<HTMLDivElement>(null)
   const others = useRef<HTMLDivElement>(null)
   const [m, setM] = useState({ s: 1, chartH: chartMin, ready: false, scroll: false })
@@ -98,6 +114,7 @@ export function FitColumn({ enabled, gap: gapNormal = 12, chartMin = 270, chartM
     <div ref={outer} data-fit-column data-fit-scale={m.s} data-fit-chart={m.chartH}
       style={{ position: 'relative', minHeight: 0, minWidth: 0, overflowX: 'hidden', overflowY: m.scroll ? 'auto' : 'hidden' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, width: `${100 / m.s}%`, transform: m.s < 1 ? `scale(${m.s})` : undefined, transformOrigin: '0 0', opacity: m.ready ? 1 : 0, transition: 'opacity .15s' }}>
+        <style>{COMPACT_CSS}</style>
         <div ref={others} style={{ display: 'flex', flexDirection: 'column', gap }}>{children}</div>
         <div data-fit-chart-box style={{ height: m.chartH, marginTop: gap }}>{chart(m.chartH)}</div>
       </div>
