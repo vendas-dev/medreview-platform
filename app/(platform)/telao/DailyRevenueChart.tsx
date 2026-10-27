@@ -132,7 +132,18 @@ function useRises(value: number): number {
 
 /** Um número do cabeçalho. Fica FORA do componente do gráfico de propósito: declarado lá dentro, o React o trataria como
  *  um componente novo a cada atualização (recriando o bloco e fazendo o contador nunca animar). */
-function Stat({ k, label, sub, color, children, text, muted2, dense = false }: { k: string; label: string; sub: string; color?: string; children: React.ReactNode; text: string; muted2: string; dense?: boolean }) {
+function Stat({ k, label, sub, color, children, text, muted2, dense = false, big = false }: { k: string; label: string; sub: string; color?: string; children: React.ReactNode; text: string; muted2: string; dense?: boolean; big?: boolean }) {
+  // big (só no "ajustar à tela" e com largura de sobra): legenda MAIOR sem ficar mais ALTA — o "884 vendas" vai AO LADO do valor, na mesma linha.
+  // A altura do cabeçalho não muda, então as barras do gráfico seguem exatamente do mesmo tamanho.
+  if (big) return (
+    <div data-stat={k} data-stat-big style={{ minWidth: 0 }}>
+      <p style={{ margin: '0 0 1px', fontSize: 10, lineHeight: '12px', fontWeight: 900, color: muted2, textTransform: 'uppercase', letterSpacing: '.12em', fontFamily: MONO, whiteSpace: 'nowrap' }}>{label}</p>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, whiteSpace: 'nowrap' }}>
+        <p style={{ margin: 0, fontSize: 21, lineHeight: '26px', fontWeight: 900, color: color ?? text, fontFamily: GROTESK, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', whiteSpace: 'nowrap' }}>{children}</p>
+        <p style={{ margin: 0, fontSize: 11, lineHeight: '14px', color: muted2, fontFamily: MONO, whiteSpace: 'nowrap' }}>{sub}</p>
+      </div>
+    </div>
+  )
   return (
     <div data-stat={k} style={{ minWidth: 0 }}>
       <p style={{ margin: dense ? '0 0 1px' : '0 0 3px', fontSize: dense ? 8 : 8.5, fontWeight: 900, color: muted2, textTransform: 'uppercase', letterSpacing: '.12em', fontFamily: MONO, whiteSpace: 'nowrap' }}>{label}</p>
@@ -250,14 +261,14 @@ export function DailyRevenueChart({ sales, todayEvents, vf, closerKeys, accent, 
           </AnimatePresence>
           {closerKeys.length > 0 && <span data-closer-filter style={{ fontSize: 9, fontWeight: 800, color: muted2, border: `1px dashed ${grid}`, borderRadius: 8, padding: '2px 7px', fontFamily: MONO }}>filtro de closer ativo</span>}
         </div>
-        <div style={{ display: 'flex', gap: fill ? 16 : 22, flexWrap: 'wrap' }}>
-          <Stat dense={fill} k="total" label={inRange ? 'Total no período' : 'Total no mês'} text={text} muted2={muted2} color={accent} sub={loading ? 'carregando…' : `${series.count} ${series.count === 1 ? 'venda' : 'vendas'}`}>
+        <div style={{ display: 'flex', gap: fill ? (W >= 1180 ? 28 : 16) : 22, flexWrap: 'wrap' }}>
+          <Stat dense={fill} big={fill && W >= 1180} k="total" label={inRange ? 'Total no período' : 'Total no mês'} text={text} muted2={muted2} color={accent} sub={loading ? 'carregando…' : `${series.count} ${series.count === 1 ? 'venda' : 'vendas'}`}>
             <CountUp value={series.total} format={fmtBRL} />
           </Stat>
-          <Stat dense={fill} k="avg" label="Média por dia" text={text} muted2={muted2} sub={series.closedAvg == null ? (inRange ? 'dia em andamento' : '1º dia do mês') : `${series.closedDays} ${series.closedDays === 1 ? 'dia fechado' : 'dias fechados'}`}>
+          <Stat dense={fill} big={fill && W >= 1180} k="avg" label="Média por dia" text={text} muted2={muted2} sub={series.closedAvg == null ? (inRange ? 'dia em andamento' : '1º dia do mês') : `${series.closedDays} ${series.closedDays === 1 ? 'dia fechado' : 'dias fechados'}`}>
             {series.closedAvg == null ? '—' : <CountUp value={series.closedAvg} format={fmtBRL} />}
           </Stat>
-          <Stat dense={fill} k="best" label="Melhor dia" text={text} muted2={muted2} color={series.best ? GOLD : undefined} sub={series.best ? `${WEEKDAY_LONG[series.best.weekday]} · ${series.best.count} ${series.best.count === 1 ? 'venda' : 'vendas'}` : 'sem vendas ainda'}>
+          <Stat dense={fill} big={fill && W >= 1180} k="best" label="Melhor dia" text={text} muted2={muted2} color={series.best ? GOLD : undefined} sub={series.best ? `${WEEKDAY_LONG[series.best.weekday]} · ${series.best.count} ${series.best.count === 1 ? 'venda' : 'vendas'}` : 'sem vendas ainda'}>
             {series.best ? <>🔥 {dm(series.best.date)} · <CountUp value={series.best.total} format={fmtBRL} /></> : '—'}
           </Stat>
         </div>
