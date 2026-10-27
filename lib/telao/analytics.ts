@@ -216,7 +216,7 @@ export function summarize(sales: Sale[], days: number): Summary {
     revenue += s.value; left += s.left
     byKind[s.kind].revenue += s.value; byKind[s.kind].count++
     byChannel[s.channel].revenue += s.value; byChannel[s.channel].count++
-    byVertical[s.vertical].revenue += s.value; byVertical[s.vertical].count++
+    const bv = byVertical[s.vertical]; if (bv) { bv.revenue += s.value; bv.count++ }      // vertical aposentada (ex.: vascreview) conta no total, mas não ganha linha própria
     if (s.discountIgnored) { di.count++; di.revenue += s.value }
     if (s.transferred) { tr.count++; tr.revenue += s.value }
   }
@@ -254,7 +254,7 @@ export function bucketize(sales: Sale[], r: Range, g: Gran): Bucket[] {
   }
   for (const s of sales) {
     const b = map.get(bucketKey(s.day, g)); if (!b) continue
-    b.revenue += s.value; b.count++; b.byKind[s.kind] += s.value; b.byVertical[s.vertical] += s.value; b.byChannel[s.channel] += s.value
+    b.revenue += s.value; b.count++; b.byKind[s.kind] += s.value; if (s.vertical in b.byVertical) b.byVertical[s.vertical] += s.value;       // idem (vertical aposentada não vira NaN) b.byChannel[s.channel] += s.value
   }
   return keys.map(k => map.get(k)!)
 }

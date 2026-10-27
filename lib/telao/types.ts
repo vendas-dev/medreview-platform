@@ -11,12 +11,19 @@ export interface VerticalConfig {
   glow:    string   // cor do glow
 }
 
-export const VERTICALS: Record<VerticalId, VerticalConfig> = {
+const VERTICAIS_ATIVAS: Record<VerticalId, VerticalConfig> = {
   medreview:   { id: 'medreview',   label: 'Med-Review R1',  short: 'R1',    accent: '#a855f7', glow: 'rgba(168,85,247,0.4)',  mascot: '/telao/mascots/r1.png'    },
   anestreview: { id: 'anestreview', label: 'Anest-Review',   short: 'ANEST', accent: '#38bdf8', glow: 'rgba(56,189,248,0.4)',  mascot: '/telao/mascots/anest.png' },
   oftreview:   { id: 'oftreview',   label: 'Oft-Review',     short: 'OFT',   accent: '#fbbf24', glow: 'rgba(251,191,36,0.4)',  mascot: '/telao/mascots/oft.png'   },
   ortopreview: { id: 'ortopreview', label: 'Ortop-Review',   short: 'ORTOP', accent: '#fb923c', glow: 'rgba(251,146,60,0.4)',  mascot: '/telao/mascots/ortop.png' },
 }
+
+// Verticais APOSENTADAS (ex.: vascreview): existem no banco só como histórico de vendas. NÃO ganham painel, aba nem cartão: VERTICAL_LIST e Object.keys/values só enxergam as 4 ativas.
+// Mas se uma venda dessas aparecer num período (feed, ticker, análises), VERTICALS[ev.vertical] devolve um visual neutro em vez de undefined (que derrubaria a tela).
+const VERTICAL_APOSENTADA: VerticalConfig = { id: 'vascreview' as VerticalId, label: 'Vasc-Review', short: 'VASC', accent: '#94a3b8', glow: 'rgba(148,163,184,0.4)', mascot: '' }
+export const VERTICALS: Record<VerticalId, VerticalConfig> = new Proxy(VERTICAIS_ATIVAS, {
+  get: (t, k) => (k === 'vascreview' ? VERTICAL_APOSENTADA : (t as any)[k]),
+})
 
 export const VERTICAL_LIST = Object.values(VERTICALS)
 export const GOLD = '#f59e0b'
