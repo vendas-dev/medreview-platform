@@ -22,6 +22,20 @@ function matchesCloser(e: { closer_id?: string|null; closer_hubspot_id?: string|
   return false
 }
 
+// Lê TODAS as linhas de uma consulta do Supabase, em páginas de 1.000. O Supabase corta cada resposta em 1.000 linhas e ignora ".limit(999999)" sem avisar.
+// build(from, to) recebe a faixa (inclusiva) e devolve a consulta já com .range(from, to). Devolve { data, error } no mesmo formato das outras consultas.
+async function fetchAll(build: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>): Promise<{ data: any[] | null; error: any }> {
+  const PAGE = 1000
+  const out: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1)
+    if (error) return { data: null, error }
+    out.push(...(data ?? []))
+    if (!data || data.length < PAGE) break
+  }
+  return { data: out, error: null }
+}
+
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ view?: string | string[] }> }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -129,10 +143,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       { data: prevMonthSales },
     ] = await Promise.all([
       admin2.from('profiles').select('id, name, team, avatar_url, hubspot_id').neq('role', 'superadmin'),
-      admin2.from('telao_events')
+      fetchAll((from, to) => admin2.from('telao_events')
         .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, sold_by_ambassador, is_recurring, installment_number, event_type, product, vertical, desconto_ignorado')
         .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
-        .limit(999999),
+        .order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(from, to)),
       admin2.from('telao_events')
         .select('closer_id, closer_hubspot_id')
         .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd)
@@ -142,14 +156,14 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       admin2.from('hubspot_leads').select('owner_id').gte('created_at_hs', mStart).lte('created_at_hs', mEnd).limit(999999),
       // Histórico COMPLETO de recorrência (não limitado ao mês) — necessário
       // pro forecast mês a mês até dezembro, igual ao que já existe no /intel.
-      admin2.from('telao_events')
+      fetchAll((from, to) => admin2.from('telao_events')
         .select('subscription_id, installment_number, total_installments, value, occurred_at')
         .eq('event_type', 'sale').eq('is_recurring', true).not('subscription_id', 'is', null)
-        .limit(999999),
-      admin2.from('telao_events')
+        .order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(from, to)),
+      fetchAll((from, to) => admin2.from('telao_events')
         .select('value, vertical, coupon_code, is_self_checkout, sale_type, product, desconto_ignorado')
         .gte('occurred_at', prevMStart).lte('occurred_at', prevMEnd)
-        .limit(999999),
+        .order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(from, to)),
     ])
 
     const closers      = (closerProfiles ?? []) as any[]
