@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     admin.from('telao_events')
       .select('closer_id, closer_hubspot_id')
       .eq('event_type', 'ambassador_certified').gte('occurred_at', start).lte('occurred_at', end).limit(999999),
-    admin.from('profiles').select('id, name, team, hubspot_id, avatar_url').neq('role', 'superadmin'),
+    admin.from('profiles').select('id, name, team, hubspot_id, avatar_url, is_active').neq('role', 'superadmin'),
     admin.from('hubspot_leads').select('owner_id').gte('created_at_hs', start).lte('created_at_hs', end).limit(999999),
   ])
 
@@ -158,6 +158,7 @@ export async function GET(req: NextRequest) {
       (e.closer_id && e.closer_id === c.id) ||
       (c.hubspot_id && e.closer_hubspot_id && String(e.closer_hubspot_id).trim() === String(c.hubspot_id).trim())
     )
+    if (closer && closer.is_active === false) return   // inativo: some do ranking de certificações (a contagem total continua)
     const key  = closer?.id ?? e.closer_hubspot_id ?? 'desconhecido'
     const name = closer?.name ?? 'Desconhecido'
     if (!certsByCloser[key]) certsByCloser[key] = { name, count: 0, avatarUrl: closer?.avatar_url ?? null }
@@ -193,7 +194,7 @@ export async function GET(req: NextRequest) {
 
   // ── Performance por closer — comparação completa, não só receita ──
   const leadsList = leads ?? []
-  const closerPerformance = closers.map((c: any) => {
+  const closerPerformance = closers.filter((c: any) => c.is_active !== false).map((c: any) => {
     const mySales = salesList.filter((e: any) => matchesCloser(e, c))
     const revenue = mySales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
     const salesCount = mySales.length

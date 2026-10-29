@@ -39,11 +39,14 @@ export default async function TemplatesPage() {
   // são ignorados na contagem (provavelmente porque o rastreio de
   // resposta só passou a ser confiável a partir daqui).
   const { start: cutoffStart } = dayBoundsSaoPaulo('2026-09-30')
-  const [{ data: templates }, { data: favRows }, { data: disparosRaw }] = await Promise.all([
+  const [{ data: templatesRaw }, { data: favRows }, { data: disparosRaw }] = await Promise.all([
     query,
     supabase.from('template_favorites').select('template_id').eq('user_id', user.id),
     disparosAdmin.from('disparos').select('template, respondido_at').gte('data_disparo', cutoffStart).limit(999999),
   ])
+
+  // Copys OCULTAS pelo superadmin: só ele as recebe. Feito em JS (e não no SQL) de propósito: se a coluna is_hidden ainda não existir, tudo continua visível e a página não quebra. [visibilidade-v1]
+  const templates = (templatesRaw ?? []).filter((t: any) => isAdmin || !t.is_hidden)
 
   const favoriteIds = (favRows ?? []).map((r: any) => r.template_id)
 

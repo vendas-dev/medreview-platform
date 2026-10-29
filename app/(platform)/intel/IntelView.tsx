@@ -570,7 +570,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   // Opções de dropdown — "outros" (sem vertical identificada) não entra como opção
   const teamOpts   = [{value:'todos',label:'Todos os times'},{value:'R1',label:'Time R1',dot:'#7c3aed'},{value:'OAO',label:'Time OAO',dot:'#2563eb'}]
   const vertOpts   = verticals.filter(([,v]:any) => v.label !== 'outros').map(([,v]:any) => ({ value:v.label, label:v.label, dot: v.label.includes('R1')?'#7c3aed':'#2563eb' }))
-  const closerOpts = [{value:'todos',label:'Todos os closers'},...allClosers.map((c:any)=>({value:c.id,label:c.name}))]
+  const closerOpts = [{value:'todos',label:'Todos os closers'},...allClosers.filter((c:any)=>!c.inativo).map((c:any)=>({value:c.id,label:c.name}))]
 
   const handleVert = (val: string) => {
     if (val === '__clear__') { setFilterVert([]); return }
@@ -594,13 +594,15 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
       : filterVert.reduce((s: number, label: string) => s + (c.leads_by_vertical?.[label] ?? 0), 0)
 
   // Filtrar closers
-  const filtered = useMemo(() => {
+  const filteredTodos = useMemo(() => {
     let list = allClosers
     if (filterTeam   !== 'todos') list = list.filter((c:any) => (c.team??'') === filterTeam)
     if (filterCloser !== 'todos') list = list.filter((c:any) => c.id === filterCloser)
     if (filterVert.length > 0)    list = list.filter((c:any) => closerRev(c) > 0)
     return [...list].sort((a:any, b:any) => closerRev(b) - closerRev(a))
   }, [allClosers, filterTeam, filterCloser, filterVert])
+  // Linhas e filtros: some quem está INATIVO (só a linha). As SOMAS continuam usando filteredTodos / allClosers.
+  const filtered = useMemo(() => filteredTodos.filter((c:any) => !c.inativo), [filteredTodos])
 
   const hasFilters = filterTeam!=='todos' || filterVert.length>0 || filterCloser!=='todos'
 
@@ -670,7 +672,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
   const displayByVertical = useMemo(() => {
     if (!hasFilters) return byVertical  // sem filtro: usar dado global pré-computado
     const result: Record<string, any> = {}
-    filtered.forEach((c: any) => {
+    filteredTodos.forEach((c: any) => {
       Object.entries(c.revenue_by_vertical ?? {}).forEach(([label, rev]: any) => {
         if (filterVert.length > 0 && !filterVert.includes(label)) return
         if (!result[label]) {
@@ -690,7 +692,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
       })
     })
     return result
-  }, [filtered, byVertical, filterVert, hasFilters])
+  }, [filteredTodos, byVertical, filterVert, hasFilters])
 
   // Conversão por vertical: agrupa sales + leads por vertical dos closers filtrados
   const convByVertical = useMemo(() => {
@@ -1096,7 +1098,7 @@ function AdminView({ closerStats, insightData, insightDate, adminExtra, currentM
               </span>
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {ambassadorGoalRows.map((c:any) => {
+              {ambassadorGoalRows.filter((c:any) => !c.inativo).map((c:any) => {
                 const goal = c.goal_ambassador ?? 0
                 const done = c.ambassadors_certified ?? 0
                 const pct  = goal > 0 ? (done/goal)*100 : (done>0 ? 100 : 0)

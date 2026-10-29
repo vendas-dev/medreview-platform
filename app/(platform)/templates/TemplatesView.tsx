@@ -1,9 +1,9 @@
 'use client'
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, createContext, useContext } from 'react'
 import {
   Plus, X, Copy, Check, Pencil, Trash2, Filter,
   Upload, Download, Search, ChevronDown, Sparkles, FileText,
-  LayoutGrid, List as ListIcon, ArrowUpDown, Star
+  LayoutGrid, List as ListIcon, ArrowUpDown, Star, Eye, EyeOff
 } from 'lucide-react'
 import { MedyTemplateCoach } from './MedyTemplateCoach'
 
@@ -392,6 +392,45 @@ function TemplateModal({ mode, template, onClose, onSaved }: {
 }
 
 // ── Card de template ──────────────────────────────────────────
+// ── Visibilidade das copys (olhinho do superadmin) ── [visibilidade-v1]
+// Oculto = some pro time; o superadmin continua vendo (esmaecido, com selo) e pode mostrar de novo. Excluir continua sendo outra coisa.
+const HiddenCtx = createContext<(id: string, hidden: boolean) => Promise<void>>(async () => {})
+function VisibilityButton({ t, size = 12, box }: { t: any; size?: number; box?: number }) {
+  const setHidden = useContext(HiddenCtx)
+  const [busy, setBusy] = useState(false)
+  const hidden = !!t.is_hidden
+  return (
+    <>
+      {hidden && <span data-tpl="hidden-badge" title="Oculta para o time" style={{ alignSelf: 'center', fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', padding: '2px 6px', borderRadius: 5, background: 'rgba(245,158,11,0.16)', color: '#b45309', whiteSpace: 'nowrap' }}>OCULTO</span>}
+      <button type="button" data-tpl="eye" aria-pressed={hidden} aria-label={hidden ? 'Mostrar esta copy para o time' : 'Ocultar esta copy do time'} title={hidden ? 'Oculta para o time — clique para mostrar' : 'Visível para o time — clique para ocultar'} disabled={busy}
+        onClick={async e => { e.stopPropagation(); setBusy(true); try { await setHidden(t.id, !hidden) } finally { setBusy(false) } }}
+        style={{ width: box ?? (size >= 13 ? 30 : 24), height: box ?? (size >= 13 ? 30 : 24), padding: 0, borderRadius: (box ?? (size >= 13 ? 30 : 24)) >= 28 ? 8 : 7, border: 'none', background: 'transparent', cursor: busy ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: hidden ? '#f59e0b' : 'var(--muted-foreground)', opacity: busy ? 0.5 : 1, flexShrink: 0 }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = hidden ? '#d97706' : 'var(--foreground)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = hidden ? '#f59e0b' : 'var(--muted-foreground)' }}>
+        {hidden ? <EyeOff size={size} /> : <Eye size={size} />}
+      </button>
+    </>
+  )
+}
+function VisibilityFilter({ value, onChange, counts }: { value: 'todos' | 'visiveis' | 'ocultos'; onChange: (v: 'todos' | 'visiveis' | 'ocultos') => void; counts: { todos: number; visiveis: number; ocultos: number } }) {
+  const opts: { v: 'todos' | 'visiveis' | 'ocultos'; label: string }[] = [{ v: 'todos', label: 'Todos' }, { v: 'visiveis', label: 'Visíveis' }, { v: 'ocultos', label: 'Ocultos' }]
+  return (
+    <div data-tpl="vis-filter" role="group" aria-label="Filtrar por visibilidade" style={{ display: 'flex', border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0, height: 38 }}>
+      {opts.map(o => (
+        <button key={o.v} type="button" data-tpl="vis-opt" data-v={o.v} aria-pressed={value === o.v} onClick={() => onChange(o.v)}
+          style={{ padding: '0 12px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, background: value === o.v ? 'var(--secondary)' : 'transparent', color: value === o.v ? 'var(--foreground)' : 'var(--muted-foreground)' }}>
+          {o.label} <span style={{ opacity: 0.7, fontWeight: 600 }}>{counts[o.v]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Botões de ação do cabeçalho do card (grade): TODOS com a mesma caixa (28px) e o mesmo ícone (14px), SEM o padding padrão do navegador (que espremia o ícone de "copiar nome" a 8px),
+// e agrupados num só bloco centrado na 1ª linha do título.
+const CARD_ACTION_BTN: React.CSSProperties = { width: 28, height: 28, padding: 0, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--muted-foreground)', transition: 'background .12s ease, color .12s ease' }
+const CARD_ICON = 14
+
 function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelete, stats }: { t: any; isAdmin: boolean; isFavorite: boolean; onToggleFavorite: () => void; onEdit: () => void; onDelete: () => void; stats?: { disparos: number; respostas: number } }) {
   const [copied,   setCopied]   = useState(false)
   const [copiedName, setCopiedName] = useState(false)
@@ -447,7 +486,7 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
   const CARD_HEIGHT = 326 // altura fixa no estado padrão — grid sempre simétrico (inclui a linha de disparos/resposta, mesmo quando vazia, com espaço de respiro)
 
   return (
-    <div style={{ background: 'var(--card)', border: isFavorite ? '1.5px solid rgba(245,158,11,0.35)' : '1px solid var(--border)', borderRadius: 16, transition: 'border-color 0.15s', padding: '16px 18px', display: 'flex', flexDirection: 'column', height: expanded || showUtilidade ? 'auto' : CARD_HEIGHT, position: 'relative' }}
+    <div data-tpl="card" data-hidden={t.is_hidden ? 'true' : 'false'} style={{ opacity: t.is_hidden ? 0.55 : 1, background: 'var(--card)', border: isFavorite ? '1.5px solid rgba(245,158,11,0.35)' : '1px solid var(--border)', borderRadius: 16, transition: 'border-color 0.15s', padding: '16px 18px', display: 'flex', flexDirection: 'column', height: expanded || showUtilidade ? 'auto' : CARD_HEIGHT, position: 'relative' }}
       onMouseEnter={e => { if (!isFavorite) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-strong)' }}
       onMouseLeave={e => { if (!isFavorite) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}>
 
@@ -461,23 +500,25 @@ function TemplateCard({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDele
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
         <p style={{ flex: 1, fontSize: 15, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{t.name}</p>
-        <button onClick={handleCopyName} title="Copiar nome" className="tpl-copy-name-btn"
-          style={{ width: 20, height: 20, borderRadius: 5, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
-          {copiedName ? <Check size={12} /> : <Copy size={12} />}
-        </button>
-        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-          <FavoriteButton isFavorite={isFavorite} onToggle={e => { e.stopPropagation(); onToggleFavorite() }} />
+        <div data-tpl="card-actions" style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, height: 28, margin: '-4px 0 4px' }}>
+          <button onClick={handleCopyName} title="Copiar nome" aria-label="Copiar nome" className="tpl-copy-name-btn" style={{ ...CARD_ACTION_BTN, color: copiedName ? '#22c55e' : 'var(--muted-foreground)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; if (!copiedName) e.currentTarget.style.color = 'var(--primary)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; if (!copiedName) e.currentTarget.style.color = 'var(--muted-foreground)' }}>
+            {copiedName ? <Check size={CARD_ICON} /> : <Copy size={CARD_ICON} />}
+          </button>
+          <FavoriteButton isFavorite={isFavorite} onToggle={e => { e.stopPropagation(); onToggleFavorite() }} size={CARD_ICON} />
           {isAdmin && (
             <>
-              <button onClick={onEdit} style={{ width: 24, height: 24, borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
+              <VisibilityButton t={t} size={CARD_ICON} box={28} />
+              <button onClick={onEdit} title="Editar" aria-label="Editar template" style={CARD_ACTION_BTN}
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--foreground)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
-                <Pencil size={11} />
+                <Pencil size={CARD_ICON} />
               </button>
-              <button onClick={() => setDeleting(true)} style={{ width: 24, height: 24, borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
+              <button onClick={() => setDeleting(true)} title="Excluir" aria-label="Excluir template" style={CARD_ACTION_BTN}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = '#ef4444' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
-                <Trash2 size={11} />
+                <Trash2 size={CARD_ICON} />
               </button>
             </>
           )}
@@ -566,7 +607,7 @@ function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelet
   )
 
   return (
-    <div style={{ borderBottom: '1px solid var(--border)', background: isFavorite ? 'rgba(245,158,11,0.03)' : 'transparent' }}>
+    <div data-tpl="row" data-hidden={t.is_hidden ? 'true' : 'false'} style={{ opacity: t.is_hidden ? 0.55 : 1, borderBottom: '1px solid var(--border)', background: isFavorite ? 'rgba(245,158,11,0.03)' : 'transparent' }}>
       <div onClick={() => setExpanded(v => !v)}
         style={{ display: 'grid', gridTemplateColumns: '18px minmax(120px,1fr) 20px 130px minmax(160px,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', cursor: 'pointer', transition: 'background 0.12s' }}
         onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--secondary)'}
@@ -596,6 +637,7 @@ function TemplateRow({ t, isAdmin, isFavorite, onToggleFavorite, onEdit, onDelet
           </button>
           {isAdmin && (
             <>
+              <VisibilityButton t={t} size={13} />
               <button onClick={onEdit} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', transition: 'all 0.12s' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--card)'; e.currentTarget.style.color = 'var(--foreground)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
@@ -1015,6 +1057,24 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
   const [favIds, setFavIds] = useState<Set<string>>(() => new Set(initialFavoriteIds))
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
 
+  // ── Visibilidade (olhinho do superadmin) — otimista; se o servidor recusar, desfaz e avisa. [visibilidade-v1]
+  const [filterVis, setFilterVis] = useState<'todos' | 'visiveis' | 'ocultos'>('todos')
+  const [visError, setVisError] = useState('')
+  async function setHidden(id: string, hidden: boolean) {
+    const before = !!templates.find(x => x.id === id)?.is_hidden
+    setTemplates(p => p.map(x => (x.id === id ? { ...x, is_hidden: hidden } : x)))
+    setVisError('')
+    try {
+      const res = await fetch('/api/templates/visibility', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id], hidden }) })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error || 'Não consegui alterar a visibilidade agora.') }
+    } catch (e: any) {
+      setTemplates(p => p.map(x => (x.id === id ? { ...x, is_hidden: before } : x)))
+      setVisError(e?.message || 'Não consegui alterar a visibilidade agora.')
+      setTimeout(() => setVisError(''), 6000)
+    }
+  }
+  const visCounts = { todos: templates.length, visiveis: templates.filter(t => !t.is_hidden).length, ocultos: templates.filter(t => t.is_hidden).length }
+
   function toggleFavorite(id: string) {
     const wasFav = favIds.has(id)
     setFavIds(prev => {
@@ -1069,6 +1129,9 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
       if (filterVert     !== 'todos' && !(t.vertical ?? []).includes(filterVert)) return false
       if (filterCategoria !== 'todos' && t.categoria !== filterCategoria) return false
       if (filterValidade  !== 'todos' && t.validade  !== filterValidade)  return false
+      if (!isAdmin && t.is_hidden) return false                       // defesa: quem não é superadmin nunca vê oculto, mesmo que a lista chegue com algum
+      if (isAdmin && filterVis === 'visiveis' && t.is_hidden) return false
+      if (isAdmin && filterVis === 'ocultos' && !t.is_hidden) return false
       if (showFavoritesOnly && !favIds.has(t.id)) return false
       return true
     })
@@ -1092,7 +1155,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
       const bFav = favIds.has(b.id) ? 0 : 1
       return aFav - bFav
     })
-  }, [templates, search, filterTeam, filterVert, filterCategoria, filterValidade, sortBy, showFavoritesOnly, favIds, templateStats])
+  }, [templates, filterVis, isAdmin, search, filterTeam, filterVert, filterCategoria, filterValidade, sortBy, showFavoritesOnly, favIds, templateStats])
 
   function handleCreated(t: any)  { setTemplates(prev => [t, ...prev]) }
   function handleUpdated(t: any)  { setTemplates(prev => prev.map(x => x.id === t.id ? t : x)) }
@@ -1121,6 +1184,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
   const favoritesCount = favIds.size
 
   return (
+    <HiddenCtx.Provider value={setHidden}>
     <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1200, margin: '0 auto' }}>
 
       {/* Header */}
@@ -1224,6 +1288,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
           ]} minW={175}/>
 
         {/* Alternador Grid / Lista */}
+        {isAdmin && (visCounts.ocultos > 0 || filterVis !== 'todos') && <VisibilityFilter value={filterVis} onChange={setFilterVis} counts={visCounts} />}
         <div style={{ display: 'flex', border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
           <button onClick={() => setViewMode('grid')}
             style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', cursor: 'pointer', background: viewMode === 'grid' ? 'var(--secondary)' : 'transparent', color: viewMode === 'grid' ? '#6366f1' : 'var(--muted-foreground)' }}
@@ -1321,7 +1386,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
 
       {/* Coach de templates — usa o mesmo array de templates já carregado
           na tela, sem precisar buscar de novo do banco */}
-      <MedyTemplateCoach templates={templates} />
+      <MedyTemplateCoach templates={templates.filter(t => !t.is_hidden)} />
 
       <style>{`
         /* Headers dos modais (criar/editar template, importar CSV) — claro
@@ -1347,6 +1412,10 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
         .tpl-copy-name-btn:hover { opacity: 1; }
         .dark .tpl-copy-name-btn { color: #fff; }
       `}</style>
+      {visError && (
+        <div role="alert" data-tpl="vis-error" style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 60, background: '#ef4444', color: '#fff', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', maxWidth: 'min(520px, 92vw)' }}>{visError}</div>
+      )}
     </div>
+    </HiddenCtx.Provider>
   )
 }

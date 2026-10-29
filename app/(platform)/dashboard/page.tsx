@@ -70,7 +70,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       { data: materials },
       { data: videos },
     ] = await Promise.all([
-      admin.from('profiles').select('id, name, team, role, email, avatar_url').neq('role', 'superadmin'),
+      admin.from('profiles').select('id, name, team, role, email, avatar_url').neq('role', 'superadmin').or('is_active.is.null,is_active.eq.true'),
       admin.from('onboarding_steps').select('id, title, team, day_number').eq('is_active', true).order('day_number', { ascending: true, nullsFirst: false }),
       admin.from('onboarding_progress').select('user_id, step_id, status, completed_at'),
       admin.from('onboarding_conversations').select('id, user_id, created_at'),
@@ -142,7 +142,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       { data: allRecurringRaw },
       { data: prevMonthSales },
     ] = await Promise.all([
-      admin2.from('profiles').select('id, name, team, avatar_url, hubspot_id').neq('role', 'superadmin'),
+      admin2.from('profiles').select('id, name, team, avatar_url, hubspot_id, is_active').neq('role', 'superadmin'),
       fetchAll((from, to) => admin2.from('telao_events')
         .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, sold_by_ambassador, is_recurring, installment_number, event_type, product, vertical, desconto_ignorado')
         .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
@@ -219,7 +219,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       return r.payment_mode
     }
 
-    const closerCards = closers.map((c: any) => {
+    const closerCards = closers.filter((c: any) => c.is_active !== false).map((c: any) => {
       const mySales = salesMonth.filter((e: any) => matchesCloser(e, c))
       const revenue = mySales.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0)
       const salesCount = mySales.length
@@ -708,7 +708,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     { data: myPendingLinksRaw },
     { data: myMonthLinksRaw },
   ] = await Promise.all([
-    admin3.from('profiles').select('id, hubspot_id').neq('role', 'superadmin'),
+    admin3.from('profiles').select('id, hubspot_id, is_active').neq('role', 'superadmin'),
     admin3.from('telao_events')
       .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, product, vertical, event_type, desconto_ignorado')
       .eq('event_type', 'sale').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
@@ -760,7 +760,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     ? Math.floor((Date.now() - new Date(sorted3[0].occurred_at).getTime()) / 86400000) : null
 
   // Ranking — mesma receita de todo mundo, só pra saber a posição dele
-  const rankList = (allClosersForRank ?? []).map((c: any) => {
+  const rankList = (allClosersForRank ?? []).filter((c: any) => c.is_active !== false).map((c: any) => {
     const s = allSales3.filter((e: any) => matchesCloser(e, c))
     return { id: c.id, revenue: s.reduce((sum: number, e: any) => sum + (Number(e.value) || 0), 0) }
   }).sort((a, b) => b.revenue - a.revenue)

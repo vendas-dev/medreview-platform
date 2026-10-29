@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
-  Target, Image as ImageIcon, PartyPopper, MonitorPlay, Trophy, Megaphone
+  Target, Image as ImageIcon, PartyPopper, MonitorPlay, Trophy, Megaphone, Receipt, Repeat2
 } from 'lucide-react'
 import { SalesOpsAiIcon } from '@/components/shell/SalesOpsAiIcon'
 import { logout } from '@/app/(auth)/login/actions'
@@ -17,13 +17,14 @@ import { canAccessModule } from '@/lib/rbac/permissions'
 import { useTheme } from '@/components/ThemeProvider'
 import { MedLogoSVG } from '@/components/MedLogo'
 import { usePresence } from '@/hooks/usePresence'
+import { useTrocasBadge } from '@/lib/vendas/useTrocasBadge'
 import { useActiveModuleKeys, useActiveModules } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
-interface NavChild { key?: string; label: string; icon: any; href: string; always?: boolean; staticLabel?: boolean; children?: NavChild[] }
-interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; collapsedLink?: boolean; children?: NavChild[] }
+interface NavChild { key?: string; label: string; icon: any; href: string; always?: boolean; staticLabel?: boolean; children?: NavChild[]; badge?: number }
+interface NavItem  { key: string; label: string; icon: any; href: string; always?: boolean; adminOnly?: boolean; collapsedLink?: boolean; children?: NavChild[]; badge?: number }
 
-const buildNav = (isAdmin: boolean): NavItem[] => [
+const buildNav = (isAdmin: boolean, trocasPendentes = 0): NavItem[] => [
   // Dashboard — pro SUPERADMIN vira uma categoria com 3 visões da mesma página
   // (/dashboard?view=…). "Dados Gerais" é o /dashboard puro, então qualquer
   // link antigo pra /dashboard continua caindo nele. Pro usuário/closer o
@@ -40,6 +41,20 @@ const buildNav = (isAdmin: boolean): NavItem[] => [
         ],
       } as NavItem
     : { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', always: true },
+  // Vendas — logo abaixo do Dashboard. CLOSER: "Minhas Vendas" e "Trocas de Venda". SUPERADMIN: a seção "Vendas" (Vendas Individuais · Trocas de Venda),
+  // com o número de pedidos de troca PENDENTES (o mesmo estilo do sininho).
+  ...(isAdmin
+    ? [{
+        key: 'vendas', label: 'Vendas', icon: Receipt, href: '/admin/vendas', always: true, collapsedLink: true, staticLabel: true, badge: trocasPendentes,
+        children: [
+          { label: 'Vendas Individuais', icon: Users, href: '/admin/vendas' },
+          { label: 'Trocas de Venda', icon: Repeat2, href: '/admin/vendas/trocas', badge: trocasPendentes },
+        ],
+      } as NavItem]
+    : [
+        { key: 'minhas-vendas', label: 'Minhas Vendas', icon: Receipt, href: '/vendas', always: true, staticLabel: true } as NavItem,
+        { key: 'trocas-venda', label: 'Trocas de Venda', icon: Repeat2, href: '/vendas/trocas', always: true, staticLabel: true } as NavItem,
+      ]),
   // Medy — fora do Onboarding, logo abaixo do Dashboard (superadmin e usuário):
   // é o acesso mais usado no dia a dia, então não fica escondido numa categoria.
   { key: 'medy', label: 'Medy', icon: Bot, href: '/onboarding/copilot', always: true },
@@ -117,14 +132,14 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
   // recolhido + collapsedLink: trata como item simples (link direto)
   const hasChildren = item.children?.length > 0 && !(collapsed && item.collapsedLink)
   const isActive = depth === 0
-    ? ['/','/dashboard','/onboarding','/ferramentas','/administracao'].includes(item.href)
+    ? ['/','/dashboard','/onboarding','/ferramentas','/administracao','/vendas'].includes(item.href)
         ? pathname === item.href
         : pathname.startsWith(item.href)
     : hrefMatches(item.href, pathname, sp)
   const anyChildActive = hasChildren && item.children.some((c: any) =>
     c.href.startsWith('/dashboard')
       ? hrefMatches(c.href, pathname, sp)
-      : pathname === c.href || (c.href !== '/onboarding' && c.href !== '/intel' && pathname.startsWith(c.href))
+      : pathname === c.href || (c.href !== '/onboarding' && c.href !== '/intel' && !(c.href === '/admin' && pathname.startsWith('/admin/vendas')) && pathname.startsWith(c.href))
   )
   const [open, setOpen] = useState(anyChildActive)
 
@@ -154,7 +169,7 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
             )}
             <Icon size={ic} style={{ flexShrink: 0 }} />
             <AnimatePresence initial={false}>
-              {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}</motion.span>}
+              {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}{item.badge > 0 && <span data-v="nav-badge" aria-label={`${item.badge} pendente(s)`} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', minWidth: 18, height: 18, padding: '0 5px', marginLeft: 8, borderRadius: 99, background: '#ef4444', color: '#fff', fontSize: 10.5, fontWeight: 800, lineHeight: 1 }}>{item.badge > 99 ? '99+' : item.badge}</span>}</motion.span>}
             </AnimatePresence>
           </button>
         ) : (
@@ -167,7 +182,7 @@ function NavNode({ item, depth = 0, collapsed, activeModules }: { item: any; dep
               )}
               <Icon size={ic} style={{ flexShrink: 0 }} />
               <AnimatePresence initial={false}>
-                {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}</motion.span>}
+                {!collapsed && <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.1 }} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.staticLabel ? item.label : (activeModules?.find(m => m.key === item.key)?.label ?? item.label)}{item.badge > 0 && <span data-v="nav-badge" aria-label={`${item.badge} pendente(s)`} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', minWidth: 18, height: 18, padding: '0 5px', marginLeft: 8, borderRadius: 99, background: '#ef4444', color: '#fff', fontSize: 10.5, fontWeight: 800, lineHeight: 1 }}>{item.badge > 99 ? '99+' : item.badge}</span>}</motion.span>}
               </AnimatePresence>
             </div>
           </Link>
@@ -204,7 +219,8 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const { theme, setTheme } = useTheme()
   const isDark = theme === 'dark'
   const isAdmin = profile?.role === 'superadmin'
-  const nav = buildNav(isAdmin)
+  const trocasPendentes = useTrocasBadge(isAdmin)
+  const nav = buildNav(isAdmin, trocasPendentes)
 
   // Cada item de "Ferramentas" carrega sua própria key de módulo — filtra
   // individualmente (some sozinho o que não estiver liberado), e some a

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  return NextResponse.json({ templates: data })
+  return NextResponse.json({ templates: (data ?? []).filter((t: any) => isAdmin || !t.is_hidden) })   // oculto só pro superadmin [visibilidade-v1]
 }
 
 export async function POST(req: NextRequest) {

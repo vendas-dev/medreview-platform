@@ -45,7 +45,7 @@ export interface RawSale {
   is_recurring?: boolean | null; installment_number?: number | null; sale_type?: string | null
   coupon_code?: string | null; desconto_ignorado?: boolean | null
   transferred_at?: string | null; co_closer_id?: string | null
-  product?: string | null; state?: string | null; payment_type?: string | null; payment_installments?: number | null
+  product?: string | null; state?: string | null; payment_type?: string | null; payment_installments?: number | null; total_installments?: number | null
   event_name?: string | null
 }
 
@@ -57,7 +57,7 @@ export interface Sale {
   discountIgnored: boolean; transferred: boolean
   left: number                                         // dinheiro deixado na mesa
   product: string | null; uf: string | null; pay: PayKind | null
-  installments: number | null; eventName: string | null
+  installments: number | null; totalInstallments?: number | null; method?: string | null; eventName: string | null
 }
 
 // ── Fuso: tudo em São Paulo ─────────────────────────────────────────────────
@@ -84,7 +84,7 @@ export function addMonths(month: string, n: number): string {
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`
 }
 const weekStartOf = (day: string): string => addDays(day, -((weekdayOf(day) + 6) % 7))    // segunda-feira
-const quarterStartOf = (day: string): string => { const [y, m] = day.split('-').map(Number); return `${y}-${String(Math.floor((m - 1) / 3) * 3 + 1).padStart(2, '0')}-01` }
+// (trimestre = mês atual + 2 anteriores: ver resolvePreset / previousRange)
 
 // ── Classificação ───────────────────────────────────────────────────────────
 export function revKind(e: { coupon_code?: string | null; is_recurring?: boolean | null; sale_type?: string | null; installment_number?: number | null }): RevKind {
@@ -97,12 +97,29 @@ export function channelOf(e: { is_self_checkout?: boolean | null; seller_type?: 
   if (e.sold_by_ambassador || e.seller_type === 'ambassador') return 'embaixador'
   return 'closer'
 }
+/** Nome da forma de pagamento para exibir. Nada vira "Outros": uma forma que não conhecemos aparece com o nome que veio. */
+export function payMethod(t?: string | null): string | null {
+  if (!t || !t.trim()) return null
+  const u = t.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const k = payKind(t)
+  if (k === 'cartao') return 'Cartão'
+  if (k === 'pix') return 'Pix'
+  if (k === 'boleto') return 'Boleto'
+  if (u.includes('NUPAY')) return 'NuPay'
+  if (u.includes('APPLE')) return 'Apple Pay'
+  if (u.includes('GOOGLE')) return 'Google Pay'
+  if (u.includes('PAYPAL')) return 'PayPal'
+  if (u.includes('HYBRID') || u.includes('HIBRID')) return 'Pagamento híbrido'
+  if (u.includes('HOTMART') || u.includes('SALDO') || u.includes('BALANCE') || u.includes('WALLET')) return 'Saldo Hotmart'
+  if (u.includes('CASH') || u.includes('DINHEIRO')) return 'Dinheiro'
+  return t.trim().replace(/[_-]+/g, ' ').toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())
+}
 export function payKind(t?: string | null): PayKind | null {
   if (!t) return null
   const u = t.toUpperCase()
   if (u.includes('CREDIT') || u.includes('CARD') || u.includes('CART')) return 'cartao'
   if (u.includes('PIX')) return 'pix'
-  if (u.includes('BOLETO') || u.includes('SLIP')) return 'boleto'
+  if (u.includes('BOLETO') || u.includes('SLIP') || u.includes('BILLET')) return 'boleto'
   return 'outros'
 }
 
@@ -133,7 +150,7 @@ export function toSale(r: RawSale): Sale | null {
     transferred: !!r.transferred_at || !!r.co_closer_id,
     left: eventMoneyLeftOnTable(r as any),
     product: r.product?.trim() || null, uf: normalizeUF(r.state), pay: payKind(r.payment_type),
-    installments: r.payment_installments ?? null, eventName: r.event_name?.trim() || null,
+    installments: r.payment_installments ?? null, totalInstallments: r.total_installments ?? null, method: payMethod(r.payment_type), eventName: r.event_name?.trim() || null,
   }
 }
 export const toSales = (rows: RawSale[]): Sale[] => rows.map(toSale).filter((s): s is Sale => s !== null)
@@ -158,7 +175,7 @@ export function resolvePreset(id: PresetId, today: string, firstDay: string, cus
   switch (id) {
     case 'mes':       return { start: monthStartOf(today), end: today }
     case 'mes_ant': { const pm = addMonths(monthOf(today), -1); return { start: `${pm}-01`, end: `${pm}-${String(daysInMonth(pm)).padStart(2, '0')}` } }
-    case 'trimestre': return { start: quarterStartOf(today), end: today }
+    case 'trimestre': return { start: `${addMonths(monthOf(today), -2)}-01`, end: today }      // 3 meses: o atual + os 2 anteriores
     case 'ult30':     return { start: addDays(today, -29), end: today }
     case 'ult90':     return { start: addDays(today, -89), end: today }
     case 'ano':       return { start: `${today.slice(0, 4)}-01-01`, end: today }
@@ -178,7 +195,7 @@ export function previousRange(id: PresetId, r: Range): Range | null {
   }
   if (id === 'mes_ant') { const pm = addMonths(monthOf(r.start), -1); return { start: `${pm}-01`, end: `${pm}-${String(daysInMonth(pm)).padStart(2, '0')}` } }
   if (id === 'trimestre') {
-    const ps = quarterStartOf(addDays(r.start, -1))
+    const ps = `${addMonths(monthOf(r.start), -3)}-01`
     const pe = addDays(r.start, -1)
     const end = addDays(ps, len - 1)
     return { start: ps, end: end > pe ? pe : end }
@@ -448,51 +465,60 @@ export function regionBlocks(items: { uf: string; revenue: number; count: number
 }
 
 // ══ Como o cliente paga: à vista × parcelado e as formas mais usadas ═══════════
-export interface PayForm { kind: 'avista' | 'parcelado'; label: string; n: number }
+export interface PayForm { kind: 'avista' | 'parcelado'; label: string; n: number; method: string }
 /**
- * Pix = à vista. Cartão/boleto: 1x = à vista, 2x ou mais = parcelado. Sem forma de pagamento (ou cartão sem nº de
- * parcelas) → null: a venda não entra nesta conta (a tela mostra a % informada), nada é presumido.
+ * À vista = pagamento integral, de uma vez. Parcelado = 2x ou mais em QUALQUER forma (Pix parcelado, boleto parcelado,
+ * cartão em Nx...): o dinheiro entra mês a mês. O nº de parcelas é o da compra (payment_installments); se vier vazio,
+ * o total da recorrência (total_installments). Pix sem nº de parcelas = à vista. Cartão, boleto e demais formas sem nº de
+ * parcelas → null: a venda não entra nesta conta (a tela mostra a % informada), nada é presumido.
  */
-export function payForm(s: { pay: PayKind | null; installments: number | null }): PayForm | null {
+export function payForm(s: { pay: PayKind | null; installments: number | null; method?: string | null; totalInstallments?: number | null }): PayForm | null {
   if (!s.pay) return null
-  if (s.pay === 'pix') return { kind: 'avista', label: 'Pix', n: 1 }
-  const n = s.installments
-  if (n === null || n === undefined || !(n >= 1)) return null
-  const base = s.pay === 'cartao' ? 'Cartão' : s.pay === 'boleto' ? 'Boleto' : 'Outros'
-  return n <= 1 ? { kind: 'avista', label: s.pay === 'cartao' ? 'Cartão à vista' : s.pay === 'boleto' ? 'Boleto' : 'Outros à vista', n: 1 }
-                : { kind: 'parcelado', label: `${base} em ${n}x`, n }
+  const method = s.method ?? PAY_LABEL[s.pay]
+  const n = s.installments != null && s.installments >= 1 ? s.installments
+    : s.totalInstallments != null && s.totalInstallments >= 1 ? s.totalInstallments : null
+  if (n === null) return s.pay === 'pix' ? { kind: 'avista', label: `${method} à vista`, n: 1, method } : null
+  if (n <= 1) return { kind: 'avista', label: `${method} à vista`, n: 1, method }
+  return { kind: 'parcelado', label: s.pay === 'cartao' ? `${method} em ${n}x` : `${method} parcelado em ${n}x`, n, method }
 }
+export interface PayGroup { id: string; label: string; method: string; kind: 'avista' | 'parcelado'; revenue: number; count: number }
 export interface PayStructure {
   avista: { revenue: number; count: number }; parcelado: { revenue: number; count: number; avgInstallments: number | null }
-  forms: { label: string; kind: 'avista' | 'parcelado'; revenue: number; count: number }[]; coveragePct: number; known: number
+  forms: { label: string; kind: 'avista' | 'parcelado'; method: string; revenue: number; count: number }[]
+  groups: PayGroup[]                              // uma fatia por forma e modalidade (Pix à vista, Pix parcelado, Boleto à vista...): alimenta a rosca
+  coveragePct: number; known: number
   total: number                                   // receita de TODAS as vendas do período (a base de todas as %)
-  unknown: { revenue: number; count: number }     // vendas sem forma de pagamento (ou cartão sem nº de parcelas)
+  unknown: { revenue: number; count: number }     // vendas sem forma de pagamento (ou cartão/boleto sem nº de parcelas)
 }
 export function payStructure(sales: Sale[]): PayStructure {
   const av = { revenue: 0, count: 0 }, pa = { revenue: 0, count: 0 }
-  const forms = new Map<string, { label: string; kind: 'avista' | 'parcelado'; revenue: number; count: number }>()
+  const forms = new Map<string, { label: string; kind: 'avista' | 'parcelado'; method: string; revenue: number; count: number }>()
+  const groups = new Map<string, PayGroup>()
   let known = 0, instSum = 0, unknownCount = 0
   for (const s of sales) {
     const f = payForm(s); if (!f) { unknownCount++; continue }
     known += s.value
     const bucket = f.kind === 'avista' ? av : pa; bucket.revenue += s.value; bucket.count++
     if (f.kind === 'parcelado') instSum += f.n
-    const x = forms.get(f.label) ?? { label: f.label, kind: f.kind, revenue: 0, count: 0 }; x.revenue += s.value; x.count++; forms.set(f.label, x)
+    const x = forms.get(f.label) ?? { label: f.label, kind: f.kind, method: f.method, revenue: 0, count: 0 }; x.revenue += s.value; x.count++; forms.set(f.label, x)
+    const gid = `${f.method}|${f.kind}`
+    const g = groups.get(gid) ?? { id: gid, label: `${f.method} ${f.kind === 'avista' ? 'à vista' : 'parcelado'}`, method: f.method, kind: f.kind, revenue: 0, count: 0 }; g.revenue += s.value; g.count++; groups.set(gid, g)
   }
   const total = sales.reduce((a, s) => a + s.value, 0)
   return { avista: av, parcelado: { ...pa, avgInstallments: pa.count ? instSum / pa.count : null },
-    forms: [...forms.values()].sort((a, b) => b.revenue - a.revenue), coveragePct: total > 0 ? (known / total) * 100 : 0, known,
+    forms: [...forms.values()].sort((a, b) => b.revenue - a.revenue), groups: [...groups.values()].sort((a, b) => b.revenue - a.revenue),
+    coveragePct: total > 0 ? (known / total) * 100 : 0, known,
     total, unknown: { revenue: total - known, count: unknownCount } }
 }
 
-export interface PayRow { id: string; label: string; revenue: number; count: number; kind: 'avista' | 'parcelado' | 'outras' | 'sem-info' }
+export interface PayRow { id: string; label: string; revenue: number; count: number; kind: 'avista' | 'parcelado' | 'outras' | 'sem-info'; method?: string }
 /**
  * A lista "formas mais usadas" que FECHA o total: as N maiores + "Demais formas" (tudo que ficou de fora) +
  * "Sem forma informada". A soma das linhas é sempre a receita do período (nada some em silêncio).
  */
 export function payBreakdown(ps: PayStructure, topN = 5): { rows: PayRow[]; total: number; hiddenForms: number } {
   const top = ps.forms.slice(0, topN), rest = ps.forms.slice(topN)
-  const rows: PayRow[] = top.map(f => ({ id: f.label, label: f.label, revenue: f.revenue, count: f.count, kind: f.kind }))
+  const rows: PayRow[] = top.map(f => ({ id: f.label, label: f.label, revenue: f.revenue, count: f.count, kind: f.kind, method: f.method }))
   if (rest.length) rows.push({ id: 'outras', label: `Demais formas (${rest.length})`, revenue: rest.reduce((a, f) => a + f.revenue, 0), count: rest.reduce((a, f) => a + f.count, 0), kind: 'outras' })
   if (ps.unknown.revenue > 0.005 || ps.unknown.count > 0) rows.push({ id: 'sem-info', label: 'Sem forma informada', revenue: ps.unknown.revenue, count: ps.unknown.count, kind: 'sem-info' })
   return { rows, total: ps.total, hiddenForms: rest.length }

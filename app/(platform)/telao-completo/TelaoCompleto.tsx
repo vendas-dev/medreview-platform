@@ -35,7 +35,7 @@ const VERT_KEYS: StackKey[] = A.VERT_IDS.map(v => ({ id: v, label: VERTICALS[v].
 const PAY_COLORS: Record<A.PayKind, string> = { cartao: '#8b5cf6', pix: '#22c55e', boleto: '#f59e0b', outros: '#94a3b8' }
 
 // ── Histórico de vendas (paginado: o banco entrega 1.000 por vez) ──────────────
-const COLS = 'id,event_type,vertical,value,occurred_at,seller_type,is_self_checkout,sold_by_ambassador,is_recurring,installment_number,sale_type,coupon_code,desconto_ignorado,transferred_at,co_closer_id,product,state,payment_type,payment_installments,event_name'
+const COLS = 'id,event_type,vertical,value,occurred_at,seller_type,is_self_checkout,sold_by_ambassador,is_recurring,installment_number,sale_type,coupon_code,desconto_ignorado,transferred_at,co_closer_id,product,state,payment_type,payment_installments,total_installments,event_name'
 const PAGE = 1000
 
 function useHistory() {
@@ -336,17 +336,26 @@ function RegionPanel({ th, uf, accent }: { th: Th; uf: ReturnType<typeof A.byUF>
 // Todas as % saem da receita TOTAL do período, e a lista termina em "Demais formas" +
 // "Sem forma informada" — então as linhas sempre fecham em 100% (nada some em silêncio).
 const PAY_ROW_COLOR: Record<A.PayRow['kind'], string> = { avista: '#22c55e', parcelado: '#8b5cf6', outras: '#94a3b8', 'sem-info': '#64748b' }
+// Cor por forma + modalidade: à vista = tom cheio, parcelado = tom claro da MESMA cor (Pix verde, Boleto âmbar, Cartão roxo; as demais formas ganham cor própria)
+const METHOD_TONES: Record<string, [string, string]> = { Pix: ['#22c55e', '#86efac'], Boleto: ['#f59e0b', '#fcd34d'], 'Cartão': ['#8b5cf6', '#c4b5fd'] }
+const EXTRA_METHODS = ['NuPay', 'Apple Pay', 'Google Pay', 'PayPal', 'Pagamento híbrido', 'Saldo Hotmart', 'Dinheiro']
+const EXTRA_TONES: [string, string][] = [['#06b6d4', '#67e8f9'], ['#ec4899', '#f9a8d4'], ['#14b8a6', '#5eead4'], ['#f97316', '#fdba74'], ['#3b82f6', '#93c5fd'], ['#a3e635', '#d9f99d'], ['#e879f9', '#f0abfc']]
+const payColor = (method: string, kind: 'avista' | 'parcelado'): string => {
+  const i = EXTRA_METHODS.indexOf(method)
+  const tone = METHOD_TONES[method] ?? EXTRA_TONES[(i >= 0 ? i : [...method].reduce((a, c) => a + c.charCodeAt(0), 0)) % EXTRA_TONES.length]
+  return kind === 'avista' ? tone[0] : tone[1]
+}
 const pctFmt = (v: number) => `${v.toFixed(v >= 10 || v === 0 ? 0 : 1)}%`
 function PaymentPanel({ th, ps, pay, accent }: { th: Th; ps: A.PayStructure; pay: ReturnType<typeof A.byPayment>; accent: string }) {
   const base = Math.max(ps.total, 1)
-  const bd = useMemo(() => A.payBreakdown(ps, 5), [ps])
+  const bd = useMemo(() => A.payBreakdown(ps, 99), [ps])
   const noInfo = ps.unknown.revenue > 0.005
   const cards = [
-    { id: 'avista', label: 'À vista', color: '#22c55e', rev: ps.avista.revenue, n: ps.avista.count, note: 'Pix, boleto e cartão em 1x' },
-    { id: 'parcelado', label: 'Parcelado', color: '#8b5cf6', rev: ps.parcelado.revenue, n: ps.parcelado.count, note: ps.parcelado.avgInstallments ? `média de ${ps.parcelado.avgInstallments.toFixed(1)} parcelas` : 'cartão/boleto em 2x ou mais' },
+    { id: 'avista', label: 'À vista', color: '#22c55e', rev: ps.avista.revenue, n: ps.avista.count, note: 'pagamento integral, de uma vez (Pix, boleto ou cartão em 1x)' },
+    { id: 'parcelado', label: 'Parcelado', color: '#8b5cf6', rev: ps.parcelado.revenue, n: ps.parcelado.count, note: ps.parcelado.avgInstallments ? `média de ${ps.parcelado.avgInstallments.toFixed(1)} parcelas` : 'Pix, boleto ou cartão em 2x ou mais' },
   ]
   const lab: React.CSSProperties = { margin: '0 0 8px', fontSize: 9.5, fontWeight: 900, color: th.muted, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.1em' }
-  const donutSlices = [...pay.items.map(i => ({ id: i.kind, label: A.PAY_LABEL[i.kind], color: PAY_COLORS[i.kind], value: i.revenue })), ...(noInfo ? [{ id: 'nd', label: 'Não informado', color: '#64748b', value: ps.unknown.revenue }] : [])]
+  const donutSlices = [...ps.groups.map(g => ({ id: g.id, label: g.label, color: payColor(g.method, g.kind), value: g.revenue })), ...(noInfo ? [{ id: 'nd', label: 'Não informado', color: '#64748b', value: ps.unknown.revenue }] : [])]
   const donutTop = [...donutSlices].sort((x, y) => y.value - x.value)[0]
   return (
     <Panel th={th} title="Forma de pagamento" accent={accent} className="tc-s6" id="pagamento"
@@ -371,7 +380,7 @@ function PaymentPanel({ th, ps, pay, accent }: { th: Th; ps: A.PayStructure; pay
         </div>
         <div style={{ flex: 1, minWidth: 230 }}>
           <p style={lab}>Formas mais usadas · % da receita do período</p>
-          <HBars th={th} color={accent} items={bd.rows.map(r => ({ label: r.label, value: r.revenue, sub: `${pctFmt((r.revenue / base) * 100)} · ${r.count} vendas`, color: PAY_ROW_COLOR[r.kind] }))} />
+          <HBars th={th} color={accent} items={bd.rows.map(r => ({ label: r.label, value: r.revenue, sub: `${pctFmt((r.revenue / base) * 100)} · ${r.count} vendas`, color: r.method && (r.kind === 'avista' || r.kind === 'parcelado') ? payColor(r.method, r.kind) : PAY_ROW_COLOR[r.kind] }))} />
           <div data-pay-total style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${th.border}`, fontFamily: MONO, fontSize: 11, fontWeight: 800, color: th.text }}>
             <span>= Total do período</span><span>{fmtBRL(bd.total)} · 100%</span>
           </div>

@@ -180,7 +180,7 @@ export async function hMarkRead(admin: any, userId: string, body: any, now: Date
 export async function hRecipients(admin: any): Promise<R> {
   const { data, error } = await admin.from('profiles').select('*')
   if (error) return bad('Não consegui carregar os usuários', {}, 500)
-  return ok({ users: ((data ?? []) as any[]).map(p => ({ id: p.id, name: p.name ?? '(sem nome)', role: p.role ?? null, team: p.team ?? null, avatar_url: p.avatar_url ?? null })).sort((x, y) => x.name.localeCompare(y.name, 'pt-BR')) })
+  return ok({ users: ((data ?? []) as any[]).filter(p => p.is_active !== false).map(p => ({ id: p.id, name: p.name ?? '(sem nome)', role: p.role ?? null, team: p.team ?? null, avatar_url: p.avatar_url ?? null })).sort((x, y) => x.name.localeCompare(y.name, 'pt-BR')) })
 }
 
 export async function hAdminNotifications(admin: any): Promise<R> {
@@ -201,7 +201,7 @@ export async function hSendNotification(admin: any, userId: string, b: any): Pro
   if (userIds.length === 0) return bad('Escolha pelo menos uma pessoa.')
   if (userIds.length > 2000) return bad('Máximo de 2.000 destinatários por aviso.')
   if (b?.link && !sanitizeLink(b.link)) return bad('O link precisa ser um caminho da plataforma (ex.: /telao) ou começar com https://.')
-  const { data: valid } = await admin.from('profiles').select('id').in('id', userIds)           // só quem existe de verdade
+  const { data: valid } = await admin.from('profiles').select('id').in('id', userIds).or('is_active.is.null,is_active.eq.true')           // só quem existe de verdade
   const r = await sendNotification(admin, { title, body, kind: 'aviso', link: b?.link, created_by: userId, recipients: ((valid ?? []) as any[]).map(p => p.id) })
   return r ? ok({ ok: true, id: r.id, recipients: r.recipients }) : bad('Nenhum destinatário válido.')
 }

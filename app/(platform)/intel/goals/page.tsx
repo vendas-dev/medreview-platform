@@ -17,7 +17,7 @@ export default async function IntelGoalsPage() {
 
   const admin = createAdminClient()
   const [{ data: closers }, { data: goals }, { data: companyGoalsRaw }] = await Promise.all([
-    admin.from('profiles').select('id, name, team').neq('role', 'superadmin').order('name'),
+    admin.from('profiles').select('id, name, team').neq('role', 'superadmin').or('is_active.is.null,is_active.eq.true').order('name'),
     admin.from('closer_goals').select('*').eq('month', monthKey),
     admin.from('company_goals').select('scope, goal_value').eq('month', monthKey),
   ])

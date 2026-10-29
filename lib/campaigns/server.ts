@@ -27,7 +27,7 @@ export const draftToDb = (d: CampaignDraft) => ({
 export async function loadParticipants(admin: any, teams: Team[]): Promise<Participant[]> {
   const { data } = await admin.from('profiles').select('*')
   return ((data ?? []) as any[])
-    .filter(p => p.role !== 'superadmin' && TEAMS.includes(p.team) && teams.includes(p.team))
+    .filter(p => p.role !== 'superadmin' && p.is_active !== false && TEAMS.includes(p.team) && teams.includes(p.team))
     .map(p => ({ userId: p.id, name: p.name ?? '?', team: p.team as Team, hubspotId: p.hubspot_id ?? null }))
 }
 export async function loadCloserRefs(admin: any): Promise<CloserRef[]> {
