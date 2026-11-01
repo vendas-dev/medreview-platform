@@ -40,18 +40,18 @@ function verticaisDoCloser(c: CloserResumo): string[] {
 
 /** Superadmin: as vendas de cada closer, em lista expansível, com filtros de período, vertical, time e closer (valem para tudo). */
 export function VendasIndividuaisClient() {
-  const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [closerId, setCloserId] = useState('todos'); const [recorrentes, setRecorrentes] = useState(false); const [inativos, setInativos] = useState(false)
+  const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [closerId, setCloserId] = useState('todos'); const [recorrentes, setRecorrentes] = useState(true); const [inativos, setInativos] = useState(false)
   const [resumo, setResumo] = useState<{ closers: CloserResumo[]; truncated: boolean; meta_mes: string | null; total: { vendas: number; valor: number }; ocultos: { closers: number; vendas: number; valor: number } } | null>(null); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null)
   const [aberto, setAberto] = useState<Set<string>>(new Set()); const [blocos, setBlocos] = useState<Record<string, Bloco>>({}); const [editando, setEditando] = useState<{ venda: VendaRow; closer: CloserResumo } | null>(null); const [aviso, setAviso] = useState<string | null>(null)
   const range = useMemo(() => (periodo ? periodoToRange(periodo) : {}), [periodo])
-  const filtrosRows = useMemo(() => qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, recorrentes }), [range, vertical, recorrentes])
+  const filtrosRows = useMemo(() => qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, recorrentes: recorrentes ? '' : '0' }), [range, vertical, recorrentes])
   const abertoRef = useRef(aberto); abertoRef.current = aberto
-  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || team !== 'todos' || closerId !== 'todos' || recorrentes || inativos
-  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCloserId('todos'); setRecorrentes(false); setInativos(false) }
+  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || team !== 'todos' || closerId !== 'todos' || !recorrentes || inativos
+  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCloserId('todos'); setRecorrentes(true); setInativos(false) }
 
   const carregarResumo = useCallback(async (silencioso = false) => {
     if (!silencioso) setCarregando(true); setErro(null)
-    const r = await api<{ closers: CloserResumo[]; truncated: boolean; meta_mes: string | null; total: { vendas: number; valor: number }; ocultos: { closers: number; vendas: number; valor: number } }>('/api/admin/vendas/resumo' + qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, team: team === 'todos' ? '' : team, recorrentes, inativos }))
+    const r = await api<{ closers: CloserResumo[]; truncated: boolean; meta_mes: string | null; total: { vendas: number; valor: number }; ocultos: { closers: number; vendas: number; valor: number } }>('/api/admin/vendas/resumo' + qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, team: team === 'todos' ? '' : team, recorrentes: recorrentes ? '' : '0', inativos }))
     setCarregando(false)
     if (!r.ok) { setErro({ msg: r.error ?? 'Erro ao carregar.', migracao: !!r.migracao }); if (!silencioso) setResumo(null); return }
     setResumo(r.data)
@@ -125,7 +125,7 @@ export function VendasIndividuaisClient() {
                     <Avatar name={c.name} src={c.avatar_url} size={46} ring={teamCor(c.team)} />
                     <span style={{ flex: '0 1 210px', minWidth: 170 }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><span data-v="closer-nome" className="vd-title" style={{ fontSize: 17, fontWeight: 800, color: 'var(--foreground)' }}>{c.name}</span><TeamBadge team={c.team} />{!c.ativo && <span data-v="closer-inativo" title="Usuário inativo (aparece porque Mostrar inativos está ligado)" style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 800, color: '#64748b', background: 'color-mix(in srgb,#64748b 14%,transparent)', border: '1px solid color-mix(in srgb,#64748b 30%,transparent)' }}>Inativo</span>}</span>
-                      <span data-v="closer-vendas" style={{ display: 'block', marginTop: 2, fontSize: 13, color: 'var(--muted-foreground)' }}>{c.vendas} venda{c.vendas === 1 ? '' : 's'}</span>
+                      <span data-v="closer-vendas" style={{ display: 'block', marginTop: 2, fontSize: 13, color: 'var(--muted-foreground)' }}>{c.vendas} venda{c.vendas === 1 ? '' : 's'}{c.co_vendas > 0 && <span data-v="closer-co" title={`${c.co_vendas} venda(s) entram aqui como CO-CLOSER (troca/transferência), com o valor cheio — igual ao Dados Gerais. O total geral conta cada venda uma só vez.`} style={{ color: 'var(--primary)', fontWeight: 700 }}> · {c.co_vendas} como co-closer</span>}</span>
                     </span>
                     <span data-v="closer-legenda" style={{ display: 'grid', gridTemplateColumns: `repeat(${vs.length}, minmax(0, 1fr))`, gap: 10, flex: '1 1 440px', minWidth: 0, maxWidth: vs.length * 250 }}>
                       {vs.map(v => { const pv = c.por_vertical[v]; const cor = verticalCor(v); const mv = c.meta?.por_vertical[v]; return (

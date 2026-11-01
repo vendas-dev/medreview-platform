@@ -1,7 +1,7 @@
 // ══ Vendas — períodos rápidos (mesmos do Telão) e conversão para o intervalo ISO do banco ═════
 import { todayInSaoPaulo, weekdayInSaoPaulo, addDaysToDateStr, dayBoundsSaoPaulo } from '@/lib/timezone'
 
-export type PeriodoKey = 'hoje' | 'ontem' | 'semana' | 'mes' | '7d' | '30d' | '3m' | 'mes-passado' | 'custom'
+export type PeriodoKey = 'hoje' | 'ontem' | 'semana' | 'mes' | '7d' | '30d' | '3m' | 'mes-passado' | 'ano' | 'custom'
 export interface Periodo { key: PeriodoKey; label: string; start: string; end: string }   // start/end = datas "YYYY-MM-DD" de São Paulo
 
 export function periodoPresets(): Periodo[] {

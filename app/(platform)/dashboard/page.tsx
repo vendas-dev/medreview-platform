@@ -36,6 +36,19 @@ async function fetchAll(build: (from: number, to: number) => PromiseLike<{ data:
   return { data: out, error: null }
 }
 
+// O Supabase corta SILENCIOSAMENTE cada resposta em 1.000 linhas e ignora .limit(999999): um mês com mais de 1.000 vendas vinha INCOMPLETO
+// (e sem ordem, então "quais vendas ficavam de fora" era arbitrário). Aqui lê de 1.000 em 1.000, sempre na mesma ordem, até acabar.
+async function paged(build: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>): Promise<{ data: any[] | null; error: any }> {
+  const out: any[] = []
+  for (let from = 0; from < 200000; from += 1000) {
+    const { data, error } = await build(from, from + 999)
+    if (error) return { data: null, error }
+    out.push(...(data ?? []))
+    if (!data || data.length < 1000) break
+  }
+  return { data: out, error: null }
+}
+
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ view?: string | string[] }> }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -147,10 +160,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, sold_by_ambassador, is_recurring, installment_number, event_type, product, vertical, desconto_ignorado')
         .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd)
         .order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(from, to)),
-      admin2.from('telao_events')
+      paged((a, b) => admin2.from('telao_events')
         .select('closer_id, closer_hubspot_id')
         .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart).lte('occurred_at', mEnd)
-        .limit(999999),
+        .order('occurred_at', { ascending: false }).order('id').range(a, b)),
       admin2.from('closer_goals').select('user_id, goal_sales, goals_by_vertical').eq('month', monthKeyStr),
       admin2.from('company_goals').select('scope, goal_value').eq('month', monthKeyStr),
       admin2.from('hubspot_leads').select('owner_id').gte('created_at_hs', mStart).lte('created_at_hs', mEnd).limit(999999),
@@ -709,11 +722,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     { data: myMonthLinksRaw },
   ] = await Promise.all([
     admin3.from('profiles').select('id, hubspot_id, is_active').neq('role', 'superadmin'),
-    admin3.from('telao_events')
+    paged((a, b) => admin3.from('telao_events')
       .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, sale_type, coupon_code, is_self_checkout, seller_type, is_recurring, installment_number, product, vertical, event_type, desconto_ignorado')
-      .eq('event_type', 'sale').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
-    admin3.from('telao_events').select('closer_id, closer_hubspot_id')
-      .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).limit(999999),
+      .eq('event_type', 'sale').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).order('occurred_at', { ascending: false }).order('id').range(a, b)),
+    paged((a, b) => admin3.from('telao_events').select('closer_id, closer_hubspot_id')
+      .eq('event_type', 'ambassador_certified').gte('occurred_at', mStart3).lte('occurred_at', mEnd3).order('occurred_at', { ascending: false }).order('id').range(a, b)),
     admin3.from('closer_goals').select('goal_sales, goals_by_vertical').eq('user_id', user.id).eq('month', monthKey3).maybeSingle(),
     // Links dele que ainda não converteram nem foram superados por outro
     // link do mesmo negócio — candidatos a "expirando" ou "vencido".
@@ -816,9 +829,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const sevenDaysAgoStr = addDaysToDateStr(today3, -6)
   const { start: last7Start } = dayBoundsSaoPaulo(sevenDaysAgoStr)
   const { end: last7End }     = dayBoundsSaoPaulo(today3)
-  const { data: last7SalesRaw } = await admin3.from('telao_events')
+  const { data: last7SalesRaw } = await paged((a, b) => admin3.from('telao_events')
     .select('closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, occurred_at, event_type')
-    .eq('event_type', 'sale').gte('occurred_at', last7Start).lte('occurred_at', last7End).limit(999999)
+    .eq('event_type', 'sale').gte('occurred_at', last7Start).lte('occurred_at', last7End).order('occurred_at', { ascending: false }).order('id').range(a, b))
   const myLast7Sales = (last7SalesRaw ?? []).filter((e: any) => matchesCloser(e, me))
 
   const myRevenueByDay = Array.from({ length: 7 }, (_, i) => {

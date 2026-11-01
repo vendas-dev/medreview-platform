@@ -680,6 +680,9 @@ function Ranking({ stats, accent, peek=false }: { stats:CloserStats[]; accent:st
 // a hora atual fica destacada. Vendas fora dessa janela (antes das 8h ou depois das 23h) não somem do total: o painel avisa quanto foi ("fora de 8h–23h").
 const PACE_FIRST = 8, PACE_LAST = 23
 const PACE_HOURS = Array.from({ length: PACE_LAST - PACE_FIRST + 1 }, (_, i) => PACE_FIRST + i)
+const PACE_CELL_H = 64        // altura de cada quadrado do "Ritmo de Vendas" (era 46). Aumente/diminua aqui; o gráfico do mês absorve a diferença.
+// Tamanho do número (R$) no quadrado: curto = grande, longo = menor, para SEMPRE caber (ex.: "R$ 123.5k" tem 6 caracteres). strong = hora de maior intensidade.
+const paceValueFont = (total:number, strong:boolean) => { const len = total>=1000 ? (total/1000).toFixed(1).length+1 : total.toFixed(0).length; return len<=4 ? (strong?16:14) : len===5 ? (strong?15:14) : (strong?13:12) }
 function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, isDark=true, allDay=false }: { events:TelaoEvent[]; closers:Closer[]; byHubId:Record<string,Closer>; accent:string; pulseHour?:number|null; bestHour?:number|null; isDark?:boolean; allDay?:boolean }) {
   const byId = useMemo(() => Object.fromEntries(closers.map(c=>[c.id,c])), [closers])
 
@@ -724,7 +727,7 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
           <div key={b.hour} data-hour={b.hour} data-total={b.total} data-future={isFuture?'1':'0'} data-now={isNow?'1':'0'} title={b.total>0?`${label} — ${fmtBRL(b.total)} · ${b.count}v${b.topName?` · top: ${b.topName}`:''}`:label}
             style={{flex:'1 0 46px',minWidth:0,display:'flex',flexDirection:'column',alignItems:'center',gap:3,opacity:isFuture?.5:1}}>
             <div style={{
-              width:'100%',height:46,borderRadius:10,position:'relative',overflow:'hidden',
+              width:'100%',height:PACE_CELL_H,borderRadius:10,position:'relative',overflow:'hidden',
               background: cellBg,
               border: isBest ? `1.5px solid ${GOLD}` : (isNow ? `1.5px solid ${accent}` : (b.total>0 ? `1px solid ${accent}2a` : emptyBorder)),
               boxShadow: isBest ? `0 0 12px ${GOLD}66` : (isNow ? `0 0 10px ${accent}55` : 'none'),
@@ -732,17 +735,17 @@ function HourlyChart({ events, closers, byHubId, accent, pulseHour, bestHour, is
               display:'flex',alignItems:'center',justifyContent:'center',
               transition:'background .4s ease, border-color .3s ease',
             }}>
-              {isBest && <span style={{position:'absolute',top:2,left:3,fontSize:10,lineHeight:1}}>🔥</span>}
+              {isBest && <span style={{position:'absolute',top:3,left:4,fontSize:13,lineHeight:1}}>🔥</span>}
               {closer && b.total>0 && !allDay && (
-                <div style={{position:'absolute',top:3,right:3}}><Avatar closer={closer} name={b.topName||'?'} size={16}/></div>
+                <div style={{position:'absolute',top:4,right:4}}><Avatar closer={closer} name={b.topName||'?'} size={20}/></div>
               )}
               {b.total>0 && (
-                <span style={{fontSize:intensity>.45?13:12,fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
+                <span style={{fontSize:paceValueFont(b.total,intensity>.45),fontWeight:800,color:intensity>.45?'#fff':(isDark?accent:'#3b0764'),fontFamily:"'JetBrains Mono',monospace"}}>
                   {b.total>=1000?`${(b.total/1000).toFixed(1)}k`:b.total.toFixed(0)}
                 </span>
               )}
             </div>
-            <span style={{fontSize:10,color:isNow?accent:(isDark?'#9d8bc4':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
+            <span style={{fontSize:12,color:isNow?accent:(isDark?'#9d8bc4':'#7c3aed'),fontFamily:"'JetBrains Mono',monospace",fontWeight:isNow?800:600}}>{label}</span>
           </div>
         )
       })}

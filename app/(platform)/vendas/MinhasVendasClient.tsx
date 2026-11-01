@@ -12,17 +12,17 @@ import { periodoPadrao, periodoToRange, type Periodo } from '@/lib/vendas/period
 import type { VendaRow } from '@/lib/vendas/types'
 
 export function MinhasVendasClient({ team }: { team: string | null }) {
-  const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [recorrentes, setRecorrentes] = useState(false); const [busca, setBusca] = useState('')
+  const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [recorrentes, setRecorrentes] = useState(true); const [busca, setBusca] = useState('')
   const [rows, setRows] = useState<VendaRow[]>([]); const [vinculado, setVinculado] = useState(true); const [truncado, setTruncado] = useState(false); const [closer, setCloser] = useState<{ name: string; avatar_url: string | null } | null>(null)
   const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null); const [modal, setModal] = useState(false)
   const opcoes = verticaisDoTime(team)
-  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || recorrentes || !!busca
-  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setRecorrentes(false); setBusca('') }
+  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || !recorrentes || !!busca
+  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setRecorrentes(true); setBusca('') }
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null)
     const range = periodo ? periodoToRange(periodo) : {}
-    const r = await api<{ vinculado: boolean; vendas: VendaRow[]; truncated: boolean; closer?: { name: string; avatar_url: string | null } }>('/api/vendas/minhas' + qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, recorrentes }))
+    const r = await api<{ vinculado: boolean; vendas: VendaRow[]; truncated: boolean; closer?: { name: string; avatar_url: string | null } }>('/api/vendas/minhas' + qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, recorrentes: recorrentes ? '' : '0' }))
     setCarregando(false)
     if (!r.ok) { setErro({ msg: r.error ?? 'Erro ao carregar.', migracao: !!r.migracao }); setRows([]); return }
     setRows(r.data!.vendas); setVinculado(r.data!.vinculado); setTruncado(r.data!.truncated); if (r.data!.closer) setCloser(r.data!.closer)

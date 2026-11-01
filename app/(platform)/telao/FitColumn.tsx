@@ -104,7 +104,9 @@ export function FitColumn({ enabled, gap: gapNormal = 12, chartMin = 330, chartM
     const fallback = setTimeout(() => setM(x => (x.ready ? x : { ...x, ready: true })), 700)     // se a medição não rodar, mostra mesmo assim (nunca fica invisível)
     const ro = new ResizeObserver(tick)
     ro.observe(o); ro.observe(ot)
-    return () => { ro.disconnect(); cancelAnimationFrame(raf); clearTimeout(fallback) }
+    const refit = () => { if (!document.hidden) tick() }          // voltou à aba / mudou a janela ou o zoom: remede (o ResizeObserver sozinho pode não avisar)
+    document.addEventListener('visibilitychange', refit); window.addEventListener('resize', refit); window.addEventListener('focus', refit)
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); clearTimeout(fallback); document.removeEventListener('visibilitychange', refit); window.removeEventListener('resize', refit); window.removeEventListener('focus', refit) }
   }, [enabled, gap, chartMin, chartMax, minScale])
 
   // sem ajuste: exatamente a coluna de antes

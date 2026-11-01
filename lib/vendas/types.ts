@@ -1,5 +1,12 @@
 // ══ Vendas — tipos compartilhados (servidor e telas) ═══════════════════════════
 export interface VendaRow {
+  papel?: 'principal' | 'co'           // 'co' = o closer entrou como co-closer nesta venda (troca/transferência)
+  parceiro?: string | null             // com quem a venda foi dividida (nome do outro closer)
+  closer_hubspot_id?: string | null
+  co_closer_id?: string | null
+  co_closer_hubspot_id?: string | null
+  transferred_at?: string | null
+  sale_type?: string | null
   id: string
   occurred_at: string                 // data da VENDA (nunca a data de uma transferência entre closers)
   transaction_id: string | null       // ID da transação na Hotmart
@@ -55,6 +62,8 @@ export interface TrocaRow {
 }
 
 export interface CloserResumo {
+  co_vendas: number                    // quantas das vendas entram como CO-CLOSER (troca/transferência); o valor cheio conta, como no Dados Gerais
+  co_valor: number
   id: string                           // uuid do closer, ou 'sem-closer' (vendas sem closer atribuído)
   name: string
   team: string | null                  // 'R1' | 'OAO' | null

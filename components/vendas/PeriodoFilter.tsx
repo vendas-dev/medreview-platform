@@ -7,7 +7,7 @@ import { periodoPresets, periodoCustom, periodoRotulo, type Periodo } from '@/li
 
 /** Filtro de período (mesmo visual dos outros dropdowns): Hoje, Ontem, Esta semana, Este mês…, Todo o período (opcional) e intervalo personalizado.
  *  value = null → "Todo o período". padrao = o valor ao qual o botão de limpar volta. */
-export function PeriodoFilter({ value, onChange, allowAll = false, padrao }: { value: Periodo | null; onChange: (p: Periodo | null) => void; allowAll?: boolean; padrao: Periodo | null }) {
+export function PeriodoFilter({ value, onChange, allowAll = false, padrao, presets: presetsProp }: { value: Periodo | null; onChange: (p: Periodo | null) => void; allowAll?: boolean; padrao: Periodo | null; presets?: Periodo[] }) {
   const [open, setOpen] = useState(false); const [custom, setCustom] = useState(false); const [a, setA] = useState(''); const [b, setB] = useState(''); const [rect, setRect] = useState<DOMRect | null>(null)
   const btn = useRef<HTMLButtonElement>(null); const pop = useRef<HTMLDivElement>(null)
   const alterado = (value?.key ?? 'tudo') !== (padrao?.key ?? 'tudo') || (value?.key === 'custom')
@@ -19,7 +19,7 @@ export function PeriodoFilter({ value, onChange, allowAll = false, padrao }: { v
     window.addEventListener('resize', medir); window.addEventListener('scroll', medir, true); document.addEventListener('mousedown', clique); document.addEventListener('keydown', tecla)
     return () => { window.removeEventListener('resize', medir); window.removeEventListener('scroll', medir, true); document.removeEventListener('mousedown', clique); document.removeEventListener('keydown', tecla) }
   }, [open])
-  const presets = periodoPresets(); const escolher = (p: Periodo | null) => { onChange(p); setOpen(false); setCustom(false) }
+  const presets = presetsProp ?? periodoPresets(); const escolher = (p: Periodo | null) => { onChange(p); setOpen(false); setCustom(false) }
   const abrir = () => { if (btn.current) { setRect(btn.current.getBoundingClientRect()); setOpen(true) } }
   const opt = (key: string, text: string, ativo: boolean, sub: string | undefined, onPick: () => void) => (
     <div key={key} role="option" aria-selected={ativo} data-v="periodo-opt" data-key={key} className="vd-opt" onClick={onPick} style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 42, padding: '6px 12px', borderRadius: 11, cursor: 'pointer', fontSize: 14, fontWeight: ativo ? 700 : 500, color: 'var(--foreground)' }}>

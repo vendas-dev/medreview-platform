@@ -7,6 +7,10 @@ import { fmtDM, metricText, prizeFor, prizeHeadline, spDay, todaySP, winnersText
 import { CampaignBanner } from '@/components/campaigns/CampaignPreview'
 import { CampaignBuilder } from '@/components/campaigns/CampaignBuilder'
 import { Btn, CampaignStyles, IconBtn } from '@/components/campaigns/ui'
+import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
+import { VendasStyle } from '@/components/vendas/ui'
+import { periodoRotulo, type Periodo } from '@/lib/vendas/periodo'
+import { addDaysToDateStr, todayInSaoPaulo, weekdayInSaoPaulo } from '@/lib/timezone'
 
 type Winner = { id: string; team: Team; position: number; user_name: string; metric_value: number | null; reached_at: string | null; delivered_at: string | null; prize: string | null }
 type Notified = { notifications: number; deliveries: number }
@@ -15,6 +19,25 @@ type BuilderState = { draft: CampaignDraft; id: string | null; status: 'draft' |
 
 const FILTERS = [['all', 'Todas'], ['active', 'Em andamento'], ['scheduled', 'Programadas'], ['ended', 'Encerradas'], ['draft', 'Rascunhos']] as const
 const MEDALS = ['🥇', '🥈', '🥉']
+
+// ── Filtro de período das campanhas ───────────────────────────────────────────────────────────────────────────────────────
+// A campanha aparece se ela ACONTECE (ao menos um dia) dentro do período. Aqui "Este mês" é o mês INTEIRO (uma campanha programada para amanhã aparece),
+// "Esta semana" vai de segunda a domingo e "Este ano" até 31/12 — diferente das Vendas, onde o período termina hoje.
+const lastDayOf = (firstOfMonth: string) => { const [y, m] = firstOfMonth.split('-').map(Number); return addDaysToDateStr(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`, -1) }
+function campanhaPresets(): Periodo[] {
+  const t = todayInSaoPaulo(), dow = (weekdayInSaoPaulo(new Date()) + 6) % 7, mon = addDaysToDateStr(t, -dow), first = t.slice(0, 8) + '01', prevLast = addDaysToDateStr(first, -1)
+  return [
+    { key: 'hoje', label: 'Hoje', start: t, end: t },
+    { key: 'ontem', label: 'Ontem', start: addDaysToDateStr(t, -1), end: addDaysToDateStr(t, -1) },
+    { key: 'semana', label: 'Esta semana', start: mon, end: addDaysToDateStr(mon, 6) },
+    { key: 'mes', label: 'Este mês', start: first, end: lastDayOf(first) },
+    { key: 'mes-passado', label: 'Mês passado', start: prevLast.slice(0, 8) + '01', end: prevLast },
+    { key: '30d', label: 'Últimos 30 dias', start: addDaysToDateStr(t, -29), end: t },
+    { key: '3m', label: 'Últimos 3 meses', start: addDaysToDateStr(t, -89), end: t },
+    { key: 'ano', label: 'Este ano', start: `${t.slice(0, 4)}-01-01`, end: `${t.slice(0, 4)}-12-31` },
+  ]
+}
+const campanhaPadrao = (): Periodo => campanhaPresets().find(p => p.key === 'mes')!
 
 function status(c: ListItem): { label: string; color: string } {
   if (c.status === 'draft') return { label: 'Rascunho', color: '#94a3b8' }
@@ -30,6 +53,7 @@ export function CampanhasClient() {
   const [today, setToday] = useState(todaySP())
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>('all')
+  const [periodo, setPeriodo] = useState<Periodo | null>(() => campanhaPadrao())
   const [builder, setBuilder] = useState<BuilderState | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
   const del = list.find(c => c.id === delId) ?? null
@@ -45,8 +69,9 @@ export function CampanhasClient() {
   useEffect(() => { load() }, [load])
   useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(null), 4000); return () => clearTimeout(id) }, [toast])
 
-  const shown = useMemo(() => list.filter(c => filter === 'all' ? true : filter === 'draft' ? c.status === 'draft' : filter === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === filter), [list, filter])
-  const count = (f: string) => list.filter(c => f === 'all' ? true : f === 'draft' ? c.status === 'draft' : f === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === f).length
+  const inPeriod = useMemo(() => (periodo ? list.filter(c => c.starts_on <= periodo.end && c.ends_on >= periodo.start) : list), [list, periodo])
+  const shown = useMemo(() => inPeriod.filter(c => filter === 'all' ? true : filter === 'draft' ? c.status === 'draft' : filter === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === filter), [inPeriod, filter])
+  const count = (f: string) => inPeriod.filter(c => f === 'all' ? true : f === 'draft' ? c.status === 'draft' : f === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === f).length
 
   const post = async (id: string, body: object, ok: string) => {
     const r = await fetch(`/api/admin/campaigns/${id}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -68,7 +93,7 @@ export function CampanhasClient() {
 
   return (
     <div style={{ padding: 'clamp(20px,3.2vw,40px)', maxWidth: 1320, margin: '0 auto' }}>
-      <CampaignStyles />
+      <CampaignStyles /><VendasStyle />
       <header style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
         <div style={{ flex: 1, minWidth: 260 }}>
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: '-.02em', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: 12 }}><Trophy size={24} style={{ color: '#f59e0b' }} />Campanhas</h1>
@@ -77,16 +102,25 @@ export function CampanhasClient() {
         <Btn variant="primary" size="lg" data-new onClick={openNew}><Plus size={16} />Nova campanha</Btn>
       </header>
 
-      <div className="cp-tabs" role="group" aria-label="Filtrar campanhas" style={{ marginBottom: 24 }}>
+      <div data-campaign-filters style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: periodo && list.length > inPeriod.length ? 12 : 24 }}>
+      <div className="cp-tabs" role="group" aria-label="Filtrar campanhas">
         {FILTERS.map(([id, label]) => <button key={id} type="button" className="cp-tab" aria-pressed={filter === id} data-filter={id} onClick={() => setFilter(id)}>{label}{' '}<b>{count(id)}</b></button>)}
       </div>
+      <PeriodoFilter value={periodo} onChange={setPeriodo} allowAll presets={campanhaPresets()} padrao={campanhaPadrao()} />
+      </div>
+      {periodo && list.length > inPeriod.length && (
+        <p data-period-hint style={{ margin: '0 0 24px', fontSize: 12.5, color: 'var(--muted-foreground)' }}>
+          {list.length - inPeriod.length} {list.length - inPeriod.length === 1 ? 'campanha fora' : 'campanhas fora'} de {periodoRotulo(periodo)} ·{' '}
+          <button type="button" data-period-all onClick={() => setPeriodo(null)} style={{ border: 'none', background: 'none', padding: 0, color: 'var(--primary)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline' }}>ver todo o período</button>
+        </p>
+      )}
 
       {loading ? <div style={{ height: 220, borderRadius: 20, background: 'var(--secondary)', opacity: 0.6 }} />
         : shown.length === 0 ? (
           <div data-empty style={{ padding: '64px 24px', textAlign: 'center', borderRadius: 20, border: '1.5px dashed var(--border)', background: 'var(--card)' }}>
             <p style={{ margin: 0, fontSize: 44 }}>🏁</p>
-            <p style={{ margin: '14px 0 0', fontSize: 16, fontWeight: 800, color: 'var(--foreground)' }}>{list.length === 0 ? 'Nenhuma campanha ainda' : 'Nada neste filtro'}</p>
-            <p style={{ margin: '6px 0 0', fontSize: 13.5, color: 'var(--muted-foreground)' }}>{list.length === 0 ? 'Crie a primeira premiação para os times.' : 'Troque o filtro acima.'}</p>
+            <p style={{ margin: '14px 0 0', fontSize: 16, fontWeight: 800, color: 'var(--foreground)' }}>{list.length === 0 ? 'Nenhuma campanha ainda' : inPeriod.length === 0 ? 'Nenhuma campanha neste período' : 'Nada neste filtro'}</p>
+            <p style={{ margin: '6px 0 0', fontSize: 13.5, color: 'var(--muted-foreground)' }}>{list.length === 0 ? 'Crie a primeira premiação para os times.' : 'Troque o filtro ou o período acima.'}</p>
             {list.length === 0 && <div style={{ marginTop: 22 }}><Btn variant="primary" onClick={openNew}><Plus size={15} />Criar a primeira campanha</Btn></div>}
           </div>
         ) : (

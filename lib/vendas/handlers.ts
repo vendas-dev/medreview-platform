@@ -23,7 +23,7 @@ function dbErr(e: any): R {
   return err(500, 'Erro ao acessar os dados. Tente novamente em instantes.')
 }
 
-const VENDA_COLS = 'id, occurred_at, transaction_id, vertical, product, value, coupon_code, lead_name, email, phone, payment_type, payment_installments, total_installments, is_recurring, installment_number, ambassador_name, seller_type, closer_id, closer_name, obs, obs_updated_at'
+const VENDA_COLS = 'id, occurred_at, transaction_id, vertical, product, value, coupon_code, lead_name, email, phone, payment_type, payment_installments, total_installments, is_recurring, installment_number, ambassador_name, seller_type, closer_id, closer_name, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, transferred_at, sale_type, obs, obs_updated_at'
 const VERTICAIS_FILTRO = ['medreview', 'anestreview', 'oftreview', 'ortopreview', 'vascreview']
 const normName = (s?: string | null) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
 
@@ -44,13 +44,13 @@ function parseFiltros(sp: URLSearchParams, opts: { periodoObrigatorio: boolean }
   const team = (sp.get('team') ?? '').toUpperCase(); if (team && team !== 'TODOS' && team !== 'R1' && team !== 'OAO') return { ok: false, error: 'Time inválido.' }
   const closerId = sp.get('closerId'); if (closerId && closerId !== 'todos' && !isUuid(closerId)) return { ok: false, error: 'Closer inválido.' }
   const status = sp.get('status'); if (status && !['todas', 'pendente', 'resolvida', 'concedida', 'negada'].includes(status)) return { ok: false, error: 'Status inválido.' }
-  return { ok: true, f: { from: fromIso, to: toIso, vertical: vertical && vertical !== 'todas' ? vertical : null, recorrentes: ['1', 'true'].includes(sp.get('recorrentes') ?? ''), inativos: ['1', 'true'].includes(sp.get('inativos') ?? ''), team: team && team !== 'TODOS' ? team : null, closerId: closerId && closerId !== 'todos' ? closerId : null, status: status && status !== 'todas' ? (status as any) : null } }
+  return { ok: true, f: { from: fromIso, to: toIso, vertical: vertical && vertical !== 'todas' ? vertical : null, recorrentes: !['0', 'false'].includes(sp.get('recorrentes') ?? ''), inativos: ['1', 'true'].includes(sp.get('inativos') ?? ''), team: team && team !== 'TODOS' ? team : null, closerId: closerId && closerId !== 'todos' ? closerId : null, status: status && status !== 'todas' ? (status as any) : null } }
 }
 function filtrosVendas(q: any, f: Filtros) {
   q = q.eq('event_type', 'sale')
   if (f.from) q = q.gte('occurred_at', f.from).lte('occurred_at', f.to)
   if (f.vertical) q = q.eq('vertical', f.vertical)
-  if (!f.recorrentes) q = q.or('sale_type.neq.recorrente,sale_type.is.null')     // parcelas de assinatura (2ª em diante) ficam de fora, a menos que se peça
+  if (!f.recorrentes) q = q.or('sale_type.neq.recorrente,sale_type.is.null')     // parcelas de assinatura (2ª em diante): entram por padrão (como no Dados Gerais); recorrentes=0 as tira
   return q
 }
 
@@ -66,11 +66,44 @@ async function fetchAll(build: (from: number, to: number) => PromiseLike<{ data:
   }
   return { data: out, error: null, truncated }
 }
+// ── Atribuição venda → closer: a MESMA regra do Dados Gerais (matchesCloser do dashboard) ────────────────────────────────────────
+// É do closer se closer_id OU closer_hubspot_id bate (principal) e TAMBÉM se co_closer_id OU co_closer_hubspot_id bate (co-closer: troca/transferência).
+// Os dois recebem o valor cheio, como nos cartões do Dados Gerais. O total geral conta cada venda UMA vez.
+type CloserRef = { id: string; hubspot_id?: string | null }
+const hub = (v: any) => (v == null ? '' : String(v).trim())
+function papelNaVenda(e: any, c: CloserRef): 'principal' | 'co' | null {
+  if ((e.closer_id && e.closer_id === c.id) || (hub(c.hubspot_id) && hub(e.closer_hubspot_id) === hub(c.hubspot_id))) return 'principal'
+  if ((e.co_closer_id && e.co_closer_id === c.id) || (hub(c.hubspot_id) && hub(e.co_closer_hubspot_id) === hub(c.hubspot_id))) return 'co'
+  return null
+}
+/** Vendas em que algum dos closers é o principal OU o co-closer, sem repetir venda. `cols` precisa ter id e as colunas de atribuição.
+ *  Por id: o banco filtra. Por hubspot: busca as vendas com hubspot preenchido e casa com TRIM aqui (um id com espaço sobrando ainda casa, como no Dados Gerais). */
+async function vendasDosClosers(ctx: Ctx, cs: CloserRef[], f: Filtros, cols: string, cap = 20000) {
+  const ids = cs.map(c => c.id), temHub = cs.some(c => hub(c.hubspot_id))
+  const consultas: [string, 'in' | 'notnull', string[]?][] = [['closer_id', 'in', ids], ['co_closer_id', 'in', ids]]
+  if (temHub) consultas.push(['closer_hubspot_id', 'notnull'], ['co_closer_hubspot_id', 'notnull'])
+  const porId = new Map<string, any>(); let truncated = false
+  for (const [col, tipo, lista] of consultas) {
+    if (tipo === 'in' && !lista!.length) continue
+    const r = await fetchAll((a, b) => { const q = filtrosVendas(ctx.admin.from('telao_events').select(cols), f); return (tipo === 'in' ? q.in(col, lista!) : q.not(col, 'is', null)).order('id').range(a, b) }, cap)
+    if (r.error) return { data: null as any[] | null, error: r.error, truncated }
+    truncated = truncated || r.truncated
+    for (const x of r.data!) if (!porId.has(x.id) && cs.some(c => papelNaVenda(x, c))) porId.set(x.id, x)
+  }
+  return { data: [...porId.values()], error: null, truncated }
+}
+/** Marca cada venda com o papel do closer (principal/co) e com quem dividiu (parceiro). */
+async function anotaPapel(ctx: Ctx, rows: any[], c: CloserRef) {
+  const { data: todos } = await ctx.admin.from('closers').select('id, name, hubspot_id')
+  const nome = (id: any, h: any) => (todos ?? []).find((x: any) => (id && x.id === id) || (hub(h) && hub(x.hubspot_id) === hub(h)))?.name ?? null
+  return rows.map(e => { const papel = papelNaVenda(e, c) ?? 'principal'; return { ...e, papel, parceiro: papel === 'co' ? nome(e.closer_id, e.closer_hubspot_id) : (e.co_closer_id || hub(e.co_closer_hubspot_id)) ? nome(e.co_closer_id, e.co_closer_hubspot_id) : null } })
+}
+const porDataDesc = (a: any, b: any) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at) || String(a.id).localeCompare(String(b.id))
 const soma = (rows: { value: number | null }[]) => Math.round(rows.reduce((s, r) => s + (Number(r.value) || 0), 0) * 100) / 100
 
 // ── Closer do usuário (hubspot_id → closers; fallback por nome — igual ao Telão) ──────────────
-async function resolveCloser(ctx: Ctx): Promise<{ id: string; name: string; avatar_url: string | null } | null> {
-  const cols = 'id, name, avatar_url'
+async function resolveCloser(ctx: Ctx): Promise<{ id: string; name: string; avatar_url: string | null; hubspot_id: string | null } | null> {
+  const cols = 'id, name, avatar_url, hubspot_id'
   if (ctx.hubspotId) { const { data } = await ctx.admin.from('closers').select(cols).eq('hubspot_id', ctx.hubspotId).maybeSingle(); if (data) return data }
   const n = normName(ctx.name)
   if (n) { const { data } = await ctx.admin.from('closers').select(cols).eq('normalized_name', n).maybeSingle(); if (data) return data }
@@ -105,21 +138,22 @@ export async function hMinhasVendas(ctx: Ctx, sp: URLSearchParams): Promise<R> {
   const p = parseFiltros(sp, { periodoObrigatorio: true }); if (!p.ok) return err(400, p.error)
   const closer = await resolveCloser(ctx)
   if (!closer) return ok({ vinculado: false, vendas: [], resumo: { vendas: 0, valor: 0 }, truncated: false })
-  const r = await fetchAll((a, b) => filtrosVendas(ctx.admin.from('telao_events').select(VENDA_COLS).eq('closer_id', closer.id), p.f).order('occurred_at', { ascending: false }).order('id').range(a, b))
+  const r = await vendasDosClosers(ctx, [closer], p.f, VENDA_COLS)
   if (r.error) return dbErr(r.error)
-  return ok({ vinculado: true, closer: { id: closer.id, name: closer.name, avatar_url: closer.avatar_url }, team: ctx.team, vendas: r.data, resumo: { vendas: r.data!.length, valor: soma(r.data!) }, truncated: r.truncated })
+  const vendas = (await anotaPapel(ctx, r.data!, closer)).sort(porDataDesc)
+  return ok({ vinculado: true, closer: { id: closer.id, name: closer.name, avatar_url: closer.avatar_url }, team: ctx.team, vendas, resumo: { vendas: vendas.length, valor: soma(vendas) }, truncated: r.truncated })
 }
 
 /** PATCH /api/vendas/:id/obs — o closer só mexe no Obs das PRÓPRIAS vendas; o superadmin, em qualquer uma. */
 export async function hObs(ctx: Ctx, id: string, body: any): Promise<R> {
   if (!isUuid(id)) return err(400, 'Venda inválida.')
   const v = validarObs(body); if (!v.ok) return err(400, v.error)
-  const { data: sale, error: e1 } = await ctx.admin.from('telao_events').select('id, closer_id').eq('id', id).eq('event_type', 'sale').maybeSingle()
+  const { data: sale, error: e1 } = await ctx.admin.from('telao_events').select('id, closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id').eq('id', id).eq('event_type', 'sale').maybeSingle()
   if (e1) return dbErr(e1)
   if (!sale) return err(404, 'Venda não encontrada.')
   if (!isSuper(ctx)) {
     const closer = await resolveCloser(ctx)
-    if (!closer || sale.closer_id !== closer.id) return err(403, 'Você só pode editar o Obs das suas próprias vendas.')
+    if (!closer || !papelNaVenda(sale, closer)) return err(403, 'Você só pode editar o Obs das suas próprias vendas.')
   }
   const { data, error } = await ctx.admin.from('telao_events').update({ obs: v.value, obs_updated_at: new Date().toISOString(), obs_updated_by: ctx.userId }).eq('id', id).select('id, obs, obs_updated_at').single()
   if (error) return dbErr(error)
@@ -192,27 +226,38 @@ export async function hResumoAdmin(ctx: Ctx, sp: URLSearchParams): Promise<R> {
       if (total > 0 || Object.keys(por).length) metas.set(x.user_id, { total, por_vertical: por })
     }
   }
-  let closers = (cl.data ?? []).map((c: any) => { const pf = profileOf(c); return { id: c.id as string, name: c.name as string, team: (pf?.team ?? null) as string | null, avatar_url: (c.avatar_url ?? null) as string | null, ativo: pf ? pf.is_active !== false : true, meta: (pf && metas.get(pf.id)) || null } })
+  let closers = (cl.data ?? []).map((c: any) => { const pf = profileOf(c); return { id: c.id as string, hubspot_id: (c.hubspot_id ?? null) as string | null, name: c.name as string, team: (pf?.team ?? null) as string | null, avatar_url: (c.avatar_url ?? null) as string | null, ativo: pf ? pf.is_active !== false : true, meta: (pf && metas.get(pf.id)) || null } })
   if (p.f.team) closers = closers.filter((c: any) => c.team === p.f.team)
   if (p.f.closerId) closers = closers.filter((c: any) => c.id === p.f.closerId)
-  const ids = closers.map((c: any) => c.id)                            // só os closers: venda sem closer atribuído NÃO entra em Vendas Individuais
   let rows: any[] = []; let truncated = false
-  if (ids.length) {
-    const r = await fetchAll((a, b) => filtrosVendas(ctx.admin.from('telao_events').select('closer_id, value, vertical'), p.f).in('closer_id', ids).order('id').range(a, b), 20000)
+  if (closers.length) {                                                 // só vendas ligadas a algum closer (principal ou co-closer); venda sem closer NÃO entra em Vendas Individuais
+    const r = await vendasDosClosers(ctx, closers.map((c: any) => ({ id: c.id, hubspot_id: c.hubspot_id })), p.f, 'id, closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, value, vertical')
     if (r.error) return dbErr(r.error); rows = r.data!; truncated = r.truncated
   }
-  const agg = new Map<string, { vendas: number; valor: number; por: Record<string, { vendas: number; valor: number }> }>()
+  // Atribui cada venda aos closers (principal e co-closer, como no Dados Gerais). O TOTAL geral conta cada venda UMA vez.
+  const idxId = new Map<string, number>(), idxHub = new Map<string, number>()
+  closers.forEach((c: any, i: number) => { idxId.set(c.id, i); if (hub(c.hubspot_id)) idxHub.set(hub(c.hubspot_id), i) })
+  type Agg = { vendas: number; valor: number; co_vendas: number; co_valor: number; por: Record<string, { vendas: number; valor: number }> }
+  const agg = new Map<string, Agg>(); let totVendas = 0, totValor = 0
   for (const x of rows) {
-    const a = agg.get(x.closer_id) ?? { vendas: 0, valor: 0, por: {} }; const v = Number(x.value) || 0
-    a.vendas++; a.valor += v; const pv = a.por[x.vertical] ?? { vendas: 0, valor: 0 }; pv.vendas++; pv.valor += v; a.por[x.vertical] = pv; agg.set(x.closer_id, a)
+    const v = Number(x.value) || 0, principais = new Set<number>(), cos = new Set<number>()
+    for (const i of [idxId.get(x.closer_id ?? ''), idxHub.get(hub(x.closer_hubspot_id))]) if (i !== undefined) principais.add(i)
+    for (const i of [idxId.get(x.co_closer_id ?? ''), idxHub.get(hub(x.co_closer_hubspot_id))]) if (i !== undefined && !principais.has(i)) cos.add(i)
+    if (!principais.size && !cos.size) continue
+    totVendas++; totValor += v
+    for (const [i, co] of [...[...principais].map(i => [i, false] as const), ...[...cos].map(i => [i, true] as const)]) {
+      const cid = closers[i].id, ag = agg.get(cid) ?? { vendas: 0, valor: 0, co_vendas: 0, co_valor: 0, por: {} }
+      ag.vendas++; ag.valor += v; if (co) { ag.co_vendas++; ag.co_valor += v }
+      const pv = ag.por[x.vertical] ?? { vendas: 0, valor: 0 }; pv.vendas++; pv.valor += v; ag.por[x.vertical] = pv; agg.set(cid, ag)
+    }
   }
   const r2 = (n: number) => Math.round(n * 100) / 100
   // Usuário INATIVO: some SÓ A LINHA (e dos filtros). Nada sai de SOMA: o total abaixo inclui tudo que ele vendeu. Para conferir/editar vendas dele: inativos=1 (interruptor "Mostrar inativos") ou pedir o closer pelo id.
-  const lista0 = closers.map((c: any) => { const a = agg.get(c.id); return { id: c.id, name: c.name, team: c.team, avatar_url: c.avatar_url, ativo: c.ativo, meta: c.meta, vendas: a?.vendas ?? 0, valor: r2(a?.valor ?? 0), por_vertical: Object.fromEntries(Object.entries(a?.por ?? {}).map(([k, v]) => [k, { vendas: v.vendas, valor: r2(v.valor) }])) } })
+  const lista0 = closers.map((c: any) => { const a = agg.get(c.id); return { id: c.id, name: c.name, team: c.team, avatar_url: c.avatar_url, ativo: c.ativo, meta: c.meta, vendas: a?.vendas ?? 0, valor: r2(a?.valor ?? 0), co_vendas: a?.co_vendas ?? 0, co_valor: r2(a?.co_valor ?? 0), por_vertical: Object.fromEntries(Object.entries(a?.por ?? {}).map(([k, v]) => [k, { vendas: v.vendas, valor: r2(v.valor) }])) } })
   const lista = lista0.filter((c: any) => c.ativo || p.f.inativos || !!p.f.closerId)
   const ocultos = lista0.filter((c: any) => !lista.includes(c) && c.vendas > 0)
   lista.sort((a: any, b: any) => b.valor - a.valor || a.name.localeCompare(b.name, 'pt-BR'))
-  return ok({ closers: lista, total: { vendas: lista0.reduce((s: number, c: any) => s + c.vendas, 0), valor: Math.round(lista0.reduce((s: number, c: any) => s + c.valor, 0) * 100) / 100 }, ocultos: { closers: ocultos.length, vendas: ocultos.reduce((s: number, c: any) => s + c.vendas, 0), valor: Math.round(ocultos.reduce((s: number, c: any) => s + c.valor, 0) * 100) / 100 }, truncated, meta_mes: mesMeta })
+  return ok({ closers: lista, total: { vendas: totVendas, valor: r2(totValor) }, ocultos: { closers: ocultos.length, vendas: ocultos.reduce((s: number, c: any) => s + c.vendas, 0), valor: Math.round(ocultos.reduce((s: number, c: any) => s + c.valor, 0) * 100) / 100 }, truncated, meta_mes: mesMeta })
 }
 
 /** GET /api/admin/vendas/closer/:id — a tabela de vendas de UM closer (id uuid, ou "sem-closer"). */
@@ -220,9 +265,12 @@ export async function hVendasDoCloser(ctx: Ctx, closerId: string, sp: URLSearchP
   if (!isSuper(ctx)) return err(403, 'Somente superadmin.')
   if (!isUuid(closerId)) return err(400, 'Closer inválido.')
   const p = parseFiltros(sp, { periodoObrigatorio: true }); if (!p.ok) return err(400, p.error)
-  const r = await fetchAll((a, b) => { let q = filtrosVendas(ctx.admin.from('telao_events').select(VENDA_COLS), p.f); q = q.eq('closer_id', closerId); return q.order('occurred_at', { ascending: false }).order('id').range(a, b) })
+  const { data: cl1 } = await ctx.admin.from('closers').select('id, hubspot_id').eq('id', closerId).maybeSingle()
+  const ref: CloserRef = { id: closerId, hubspot_id: cl1?.hubspot_id ?? null }
+  const r = await vendasDosClosers(ctx, [ref], p.f, VENDA_COLS)
   if (r.error) return dbErr(r.error)
-  return ok({ vendas: r.data, resumo: { vendas: r.data!.length, valor: soma(r.data!) }, truncated: r.truncated })
+  const vendas = (await anotaPapel(ctx, r.data!, ref)).sort(porDataDesc)
+  return ok({ vendas, resumo: { vendas: vendas.length, valor: soma(vendas) }, truncated: r.truncated })
 }
 
 const sameVal = (campo: string, a: any, b: any) => {
