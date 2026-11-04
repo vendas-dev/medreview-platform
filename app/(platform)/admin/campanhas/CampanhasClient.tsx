@@ -189,7 +189,7 @@ function CampaignCard({ c, today, i, onView, onPublish, onEdit, onDuplicate, onD
           <div style={{ marginTop: 6, padding: '14px 16px', borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div data-winners-line style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {TEAMS.filter(t => c.teams[t]).map(t => (
-                <p key={t} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--foreground)' }}><strong>{t}:</strong>{' '}{c.winners.filter(w => w.team === t).map(w => `${MEDALS[w.position - 1] ?? `${w.position}º`} ${w.user_name.split(' ')[0]}`).join(' ') || '—'}</p>
+                <p key={t} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--foreground)' }}><strong>{t}:</strong>{' '}{c.winners.filter(w => w.team === t).map(w => `${c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)} ${w.user_name.split(' ')[0]}`).join(' ') || '—'}</p>
               ))}
             </div>
             {c.finalized_at && (
@@ -251,7 +251,7 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
                       <p style={{ margin: '0 0 8px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)' }}>Time {t}</p>
                       {data.winners.filter(w => w.team === t).map(w => (
                         <label key={w.id} data-winner={w.user_name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 12.5, color: 'var(--foreground)', cursor: 'pointer' }}>
-                          <span style={{ width: 22 }}>{MEDALS[w.position - 1] ?? `${w.position}º`}</span>
+                          <span style={{ width: 22 }}>{c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)}</span>
                           <span style={{ flex: 1, fontWeight: 700 }}>{w.user_name}{w.metric_value != null && <span style={{ fontWeight: 500, color: 'var(--muted-foreground)' }}> · {metricText(c.criterion, w.metric_value)}</span>}{(w.prize || c.prize_mode === 'tiered') && <span data-winner-prize style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#d97706' }}>🎁 {w.prize || prizeFor(c, w.team, w.position) || '—'}</span>}</span>
                           <input type="checkbox" data-delivered={w.user_name} checked={!!w.delivered_at} onChange={e => toggleDelivered(w, e.target.checked)} />
                           <span style={{ fontSize: 10.5, color: w.delivered_at ? '#16a34a' : 'var(--muted-foreground)', fontWeight: 700 }}>{w.delivered_at ? 'entregue' : 'a entregar'}</span>
@@ -269,13 +269,13 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {data.evaluation.teams.map(t => (
                   <div key={t.team} style={{ flex: 1, minWidth: 280, borderRadius: 14, border: '1px solid var(--border)', background: 'var(--card)', overflow: 'hidden' }}>
-                    <p style={{ margin: 0, padding: '9px 12px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)', borderBottom: '1px solid var(--border)' }}>Time {t.team} · premia até o {t.rule.winners}º</p>
+                    <p style={{ margin: 0, padding: '9px 12px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)', borderBottom: '1px solid var(--border)' }}>Time {t.team} · {info.tiers ? 'quem atingir uma faixa ganha' : `premia até o ${t.rule.winners}º`}</p>
                     {t.standings.map(s => (
-                      <div key={s.userId} data-row={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', background: s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0) ? 'rgba(34,197,94,.09)' : 'transparent', color: 'var(--foreground)' }}>
+                      <div key={s.userId} data-row={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', background: (info.tiers ? !!s.tierPrize : s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0)) ? 'rgba(34,197,94,.09)' : 'transparent', color: 'var(--foreground)' }}>
                         <span style={{ width: 24, textAlign: 'center', fontWeight: 800 }}>{s.rank <= 3 ? MEDALS[s.rank - 1] : `${s.rank}º`}</span>
                         <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}{c.prize_mode === 'tiered' && s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0) && <span data-row-prize style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#d97706' }}>🎁 {prizeFor(c, t.team, s.rank) || '—'}</span>}</span>
                         <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>{s.count} {s.count === 1 ? 'venda' : 'vendas'}</span>
-                        <strong style={{ minWidth: 92, textAlign: 'right' }}>{info.race ? (s.qualified ? `✅ ${fmtDM(spDay(s.reachedAt!))}` : `${Math.round(s.progress * 100)}%`) : metricText(c.criterion, s.metric)}</strong>
+                        <strong style={{ minWidth: 92, textAlign: 'right' }}>{info.tiers ? `${metricText(c.criterion, s.metric)}${s.tierPrize ? ` · 🎁 ${s.tierPrize}` : ''}` : info.race ? (s.qualified ? `✅ ${fmtDM(spDay(s.reachedAt!))}` : `${Math.round(s.progress * 100)}%`) : metricText(c.criterion, s.metric)}</strong>
                       </div>
                     ))}
                     {t.standings.length === 0 && <p style={{ margin: 0, padding: 14, fontSize: 12, color: 'var(--muted-foreground)' }}>Nenhum participante neste time.</p>}

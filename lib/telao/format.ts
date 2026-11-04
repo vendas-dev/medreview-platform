@@ -58,11 +58,28 @@ export function matchCloser(rawName: string | null | undefined, closers: Closer[
 }
 
 // ── Cálculo de stats por closer ───────────────────────────────
+/**
+ * Soma por closer — corrigida para as TROCAS DE VENDA (embaixador + closer, e self checkout → closer).
+ *  • closer_id é o id da tabela CLOSERS, mas co_closer_id é o id do PERFIL (profiles): resolve pelos dois (closer.profile_id) e também pelo hubspot_id (com trim).
+ *    Antes o co-closer não era achado, virava "?" e era descartado do ranking — a venda dele sumia do Telão.
+ *  • Venda com closer_id vazio mas hubspot preenchido passa a somar no closer certo (antes ficava numa linha separada, pelo nome).
+ *  • O crédito do co-closer é SOMADO (não tira do principal); se principal e co-closer forem a mesma pessoa, conta uma vez.
+ */
 export function computeCloserStats(
   events: TelaoEvent[],
   closers: Closer[],
 ): CloserStats[] {
+  const hubOf = (v: unknown) => (v == null ? '' : String(v).trim())
   const closersById = Object.fromEntries(closers.map(c => [c.id, c]))
+  const closersByHub = new Map<string, Closer>()
+  const closersByProfile = new Map<string, Closer>()
+  for (const c of closers) {
+    if (hubOf(c.hubspot_id)) closersByHub.set(hubOf(c.hubspot_id), c)
+    const pid = (c as any).profile_id
+    if (pid) closersByProfile.set(String(pid), c)
+  }
+  const resolve = (id: string | null | undefined, hubspotId: unknown): Closer | null =>
+    (id ? (closersById[id] ?? closersByProfile.get(id)) : undefined) ?? (hubOf(hubspotId) ? closersByHub.get(hubOf(hubspotId)) : undefined) ?? null
   const map = new Map<string, CloserStats>()
 
   const credit = (key: string, closer: Closer | null, name: string, isSelf: boolean, ev: TelaoEvent) => {
@@ -73,18 +90,21 @@ export function computeCloserStats(
   }
 
   for (const ev of events) {
-    const key    = ev.is_self_checkout ? 'self' : (ev.closer_id ?? ev.closer_name ?? 'unknown')
     const isSelf = ev.is_self_checkout
-    const closer = ev.closer_id ? closersById[ev.closer_id] ?? null : null
+    const closer = resolve(ev.closer_id, (ev as any).closer_hubspot_id)
+    const key    = isSelf ? 'self' : (closer?.id ?? ev.closer_id ?? ev.closer_name ?? 'unknown')
     const name   = closer?.name ?? (isSelf ? 'Self Checkout' : ev.closer_name ?? '?')
     credit(key, closer, name, isSelf, ev)
 
     // Venda transferida/co-atribuída — o closer que recebeu crédito também
     // soma essa venda nas próprias estatísticas (sem tirar da atribuição
     // original acima; é crédito somado, não substituído).
-    if (ev.co_closer_id) {
-      const coCloser = closersById[ev.co_closer_id] ?? null
-      credit(ev.co_closer_id, coCloser, coCloser?.name ?? '?', false, ev)
+    const coHub = (ev as any).co_closer_hubspot_id
+    if (ev.co_closer_id || hubOf(coHub)) {
+      const coCloser = resolve(ev.co_closer_id, coHub)
+      if (!(coCloser && closer && coCloser.id === closer.id && !isSelf)) {
+        credit(coCloser?.id ?? ev.co_closer_id ?? `co:${hubOf(coHub)}`, coCloser, coCloser?.name ?? '?', false, ev)
+      }
     }
   }
 

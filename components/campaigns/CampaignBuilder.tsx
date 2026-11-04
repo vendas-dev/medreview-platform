@@ -5,6 +5,9 @@ import { Check, ChevronDown, Minus, Plus, Rocket, Save, X } from 'lucide-react'
 import { CampaignDraft, CRITERIA, criterionInfo, EMOJIS, Team, TEAMS, TEAM_HINT, THEMES, ThemeId } from '@/lib/campaigns/types'
 import { addDays, durationDays, fmtDM, ruleSignature, validateDraft, weekdayOf } from '@/lib/campaigns/engine'
 import { CampaignPreview, PreviewData } from './CampaignPreview'
+import { TierEditor } from './TierEditor'
+import { tiersValid } from '@/lib/campaigns/tiers'
+import type { TeamRule } from '@/lib/campaigns/types'
 import { Btn, CampaignStyles } from './ui'
 
 // ══ Criador de campanhas ═════════════════════════════════════════════════════
@@ -87,11 +90,11 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   }, [sig])
 
   const setTeams = (mode: 'OAO' | 'R1' | 'BOTH') => {
-    const keep = (t: Team) => d.teams[t] ?? { winners: t === 'R1' ? 4 : 3, target: null }
+    const keep = (t: Team) => d.teams[t] ?? { winners: t === 'R1' ? 4 : 3, target: null, ...(info.tiers ? { tiers: [{ target: null, prize: '' }] } : {}) }
     patch({ teams: mode === 'BOTH' ? { OAO: keep('OAO'), R1: keep('R1') } : { [mode]: keep(mode) } })
   }
   const mode: 'OAO' | 'R1' | 'BOTH' | null = d.teams.OAO && d.teams.R1 ? 'BOTH' : d.teams.OAO ? 'OAO' : d.teams.R1 ? 'R1' : null
-  const setRule = (t: Team, p: Partial<{ winners: number; target: number | null }>) => patch({ teams: { ...d.teams, [t]: { ...d.teams[t]!, ...p } } })
+  const setRule = (t: Team, p: Partial<TeamRule>) => patch({ teams: { ...d.teams, [t]: { ...d.teams[t]!, ...p } } })
   const MED = ['🥇', '🥈', '🥉']
   const setPrize = (t: Team, i: number, v: string) => { const list = [...(d.prizes[t] ?? [])]; while (list.length <= i) list.push(''); list[i] = v; patch({ prizes: { ...d.prizes, [t]: list } }) }
   const copyPrizes = (from: Team, to: Team) => { const src = d.prizes[from] ?? [], n = d.teams[to]?.winners ?? 0; patch({ prizes: { ...d.prizes, [to]: Array.from({ length: n }, (_, i) => src[i] ?? '') } }) }
@@ -121,12 +124,13 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   const done = [
     d.name.trim().length > 0 && d.name.trim().length <= 60,
     true,
-    tf.length > 0 && tf.every(t => { const r = d.teams[t]!; return Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50 && (!info.needsTarget || (r.target ?? 0) > 0) }),
+    info.tiers ? (tf.length > 0 && tf.every(t => tiersValid(d.teams[t]!.tiers))) : tf.length > 0 && tf.every(t => { const r = d.teams[t]!; return Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50 && (!info.needsTarget || (r.target ?? 0) > 0) }),
     durationDays(d) > 0 && durationDays(d) <= 92,
     d.prize_mode === 'tiered'
       ? tf.length > 0 && tf.every(t => { const n = d.teams[t]!.winners || 0; return n >= 1 && Array.from({ length: Math.min(n, 50) }, (_, i) => (d.prizes[t]?.[i] ?? '').trim()).every(Boolean) })
       : d.prize.trim().length > 0,
   ]
+  if (info.tiers) done[4] = done[2]
   const go = (n: number) => mainRef.current?.querySelector(`[data-step="${n}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   useEffect(() => { const prev = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = prev } }, [])   // o fundo não rola atrás da janela
   // Editar vale pra QUALQUER campanha. O que a edição faz com os avisos já enviados é mostrado antes de salvar:
@@ -187,7 +191,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
             <Section n={2} title="Como se ganha?" hint="O critério que decide os ganhadores." done={done[1]}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(230px,1fr))', gap: 12 }}>
                 {CRITERIA.map(c => (
-                  <button key={c.id} type="button" className="cp-opt" aria-pressed={d.criterion === c.id} data-criterion={c.id} onClick={() => patch({ criterion: c.id })} style={{ padding: 16, minHeight: 100 }}>
+                  <button key={c.id} type="button" className="cp-opt" aria-pressed={d.criterion === c.id} data-criterion={c.id} onClick={() => patch(c.id === 'tier_revenue' ? { criterion: c.id, teams: Object.fromEntries(TEAMS.filter(t => d.teams[t]).map(t => [t, { ...d.teams[t]!, tiers: d.teams[t]!.tiers?.length ? d.teams[t]!.tiers : [{ target: null, prize: '' }] }])) as CampaignDraft['teams'] } : { criterion: c.id })} style={{ padding: 16, minHeight: 100 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 9, paddingRight: 22, fontSize: 14, fontWeight: 800, color: 'var(--foreground)' }}><span style={{ fontSize: 19 }}>{c.icon}</span>{c.label}</span>
                     <span style={{ display: 'block', marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>{c.desc}</span>
                     {d.criterion === c.id && <span style={{ position: 'absolute', top: 12, right: 12, width: 20, height: 20, borderRadius: '50%', background: '#6366f1', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={12} strokeWidth={3.5} /></span>}
@@ -214,14 +218,15 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                           <p style={{ margin: 0, fontSize: 14.5, fontWeight: 900, color: 'var(--foreground)' }}>Time {t}</p>
                           <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted-foreground)' }}>{TEAM_HINT[t]}</p>
                         </div>
-                        <Field label="Quantos serão premiados?">
+                        {info.tiers && <TierEditor team={t} tiers={r.tiers ?? [{ target: null, prize: '' }]} copyFrom={TEAMS.filter(x => x !== t && d.teams[x] && d.teams[x]!.tiers?.length).map(x => ({ team: x, tiers: d.teams[x]!.tiers! }))[0] ?? null} onChange={tiers => setRule(t, { tiers, winners: Math.max(1, tiers.length) })} />}
+                        <div style={info.tiers ? { display: 'none' } : undefined}><Field label="Quantos serão premiados?">
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <button type="button" className="cp-ib" aria-label="menos" disabled={r.winners <= 1} onClick={() => setRule(t, { winners: Math.max(1, r.winners - 1) })} style={{ width: 44, height: 44 }}><Minus size={15} /></button>
                             <input className="cp-field" data-winners={t} type="number" min={1} max={50} value={r.winners || ''} onChange={e => setRule(t, { winners: Math.trunc(Number(e.target.value)) })} style={{ width: 84, textAlign: 'center', fontWeight: 800, fontSize: 16 }} />
                             <button type="button" className="cp-ib" aria-label="mais" disabled={r.winners >= 50} onClick={() => setRule(t, { winners: Math.min(50, (r.winners || 0) + 1) })} style={{ width: 44, height: 44 }}><Plus size={15} /></button>
                             <span style={{ fontSize: 12.5, color: 'var(--muted-foreground)', marginLeft: 4 }}>{r.winners === 1 ? 'só o 1º lugar' : `do 1º ao ${r.winners || '—'}º`}</span>
                           </div>
-                        </Field>
+                        </Field></div>
                         {info.needsTarget && (
                           <Field label={info.unit === 'money' ? 'Valor a bater (R$)' : 'Vendas a bater'} as="label">
                             <input className="cp-field" data-target={t} type="number" min={1} value={r.target ?? ''} onChange={e => setRule(t, { target: e.target.value === '' ? null : Number(e.target.value) })} placeholder={info.unit === 'money' ? 'Ex.: 50000' : 'Ex.: 10'} />
@@ -248,7 +253,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
               {past && <Note tone="warn" data-past>⚠ O início é no passado: a campanha será apurada com as vendas que já aconteceram.</Note>}
             </Section>
 
-            <Section n={5} title="Qual é o prêmio?" hint="Um prêmio só pra todos os ganhadores, ou um diferente para cada posição." done={done[4]}>
+            {info.tiers ? <Section n={5} title="Qual é o prêmio?" hint="Cada faixa já tem o seu prêmio." done={done[4]}><Note>Os prêmios foram definidos junto de cada faixa, no passo 3: quem atinge uma faixa ganha o prêmio dela (a mais alta que alcançar).</Note></Section> : <Section n={5} title="Qual é o prêmio?" hint="Um prêmio só pra todos os ganhadores, ou um diferente para cada posição." done={done[4]}>
               <div>
                 <div className="cp-seg" role="group">
                   {([['single', '🎁 Premiação única'], ['tiered', '🏅 Premiação diferenciada']] as const).map(([id, label]) => (
@@ -284,7 +289,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                   })}
                 </div>
               )}
-            </Section>
+            </Section>}
 
             <section className="cb-sec" style={{ padding: 0 }}>
               <button type="button" onClick={() => setAdv(a => !a)} data-adv-toggle aria-expanded={adv} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '20px 26px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--foreground)', fontSize: 14, fontWeight: 800, fontFamily: 'inherit', textAlign: 'left' }}>

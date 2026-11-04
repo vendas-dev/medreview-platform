@@ -4,6 +4,7 @@ import {
   SaleRow, startMessage, todaySP, validateDraft,
 } from './engine'
 import { CampaignDraft, CampaignRow, criterionInfo, Team, TEAMS } from './types'
+import { finishTierWinners, tickTierWinners } from './tiers-server'
 
 // ══ Apuração, avisos e fechamento das campanhas (servidor) ═══════════════════════
 // Tudo é idempotente: rodar a rotina 10 vezes seguidas dá o mesmo resultado de rodar 1.
@@ -92,6 +93,9 @@ export async function tickCampaign(admin: any, c: CampaignRow, now: Date, sum: T
     await admin.from('campaigns').update({ start_notified_at: now.toISOString() }).eq('id', c.id)
   }
 
+  // 1b) Faixas de valor: registra/atualiza quem atingiu faixa e avisa (idempotente; na última apuração fecha os ganhadores certos)
+  if (info.tiers) await tickTierWinners({ admin, c, d, ev, participants, send, claim: k => claimEvent(admin, c.id, k), sum })
+
   // 2) Corrida: cada vaga preenchida vira ganhador na hora (e avisa)
   if (info.race) {
     for (const t of ev.teams) for (let i = 0; i < t.winners.length; i++) {
@@ -111,12 +115,13 @@ export async function tickCampaign(admin: any, c: CampaignRow, now: Date, sum: T
   const msgs = finishMessages(d, ev)
   for (const t of ev.teams) for (let i = 0; i < t.winners.length; i++) {
     const w = t.winners[i], pos = i + 1
-    if (!info.race) {
+    if (!info.race && !info.tiers) {
       await admin.from('campaign_winners').upsert({ campaign_id: c.id, team: t.team, position: pos, user_id: w.userId, user_name: w.name, metric_value: w.metric, reached_at: w.reachedAt, prize: prizeFor(d, t.team, pos) }, { onConflict: 'campaign_id,team,position', ignoreDuplicates: true })
       sum.winners++
       const m = msgs.personal(w, pos); await send(m.title, m.body, 'vitoria', [w.userId], `finish:personal:${t.team}:${pos}`)
     }
   }
+  if (info.tiers) await finishTierWinners({ admin, c, d, ev, send, msgs, sum })
   await send(msgs.everyone.title, msgs.everyone.body, 'campanha', everyone, 'finish:everyone')
   if (c.created_by) await send(msgs.creator.title, msgs.creator.body, 'campanha', [c.created_by], 'finish:creator')
   await admin.from('campaigns').update({ finalized_at: now.toISOString() }).eq('id', c.id)

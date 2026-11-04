@@ -1,5 +1,6 @@
 import { CampaignDraft, CampaignRow, Team, TEAMS, THEMES, CRITERIA, EMOJIS } from './types'
 import { rowToDraft } from './server'
+import { cleanTiers } from './tiers'
 
 /** Lê o rascunho vindo da tela e devolve só o que é válido (nunca confia no que chega). */
 export function parseDraft(b: any): CampaignDraft | null {
@@ -9,7 +10,7 @@ export function parseDraft(b: any): CampaignDraft | null {
     const r = b.teams?.[t]; if (!r) continue
     const winners = Number(r.winners), target = r.target === null || r.target === '' || r.target === undefined ? null : Number(r.target)
     if (Array.isArray(b.prizes?.[t])) prizes[t as Team] = b.prizes[t].slice(0, 50).map((x: unknown) => String(x ?? ''))
-    teams[t as Team] = { winners: Number.isFinite(winners) ? Math.trunc(winners) : 0, target: target !== null && Number.isFinite(target) ? target : null }
+    teams[t as Team] = { winners: Number.isFinite(winners) ? Math.trunc(winners) : 0, target: target !== null && Number.isFinite(target) ? target : null, ...(Array.isArray(r.tiers) ? { tiers: cleanTiers(r.tiers) } : {}) }
   }
   return {
     name: String(b.name ?? ''), subtitle: String(b.subtitle ?? ''), prize: String(b.prize ?? ''),

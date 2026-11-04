@@ -4,6 +4,8 @@ import { parseDraft, toRow } from './api'
 import { addDays, cancelMessage, phaseOf, prizeFor, ruleSignature, todaySP, validateDraft } from './engine'
 import { draftToDb, evaluateDraft, loadParticipants, publishCampaign, rowToDraft, runCampaignTick } from './server'
 import { CampaignRow, Team, TEAMS } from './types'
+import { refreshTierWinnerPrizes } from './tiers-server'
+import { tierTeamsView } from './tiers'
 
 // ══ Regras das rotas (sem HTTP, sem login): cada função devolve { status, json } ═════════
 // As rotas só confirmam QUEM está logado e chamam estas funções — assim dá pra testar tudo.
@@ -86,6 +88,7 @@ export async function hPatchCampaign(admin: any, id: string, body: any, now: Dat
   // ganhador que ainda não recebeu: o prêmio gravado acompanha o texto novo (quem já recebeu não muda)
   const { data: ws } = await admin.from('campaign_winners').select('*').eq('campaign_id', id)
   for (const w of (ws ?? []) as any[]) if (!w.delivered_at) { const pz = prizeFor(row, w.team, w.position); if (pz && pz !== w.prize) await admin.from('campaign_winners').update({ prize: pz }).eq('id', w.id) }
+  if (row.criterion === 'tier_revenue') await refreshTierWinnerPrizes(admin, row)
   const sync = await syncCampaignNotifications(admin, row, now)
   if (status === 'published') await runCampaignTick(admin, { campaignId: id, now })           // reabre/fecha conforme a regra nova
   return ok({ ok: true, ruleChanged, reset, sync })
@@ -143,11 +146,11 @@ export async function hPreview(admin: any, body: any, now: Date = new Date()): P
   const draft = parseDraft(body?.draft)
   if (!draft) return bad('Dados inválidos.')
   const errors = validateDraft(draft, true)
-  const safe = { ...draft, teams: Object.fromEntries(Object.entries(draft.teams).map(([t, r]) => [t, { winners: Math.max(1, Math.min(50, (r as any).winners || 1)), target: (r as any).target }])) as typeof draft.teams }
+  const safe = { ...draft, teams: Object.fromEntries(Object.entries(draft.teams).map(([t, r]) => [t, { winners: Math.max(1, Math.min(50, (r as any).winners || 1)), target: (r as any).target, tiers: (r as any).tiers }])) as typeof draft.teams }
   const { ev, participants } = await evaluateDraft(admin, safe, todaySP(now))
   return ok({
     errors, phase: ev.phase, participants: { OAO: participants.filter(p => p.team === 'OAO').length, R1: participants.filter(p => p.team === 'R1').length },
-    teams: ev.teams.map(t => ({ team: t.team, winners: t.rule.winners, top: t.standings.slice(0, 5).map(s => ({ name: s.name, rank: s.rank, metric: s.metric, count: s.count, revenue: s.revenue, progress: s.progress, qualified: s.qualified })) })),
+    teams: ev.teams.map(t => ({ team: t.team, winners: t.rule.winners, top: t.standings.slice(0, 5).map(s => ({ name: s.name, rank: s.rank, metric: s.metric, count: s.count, revenue: s.revenue, progress: s.progress, qualified: s.qualified, tierPrize: s.tierPrize ?? null })) })),
   })
 }
 
@@ -223,7 +226,7 @@ export async function hCampaignWinnersView(admin: any, userId: string, campaignI
   const winners = (ws ?? []) as any[], phase = phaseOf(d, todaySP(now))
   const cancelled = r.status === 'cancelled', finished = !!r.finalized_at
   const state = cancelled ? 'cancelled' : finished ? 'finished' : phase === 'scheduled' ? 'scheduled' : phase === 'ended' ? 'counting' : 'active'
-  const teams = allowed.map(team => ({
+  const teams = d.criterion === 'tier_revenue' ? tierTeamsView(d, allowed, winners, userId, finished || cancelled) : allowed.map(team => ({
     team,
     positions: Array.from({ length: Math.max(0, Math.min(50, d.teams[team]!.winners)) }, (_, i) => {
       const w = winners.find(x => x.team === team && x.position === i + 1)

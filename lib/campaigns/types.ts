@@ -4,12 +4,13 @@ export const TEAMS: Team[] = ['OAO', 'R1']
 export const TEAM_NAME: Record<Team, string> = { OAO: 'OAO', R1: 'R1' }
 export const TEAM_HINT: Record<Team, string> = { OAO: 'Anest · Oft · Ortop', R1: 'Med-Review R1' }
 
-export type Criterion = 'revenue_rank' | 'count_rank' | 'first_revenue' | 'first_count' | 'best_day' | 'best_sale'
+export type Criterion = 'revenue_rank' | 'count_rank' | 'first_revenue' | 'first_count' | 'best_day' | 'best_sale' | 'tier_revenue'
 export interface CriterionInfo {
   id: Criterion; icon: string; label: string; desc: string
   unit: 'money' | 'count'      // o que é medido
   race: boolean                // corrida: ganha quem BATE o alvo primeiro (vence na hora, não só no fim)
   needsTarget: boolean         // pede um valor/quantidade alvo
+  tiers?: boolean              // faixas de valor: quem atinge ganha o prêmio da faixa, SEM limite de ganhadores
 }
 export const CRITERIA: CriterionInfo[] = [
   { id: 'revenue_rank',  icon: '💰', label: 'Maior receita',               desc: 'Ganha quem somar mais R$ em vendas no período.',                   unit: 'money', race: false, needsTarget: false },
@@ -18,10 +19,13 @@ export const CRITERIA: CriterionInfo[] = [
   { id: 'first_count',   icon: '⚡', label: 'Primeiro a bater X vendas',   desc: 'Corrida: ganham os primeiros a atingir a quantidade de vendas.',   unit: 'count', race: true,  needsTarget: true  },
   { id: 'best_day',      icon: '🚀', label: 'Pico de vendas (melhor dia)', desc: 'Ganha quem fizer a maior receita em um único dia.',                unit: 'money', race: false, needsTarget: false },
   { id: 'best_sale',     icon: '💎', label: 'Maior venda',                 desc: 'Ganha quem fechar a venda de maior valor.',                        unit: 'money', race: false, needsTarget: false },
+  { id: 'tier_revenue',  icon: '🎚️', label: 'Faixas de valor',             desc: 'Quem atingir cada valor ganha o prêmio da faixa mais alta que alcançar. Sem limite de ganhadores.', unit: 'money', race: false, needsTarget: false, tiers: true },
 ]
 export const criterionInfo = (c: Criterion): CriterionInfo => CRITERIA.find(x => x.id === c)!
 
-export interface TeamRule { winners: number; target: number | null }
+/** Faixa de valor: quem atingir `target` (R$) ganha `prize`. */
+export interface Tier { target: number | null; prize: string }
+export interface TeamRule { winners: number; target: number | null; tiers?: Tier[] }
 
 /** single = um prêmio pra todos os ganhadores · tiered = um prêmio DIFERENTE por posição (e por time) */
 export type PrizeMode = 'single' | 'tiered'

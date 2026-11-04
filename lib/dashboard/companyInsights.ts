@@ -190,7 +190,7 @@ async function callModel(prompt: string, deps: Required<Pick<InsightDeps, 'fetch
       headers: { 'Content-Type': 'application/json', 'x-api-key': deps.apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }),
     })
-    if (!res.ok) { console.error('[companyInsights] API respondeu', res.status); return null }
+    if (!res.ok) { console.error('[companyInsights] API respondeu', res.status, (await res.text().catch(() => '')).slice(0, 400)); return null }
     const data = await res.json()
     let raw = (data.content?.find((b: any) => b.type === 'text')?.text ?? '').trim().replace(/```json/g, '').replace(/```/g, '').trim()
     const match = raw.match(/\[[\s\S]*\]/); if (match) raw = match[0]

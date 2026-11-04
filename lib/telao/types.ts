@@ -21,8 +21,9 @@ const VERTICAIS_ATIVAS: Record<VerticalId, VerticalConfig> = {
 // Verticais APOSENTADAS (ex.: vascreview): existem no banco só como histórico de vendas. NÃO ganham painel, aba nem cartão: VERTICAL_LIST e Object.keys/values só enxergam as 4 ativas.
 // Mas se uma venda dessas aparecer num período (feed, ticker, análises), VERTICALS[ev.vertical] devolve um visual neutro em vez de undefined (que derrubaria a tela).
 const VERTICAL_APOSENTADA: VerticalConfig = { id: 'vascreview' as VerticalId, label: 'Vasc-Review', short: 'VASC', accent: '#94a3b8', glow: 'rgba(148,163,184,0.4)', mascot: '' }
+const VERTICAL_APOSENTADA_PSIQ: VerticalConfig = { id: 'psiqclara' as unknown as VerticalId, label: 'PsiqClara', short: 'PSIQ', accent: '#94a3b8', glow: 'rgba(148,163,184,0.4)', mascot: '' }
 export const VERTICALS: Record<VerticalId, VerticalConfig> = new Proxy(VERTICAIS_ATIVAS, {
-  get: (t, k) => (k === 'vascreview' ? VERTICAL_APOSENTADA : (t as any)[k]),
+  get: (t, k) => (k === 'vascreview' ? VERTICAL_APOSENTADA : k === 'psiqclara' ? VERTICAL_APOSENTADA_PSIQ : (t as any)[k]),
 })
 
 export const VERTICAL_LIST = Object.values(VERTICALS)

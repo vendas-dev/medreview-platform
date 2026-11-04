@@ -1,4 +1,5 @@
 import { fmtBRL, normalizeName } from '@/lib/telao/format'
+import { finishMessagesTiers, howToWinTiers, tierStanding, tierTargetsKey, tiersText, TierStanding, validateTiers } from './tiers'
 import { CampaignDraft, Criterion, CRITERIA, criterionInfo, Phase, Team, TEAMS, TeamRule } from './types'
 
 // ══ Motor de apuração das campanhas (funções puras: sem tela, sem banco) ══════
@@ -33,7 +34,7 @@ export function phaseOf(d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>, today: 
  * (mexer neles só reescreve os textos dos avisos). Usado pra decidir se uma edição refaz os ganhadores.
  */
 export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals'>): string {
-  const teams = TEAMS.filter(t => d.teams[t]).map(t => [t, d.teams[t]!.winners, d.teams[t]!.target ?? null])
+  const teams = TEAMS.filter(t => d.teams[t]).map(t => [t, d.teams[t]!.winners, d.teams[t]!.target ?? null, ...(d.criterion === 'tier_revenue' ? [tierTargetsKey(d.teams[t]!.tiers)] : [])])
   return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null])
 }
 
@@ -45,7 +46,8 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
   else if (d.name.trim().length > 60) e.push('O nome pode ter até 60 caracteres.')
   if (d.subtitle.length > 140) e.push('A descrição curta pode ter até 140 caracteres.')
   const tiered = d.prize_mode === 'tiered'
-  if (!tiered) {
+  const tierCrit = d.criterion === 'tier_revenue'
+  if (!tiered && !tierCrit) {
     if (strict && !d.prize.trim()) e.push('Informe o prêmio.')
     else if (d.prize.trim().length > 120) e.push('O prêmio pode ter até 120 caracteres.')
   }
@@ -55,14 +57,15 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
   const info = CRITERIA.find(c => c.id === d.criterion)
   for (const t of teams) {
     const r = d.teams[t]!
-    if (strict && !(Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50)) e.push(`Time ${t}: informe quantos serão premiados (1 a 50).`)
+    if (strict && !tierCrit && !(Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50)) e.push(`Time ${t}: informe quantos serão premiados (1 a 50).`)
     if (strict && info?.needsTarget && !(typeof r.target === 'number' && r.target > 0)) e.push(`Time ${t}: informe ${info.unit === 'money' ? 'o valor (R$)' : 'o número de vendas'} a bater.`)
   }
-  if (tiered) for (const t of teams) {                                 // premiação diferenciada: cada posição precisa do seu prêmio
+  if (tiered && !tierCrit) for (const t of teams) {                                 // premiação diferenciada: cada posição precisa do seu prêmio
     const n = Number.isInteger(d.teams[t]!.winners) ? d.teams[t]!.winners : 0, list = d.prizes?.[t] ?? [], missing: number[] = []
     for (let i = 0; i < Math.min(n, 50); i++) { const v = (list[i] ?? '').trim(); if (!v) missing.push(i + 1); else if (v.length > 120) e.push(`Time ${t}: o prêmio do ${i + 1}º lugar pode ter até 120 caracteres.`) }
     if (strict && missing.length) e.push(`Time ${t}: ${missingText(missing, n)}.`)
   }
+  if (tierCrit) e.push(...validateTiers(d, teams, strict))
   if (!DAY_RE.test(d.starts_on) || !DAY_RE.test(d.ends_on)) e.push('Informe a data de início e a de fim.')
   else if (d.ends_on < d.starts_on) e.push('A data final não pode ser antes da inicial.')
   else if (durationDays(d) > 92) e.push('A campanha pode durar no máximo 92 dias.')
@@ -84,8 +87,8 @@ export function prizesText(d: CampaignDraft): string {
   return lists.length > 1 && lists.every(l => l === lists[0]) ? lists[0] : teams.map((t, i) => (teams.length > 1 ? `${t}: ${lists[i]}` : lists[i])).join(' · ')
 }
 /** O que aparece no card/lista: o prêmio (único) ou "Premiação por posição". */
-export const prizeHeadline = (d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes' | 'teams'>): string => d.prize_mode === 'tiered' ? 'Premiação por posição' : d.prize.trim()
-const prizeLine = (d: CampaignDraft): string => (d.prize_mode === 'tiered' ? `Prêmios: ${prizesText(d)}.` : `Prêmio: ${d.prize.trim()}.`)
+export const prizeHeadline = (d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes' | 'teams' | 'criterion'>): string => d.criterion === 'tier_revenue' ? 'Premiação por faixa de valor' : d.prize_mode === 'tiered' ? 'Premiação por posição' : d.prize.trim()
+const prizeLine = (d: CampaignDraft): string => (d.criterion === 'tier_revenue' ? `Prêmios por faixa: ${tiersText(d)}.` : d.prize_mode === 'tiered' ? `Prêmios: ${prizesText(d)}.` : `Prêmio: ${d.prize.trim()}.`)
 
 // ── textos ──────────────────────────────────────────────────────────────────
 const nTeams = (d: CampaignDraft): Team[] => TEAMS.filter(t => d.teams[t])
@@ -93,6 +96,7 @@ const unitText = (c: Criterion, v: number) => (criterionInfo(c).unit === 'money'
 
 /** "Top 3 do time OAO e Top 4 do time R1" */
 export function winnersText(d: CampaignDraft): string {
+  if (d.criterion === 'tier_revenue') return `Todos que atingirem uma faixa (${nTeams(d).length > 1 ? 'times' : 'time'} ${nTeams(d).join(' e ')})`
   const parts = nTeams(d).map(t => `${d.teams[t]!.winners === 1 ? '1º lugar' : `Top ${d.teams[t]!.winners}`} do time ${t}`)
   return parts.length <= 1 ? (parts[0] ?? '') : parts.slice(0, -1).join(', ') + ' e ' + parts[parts.length - 1]
 }
@@ -101,6 +105,7 @@ export const periodText = (d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>): str
 
 /** A regra em uma frase, pronta pra prévia e pra notificação. */
 export function howToWin(d: CampaignDraft): string {
+  if (d.criterion === 'tier_revenue') return howToWinTiers(d, periodText(d))
   const who = winnersText(d), when = periodText(d), end = d.prize_mode === 'tiered' ? 'ganham prêmios' : 'ganham o prêmio'
   const targets = (): string => {
     const ts = nTeams(d).map(t => d.teams[t]!.target ?? 0)
@@ -145,7 +150,7 @@ export function attributeSales(rows: SaleRow[], participants: Participant[], clo
     if (c.normalized_name) byName.set(c.normalized_name, uid)
   }
   const resolve = (closerId?: string | null, hub?: string | null, name?: string | null): string | null =>
-    (closerId && byCloser.get(closerId)) || (hub && byHub.get(String(hub).trim())) || (name && byName.get(normalizeName(name))) || null
+    (closerId && (byCloser.get(closerId) ?? (byUser.has(closerId) ? closerId : null))) || (hub && byHub.get(String(hub).trim())) || (name && byName.get(normalizeName(name))) || null
 
   const out: Credit[] = []
   for (const r of rows) {
@@ -169,6 +174,7 @@ export interface Standing {
   reachedAt: string | null            // corrida: quando bateu o alvo · ranking: quando fez a última venda contada
   progress: number                    // corrida: 0..1 do caminho até o alvo
   qualified: boolean                  // corrida: já bateu o alvo
+  tier?: number | null; tierTarget?: number | null; tierPrize?: string | null; nextTarget?: number | null; nextPrize?: string | null; tierHits?: (string | null)[]   // faixas de valor
 }
 export interface TeamEval { team: Team; rule: TeamRule; standings: Standing[]; winners: Standing[]; slotsLeft: number }
 export interface Evaluation { phase: Phase; teams: TeamEval[]; raceComplete: boolean; final: boolean }
@@ -195,11 +201,13 @@ export function evaluate(d: CampaignDraft, participants: Participant[], credits:
       const bestDay = Math.max(0, ...perDay.values()), bestSale = Math.max(0, ...cs.map(c => c.value))
       let reachedAt: string | null = cs.length ? cs[cs.length - 1].at : null, qualified = false, progress = 0
       let metric = 0
+      let tierX: TierStanding | null = null
       switch (d.criterion) {
         case 'revenue_rank': metric = revenue; break
         case 'count_rank':   metric = count; break
         case 'best_day':     metric = bestDay; break
         case 'best_sale':    metric = bestSale; break
+        case 'tier_revenue': { const ti = tierStanding(rule.tiers, cs); tierX = ti; metric = revenue; qualified = ti.tier !== null; reachedAt = ti.tierHits[0] ?? (cs.length ? cs[cs.length - 1].at : null); progress = ti.progress; break }
         case 'first_revenue':
         case 'first_count': {
           const target = rule.target ?? 0
@@ -209,10 +217,11 @@ export function evaluate(d: CampaignDraft, participants: Participant[], credits:
           qualified = hit !== null; reachedAt = hit; progress = target > 0 ? Math.min(metric / target, 1) : 0
         }
       }
-      return { userId: p.userId, name: p.name, team, rank: 0, metric, revenue, count, bestDay, bestSale, reachedAt, progress, qualified }
+      return { userId: p.userId, name: p.name, team, rank: 0, metric, revenue, count, bestDay, bestSale, reachedAt, progress, qualified, ...(tierX ? { tier: tierX.tier, tierTarget: tierX.tierTarget, tierPrize: tierX.tierPrize, nextTarget: tierX.nextTarget, nextPrize: tierX.nextPrize, tierHits: tierX.tierHits } : {}) }
     })
     const early = (a: Standing, b: Standing) => (a.reachedAt ?? '9999').localeCompare(b.reachedAt ?? '9999') || a.userId.localeCompare(b.userId)
     rows.sort((a, b) => {
+      if (info.tiers) return (b.tier ?? -1) - (a.tier ?? -1) || b.metric - a.metric || early(a, b)
       if (info.race) {                                    // corrida: quem bateu o alvo vem primeiro, pela ORDEM em que bateu
         if (a.qualified !== b.qualified) return a.qualified ? -1 : 1
         if (a.qualified) return early(a, b)
@@ -222,8 +231,8 @@ export function evaluate(d: CampaignDraft, participants: Participant[], credits:
       return b.metric - a.metric || second(b) - second(a) || early(a, b)
     })
     rows.forEach((r, i) => { r.rank = i + 1 })
-    const winners = info.race ? rows.filter(r => r.qualified).slice(0, rule.winners) : rows.filter(r => r.metric > 0).slice(0, rule.winners)
-    return { team, rule, standings: rows, winners, slotsLeft: Math.max(rule.winners - winners.length, 0) }
+    const winners = info.tiers ? rows.filter(r => r.qualified) : info.race ? rows.filter(r => r.qualified).slice(0, rule.winners) : rows.filter(r => r.metric > 0).slice(0, rule.winners)
+    return { team, rule, standings: rows, winners, slotsLeft: info.tiers ? 0 : Math.max(rule.winners - winners.length, 0) }
   })
   const raceComplete = info.race && teams.length > 0 && teams.every(t => t.slotsLeft === 0)
   return { phase, teams, raceComplete, final: phase === 'ended' || raceComplete }
@@ -247,8 +256,9 @@ export const raceHitMessages = (d: CampaignDraft, w: { name: string; team: Team;
 export const cancelMessage = (d: CampaignDraft): Msg => ({ title: `🚫 Campanha cancelada: ${d.name.trim()}`, body: 'Esta campanha foi cancelada pela gestão. Fique de olho nas próximas!' })
 export interface TeamResult { team: Team; winners: { name: string; metric: number; prize?: string | null }[] }   // prize = o gravado pro ganhador (se não vier, vale o da campanha)
 /** Mesmas mensagens do resultado, a partir da LISTA de ganhadores (serve tanto na apuração quanto pra reescrever avisos já enviados). */
-export function finishMessages(d: CampaignDraft, ev: Evaluation) { return finishMessagesFrom(d, ev.teams.map(t => ({ team: t.team, winners: t.winners.map(w => ({ name: w.name, metric: w.metric })) }))) }
+export function finishMessages(d: CampaignDraft, ev: Evaluation) { return finishMessagesFrom(d, ev.teams.map(t => ({ team: t.team, winners: t.winners.map(w => ({ name: w.name, metric: w.metric, prize: w.tierPrize ?? null })) }))) }
 export function finishMessagesFrom(d: CampaignDraft, results: TeamResult[]): { personal: (w: { team: Team; metric: number; prize?: string | null }, position: number) => Msg; everyone: Msg; creator: Msg } {
+  if (d.criterion === 'tier_revenue') return finishMessagesTiers(d, results)
   const tiered = d.prize_mode === 'tiered'
   const lines = results.map(t => `${t.team}: ${t.winners.length ? t.winners.map((w, i) => `${i + 1}º ${firstWord(w.name)}${tiered ? ` (${w.prize || prizeFor(d, t.team, i + 1)})` : ''}`).join(', ') : 'sem ganhadores'}`).join(' · ')
   return {

@@ -1155,7 +1155,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   const [metaCeleb,     setMetaCeleb]     = useState<{ vertical:VerticalId|null; value:number }|null>(null)
   const [closerGoalCeleb, setCloserGoalCeleb] = useState<{ closer:Closer|null; name:string; value:number }|null>(null)
   const [closerMonthlyGoals, setCloserMonthlyGoals] = useState<{ closerId:string; name:string; goal:number }[]>([])
-  const [monthSalesRaw, setMonthSalesRaw] = useState<{ value:number; closer_id:string|null; closer_hubspot_id:string|null }[]>([])
+  const [monthSalesRaw, setMonthSalesRaw] = useState<{ value:number; closer_id:string|null; closer_hubspot_id:string|null; co_closer_id?:string|null; co_closer_hubspot_id?:string|null }[]>([])
 
 
   // Guarda quais combinações (dia + vertical/geral) já celebraram, pra não
@@ -1178,6 +1178,15 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   // o dia de hoje vem do `events` ao vivo. `chartTick` faz o botão de atualizar refazer o histórico também.
   const [chartTick, setChartTick] = useState(0)
   const monthSales = useMonthSales(isAdmin, chartTick)
+
+  // [trocas] reatualiza sozinho: uma TROCA DE VENDA (atribuição) é um UPDATE numa venda que pode ser de outro dia, e o período filtrado / o mês por closer eram carregados UMA vez
+  // (só corrigiam recarregando a página). A cada 60 s (e ao voltar para a aba) o telão relê o período e o mês.
+  useEffect(() => {
+    const atualiza = () => { if (document.visibilityState === 'visible') { setRangeTick(x => x + 1); setChartTick(x => x + 1) } }
+    const id = setInterval(atualiza, 60_000)
+    document.addEventListener('visibilitychange', atualiza)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', atualiza) }
+  }, [])
 
   // "Ajustar à tela": o telão ocupa exatamente a área visível, sem rolagem (só admin, telas ≥ 961px). Escolha lembrada neste navegador.
   const [fit, setFit] = useState(true)
@@ -1218,22 +1227,36 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
   useEffect(() => {
     if (!isAdmin) return
     const supabase = createBrowserClient()
-    supabase.from('telao_events').select('value, closer_id, closer_hubspot_id')
-      .eq('event_type', 'sale').gte('occurred_at', monthStart())
-      .then(({ data }) => setMonthSalesRaw((data ?? []) as any))
-  }, [isAdmin])
+    let cancelled = false
+    ;(async () => {                                                         // paginado (o Supabase corta em 1.000) e COM o co-closer; refaz a cada atualização (troca de venda é um UPDATE)
+      const rows: any[] = []
+      for (let from = 0; from < 100000; from += 1000) {
+        const { data, error } = await supabase.from('telao_events').select('value, closer_id, closer_hubspot_id, co_closer_id, co_closer_hubspot_id')
+          .eq('event_type', 'sale').gte('occurred_at', monthStart()).order('occurred_at', { ascending: false }).order('id').range(from, from + 999)
+        if (error) return
+        rows.push(...(data ?? []))
+        if ((data ?? []).length < 1000) break
+      }
+      if (!cancelled) setMonthSalesRaw(rows as any)
+    })()
+    return () => { cancelled = true }
+  }, [isAdmin, chartTick])
 
   const closerMonthRevenue = useMemo(() => {
+    // closer_id é id da tabela closers; co_closer_id é id do PERFIL: resolve pelos dois e pelo hubspot_id (com trim). Principal E co-closer somam (uma vez por pessoa).
     const map: Record<string, number> = {}
+    const byProfile = new Map<string, Closer>(); (closers ?? []).forEach((c: any) => { if (c.profile_id) byProfile.set(String(c.profile_id), c) })
+    const byHub = new Map<string, Closer>(); Object.entries(byHubId).forEach(([k, c]) => byHub.set(String(k).trim(), c as Closer))
+    const find = (id: any, hub: any): Closer | null => (id ? (byId[id] ?? byProfile.get(String(id))) : undefined) ?? (hub != null && String(hub).trim() ? byHub.get(String(hub).trim()) : undefined) ?? null
     monthSalesRaw.forEach((e: any) => {
-      let c: Closer | null = null
-      if (e.closer_id && byId[e.closer_id]) c = byId[e.closer_id]
-      else if (e.closer_hubspot_id && byHubId[String(e.closer_hubspot_id)]) c = byHubId[String(e.closer_hubspot_id)]
-      if (!c) return
-      map[c.id] = (map[c.id] ?? 0) + (e.value ?? 0)
+      const seen = new Set<string>()
+      for (const c of [find(e.closer_id, e.closer_hubspot_id), find(e.co_closer_id, e.co_closer_hubspot_id)]) {
+        if (!c || seen.has(c.id)) continue
+        seen.add(c.id); map[c.id] = (map[c.id] ?? 0) + (e.value ?? 0)
+      }
     })
     return map
-  }, [monthSalesRaw, byId, byHubId])
+  }, [monthSalesRaw, byId, byHubId, closers])
 
   // ── Meta individual do usuário logado (mensal, de /intel/goals) ──────
   // Só pra consultor — usada pro "Feito no mês / meta" e pro termômetro
@@ -1902,7 +1925,7 @@ function LiveWallInner({ isAdmin, userCloserId, userHubspotId, userTeam }: Props
               style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:audioOn?'rgba(168,85,247,.12)':'rgba(255,255,255,.02)',color:audioOn?'#c4b5fd':'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               {audioOn?<Volume2 size={13}/>:<VolumeX size={13}/>}
             </motion.button>
-            <motion.button whileTap={{scale:.95}} onClick={()=>{ refetch(); setChartTick(t=>t+1) }} style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <motion.button whileTap={{scale:.95}} onClick={()=>{ refetch(); setChartTick(t=>t+1); setRangeTick(t=>t+1) }} style={{width:34,height:34,borderRadius:10,border:'1px solid rgba(168,85,247,.15)',background:'rgba(255,255,255,.02)',color:'#9d8bc4',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <RefreshCw size={13} style={{animation:(loading||rangeFetching)?'spin 1s linear infinite':'none'}}/>
             </motion.button>
             {isAdmin&&(

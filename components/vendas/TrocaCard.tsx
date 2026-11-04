@@ -5,6 +5,8 @@ import { Check, CheckCircle2, Clock, Copy, ExternalLink, Hash, Loader2, MessageC
 import type { Decisao, TrocaRow } from '@/lib/vendas/types'
 import { fmtDataHora, teamCor } from '@/lib/vendas/format'
 import { Avatar, Banner, Btn, TeamBadge, TextArea, VerticalChip } from './ui'
+import { ArrowRightLeft, Search as SearchIcon } from 'lucide-react'
+import { ConsultarHpModal, TransferirVendaModal } from './HpModais'
 
 export const COR_STATUS = { pendente: '#f59e0b', concedida: '#16a34a', negada: '#dc2626', resolvida: '#64748b' }
 const lbl: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted-foreground)' }
@@ -36,6 +38,7 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
     setSalvando(true); setErro(null); const r = await onDecide!(t.id, modo!, texto); setSalvando(false)
     if (!r.ok) setErro(r.error ?? 'Não foi possível resolver.')
   }
+  const [hpAberto, setHpAberto] = useState(false); const [transfAberto, setTransfAberto] = useState(false); const [transferida, setTransferida] = useState<string | null>(null)
   const corModo = modo ? COR_STATUS[modo] : cor
   return (
     <motion.article layout="position" initial={{ opacity: 0, y: 12 }} animate={{ opacity: resolvida ? 0.7 : 1, y: 0 }} whileHover={resolvida ? { opacity: 1 } : undefined} transition={{ duration: 0.3 }} data-v="troca" data-id={t.id} data-status={t.status} data-decision={t.decision ?? ''} data-resolved={resolvida ? 'true' : 'false'}
@@ -57,6 +60,7 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
         <Info icon={<Package size={13} />} label="Produto"><div>{t.product}</div><div style={{ marginTop: 8 }}><VerticalChip v={t.vertical} /></div></Info>
         <Info icon={<Hash size={13} />} label="ID Transação">
           <button type="button" data-v="troca-copiar" title="Copiar ID" onClick={async () => { try { await navigator.clipboard.writeText(t.transaction_id); setCopiado(true); setTimeout(() => setCopiado(false), 1200) } catch { /* */ } }} className="vd-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 11px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card)', color: 'var(--foreground)', cursor: 'pointer', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13.5, fontWeight: 600 }}>{t.transaction_id}{copiado ? <Check size={14} style={{ color: '#16a34a' }} /> : <Copy size={14} style={{ color: 'var(--muted-foreground)' }} />}</button>
+          {admin && <div style={{ marginTop: 10 }}><Btn data-v="troca-consultar-hp" size="sm" variant="soft" icon={<SearchIcon size={14} />} onClick={() => setHpAberto(true)} title="Conferir se este HP existe no banco e como a venda está registrada">Consultar HP</Btn></div>}
         </Info>
         <Info icon={<User size={13} />} label="Nome do Lead">{t.lead_name}</Info>
       </div>
@@ -110,6 +114,12 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
               <motion.div key={modo} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: 'hidden' }}>
                 <div data-v="troca-form-resposta" data-decisao={modo} style={{ marginTop: 16, padding: 20, borderRadius: 16, background: `color-mix(in srgb, ${corModo} 7%, var(--card))`, border: `1.5px solid color-mix(in srgb, ${corModo} 38%, transparent)`, display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ ...lbl, color: corModo, fontSize: 12 }}>{modo === 'concedida' ? <ThumbsUp size={14} /> : <ThumbsDown size={14} />}{modo === 'concedida' ? 'Conceder esta troca' : 'Negar esta troca'}</div>
+                  {modo === 'concedida' && (
+                    <div data-v="troca-transferir-bloco" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 14px', borderRadius: 14, background: 'color-mix(in srgb, #6366f1 7%, var(--card))', border: '1px dashed color-mix(in srgb, #6366f1 40%, transparent)' }}>
+                      <Btn data-v="troca-transferir" variant="soft" icon={<ArrowRightLeft size={15} />} onClick={() => setTransfAberto(true)}>Transferir Venda</Btn>
+                      {transferida ? <span data-v="troca-transferida" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 800, color: '#16a34a' }}><CheckCircle2 size={14} />Venda transferida no banco</span> : <span style={{ fontSize: 12.5, color: 'var(--muted-foreground)' }}>Passa a venda do HP para {t.requester_name} no banco, antes de você responder.</span>}
+                    </div>
+                  )}
                   <TextArea data-v="troca-resposta-campo" autoFocus rows={3} maxLength={2000} value={texto} onChange={e => { setTexto(e.target.value); setErro(null) }} disabled={salvando} erro={!!erro} placeholder={modo === 'concedida' ? 'Justifique a concessão — o closer vai receber este texto…' : 'Explique o motivo da negativa — o closer vai receber este texto…'} />
                   {erro && <Banner tipo="erro">{erro}</Banner>}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -123,6 +133,8 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
           </AnimatePresence>
         </div>
       )}
+      {admin && hpAberto && <ConsultarHpModal troca={t} onClose={() => setHpAberto(false)} />}
+      {admin && transfAberto && <TransferirVendaModal troca={t} onClose={() => setTransfAberto(false)} onTransferida={r => setTransferida(r.resultado)} />}
     </motion.article>
   )
 }

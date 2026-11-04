@@ -4,10 +4,11 @@ import { CampaignDraft, criterionInfo, Team, TEAMS, THEMES } from '@/lib/campaig
 import { diffDays, durationDays, fmtDM, howToWin, launchMessage, metricText, phaseOf, prizeFor, validateDraft } from '@/lib/campaigns/engine'
 import { fmtBRL } from '@/lib/telao/format'
 import { NotificationCard } from '@/components/notifications/NotificationBell'
+import { TierTeamBlock } from './TierViews'
 
 // ══ Prévia da campanha — o que o superadmin vê enquanto preenche (e nos cards da lista) ══
 
-export interface PreviewTeam { team: Team; winners: number; top: { name: string; rank: number; metric: number; count: number; revenue: number; progress: number; qualified: boolean }[] }
+export interface PreviewTeam { team: Team; winners: number; top: { name: string; rank: number; metric: number; count: number; revenue: number; progress: number; qualified: boolean; tierPrize?: string | null }[] }
 export interface PreviewData { errors: string[]; phase: string; participants: { OAO: number; R1: number }; teams: PreviewTeam[] }
 
 const MEDALS = ['🥇', '🥈', '🥉', '🏅', '🏅']
@@ -52,6 +53,7 @@ export function CampaignBanner({ d, today, compact = false }: { d: CampaignDraft
 
 function TeamBlock({ d, team }: { d: CampaignDraft; team: Team }) {
   const r = d.teams[team]!, info = criterionInfo(d.criterion), n = r.winners > 0 ? r.winners : 0
+  if (info.tiers) return <TierTeamBlock team={team} tiers={r.tiers ?? []} />
   return (
     <div data-team-block={team} style={{ flex: 1, minWidth: 150, padding: '10px 12px', borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -83,13 +85,13 @@ function Standings({ d, live, loading, today }: { d: CampaignDraft; live: Previe
                 <div key={t.team} data-live-team={t.team} style={{ flex: 1, minWidth: 200 }}>
                   <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 800, color: 'var(--foreground)' }}>Time {t.team}</p>
                   {rows.length === 0 ? <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted-foreground)' }}>Ainda sem vendas no período.</p> : rows.map(r => {
-                    const inMoney = r.rank <= t.winners && (!info.race || r.qualified)
+                    const inMoney = info.tiers ? !!r.tierPrize : r.rank <= t.winners && (!info.race || r.qualified)
                     return (
                       <div key={r.rank + r.name} data-live-row={r.name} style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', marginBottom: 4, borderRadius: 10, background: inMoney ? 'rgba(34,197,94,.1)' : 'var(--secondary)', border: inMoney ? '1px solid rgba(34,197,94,.35)' : '1px solid transparent' }}>
                         <motion.div initial={{ width: 0 }} animate={{ width: `${((info.race ? r.progress : r.metric / max) * 100)}%` }} transition={{ duration: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: inMoney ? 'rgba(34,197,94,.14)' : 'rgba(99,102,241,.1)' }} />
                         <span style={{ position: 'relative', width: 22, fontSize: 13, textAlign: 'center' }}>{r.rank <= 3 ? MEDALS[r.rank - 1] : `${r.rank}º`}</span>
                         <span style={{ position: 'relative', flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-                        <span style={{ position: 'relative', fontSize: 11.5, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{info.race ? (r.qualified ? '✅ bateu' : `${Math.round(r.progress * 100)}%`) : metricText(d.criterion, r.metric)}</span>
+                        <span style={{ position: 'relative', fontSize: 11.5, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{info.tiers ? `${metricText(d.criterion, r.metric)}${r.tierPrize ? ` · 🎁 ${r.tierPrize}` : ''}` : info.race ? (r.qualified ? '✅ bateu' : `${Math.round(r.progress * 100)}%`) : metricText(d.criterion, r.metric)}</span>
                       </div>
                     )
                   })}
@@ -115,7 +117,7 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
         <p data-howto style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: 'var(--foreground)', fontWeight: 600 }}>{rule ? howToWin(d) : <span style={{ opacity: 0.55, fontWeight: 500 }}>Escolha o critério, os times e as datas para ver a regra aqui.</span>}</p>
         {teams.length > 0 && <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>{teams.map(t => <TeamBlock key={t} d={d} team={t} />)}</div>}
 
-        {d.prize_mode === 'tiered' ? (
+        {criterionInfo(d.criterion).tiers ? null : d.prize_mode === 'tiered' ? (
           <div data-prize="tiered" style={{ marginTop: 14, padding: '11px 14px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(234,88,12,.12))', border: '1px solid rgba(245,158,11,.4)' }}>
             <p style={{ margin: '0 0 8px', fontSize: 9.5, fontWeight: 900, letterSpacing: '.14em', color: '#d97706' }}>🎁 PREMIAÇÃO POR POSIÇÃO</p>
             {teams.length === 0 ? <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Escolha os times para definir os prêmios.</p> : (
