@@ -8,6 +8,7 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: CORS }) }
 
 // Marca vendas como REEMBOLSADAS pelo transaction_id (o "HP"). A venda sai de TODOS os valores e contagens (o gatilho do banco tira a linha de 'sale').
+// URL:  /api/public/reembolsos  — fica em /api/public de propósito: o middleware só deixa passar SEM login as rotas /api/public/* e /api/webhooks/* (como /api/public/events e /api/public/transfer-sale).
 //   POST    { "transaction_id": "HP0052903820" }                      (opcional: "motivo": "texto")
 //   POST    { "transaction_ids": ["HP...", "HP..."] }   ou   [ {"transaction_id": "HP..."}, ... ]        — até 500 por chamada
 //   DELETE  { "transaction_id": "HP..." }   (ou POST com "desfazer": true)                               — DESFAZ o reembolso (a venda volta a contar)

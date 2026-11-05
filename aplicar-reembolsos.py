@@ -8,7 +8,9 @@ REEMBOLSOS — instala no projeto o endpoint que marca uma venda como reembolsad
 
 Cria 2 arquivos NOVOS (não altera nenhum arquivo seu):
   lib/reembolsos.ts                    a lógica (ler o HP, marcar/desfazer, conferir que o banco agiu)
-  app/api/reembolsos/route.ts          o endpoint:  POST /api/reembolsos   (e DELETE para desfazer)
+  app/api/public/reembolsos/route.ts   o endpoint:  POST /api/public/reembolsos   (e DELETE para desfazer)
+FICA EM /api/public DE PROPÓSITO: o middleware do site só deixa passar sem login as rotas /api/public/* e /api/webhooks/* (como /api/public/events e /api/public/transfer-sale).
+Se você instalou a versão 1 (que criou app/api/reembolsos/route.ts, bloqueada pelo login), este script APAGA esse arquivo (só se estiver intacto).
 O que faz a venda SAIR dos números é o GATILHO do banco: rode os arquivos sql/01 (sozinho) e sql/02 no Supabase.
 TUDO-OU-NADA, pode rodar de novo ("já aplicado"), não sobrescreve arquivo seu que seja diferente, mantém CRLF/LF do projeto.
 """
@@ -115,7 +117,7 @@ ARQUIVOS = {  # caminho → (sha256 do texto com \n, conteúdo em base64)
     'YmFzZSwgc3RhdHVzOiAnZXJybycsIGxpbmhhczogMCwgdmFsb3I6IDAsIG1lbnNhZ2VtOiBgRXJybyBhbyBncmF2YXI6ICR7dXAu'
     'ZXJyb3IubWVzc2FnZX1gIH0pOyBjb250aW51ZSB9CiAgICAgIG91dC5wdXNoKHsgLi4uYmFzZSwgc3RhdHVzOiAnZGVzZmVpdG8n'
     'LCBsaW5oYXM6IGFsdm8ubGVuZ3RoLCB2YWxvcjogc29tYShhbHZvKSB9KQogICAgfQogIH0KICByZXR1cm4gb3V0Cn0K'),
-  'app/api/reembolsos/route.ts': ('0da7eb86c55c723926f9f674a5209701217efe36d213937fc2b1adee4e99735b',
+  'app/api/public/reembolsos/route.ts': ('66282c7ba851bf3c7f606a1116598eeaab21597ed7204da02442967aab3617ea',
     'aW1wb3J0IHsgTmV4dFJlcXVlc3QsIE5leHRSZXNwb25zZSB9IGZyb20gJ25leHQvc2VydmVyJwppbXBvcnQgeyBjcmVhdGVBZG1p'
     'bkNsaWVudCB9IGZyb20gJ0AvbGliL3N1cGFiYXNlL2FkbWluJwppbXBvcnQgeyBhcGxpY2FyUmVlbWJvbHNvcywgTUFYX1JFRU1C'
     'T0xTT1NfUE9SX0NIQU1BREEsIHBhcnNlUmVlbWJvbHNvQm9keSB9IGZyb20gJ0AvbGliL3JlZW1ib2xzb3MnCgpleHBvcnQgY29u'
@@ -125,41 +127,48 @@ ARQUIVOS = {  # caminho → (sha256 do texto com \n, conteúdo em base64)
     'biBPUFRJT05TKCkgeyByZXR1cm4gbmV3IE5leHRSZXNwb25zZShudWxsLCB7IHN0YXR1czogMjA0LCBoZWFkZXJzOiBDT1JTIH0p'
     'IH0KCi8vIE1hcmNhIHZlbmRhcyBjb21vIFJFRU1CT0xTQURBUyBwZWxvIHRyYW5zYWN0aW9uX2lkIChvICJIUCIpLiBBIHZlbmRh'
     'IHNhaSBkZSBUT0RPUyBvcyB2YWxvcmVzIGUgY29udGFnZW5zIChvIGdhdGlsaG8gZG8gYmFuY28gdGlyYSBhIGxpbmhhIGRlICdz'
-    'YWxlJykuCi8vICAgUE9TVCAgICB7ICJ0cmFuc2FjdGlvbl9pZCI6ICJIUDAwNTI5MDM4MjAiIH0gICAgICAgICAgICAgICAgICAg'
-    'ICAgKG9wY2lvbmFsOiAibW90aXZvIjogInRleHRvIikKLy8gICBQT1NUICAgIHsgInRyYW5zYWN0aW9uX2lkcyI6IFsiSFAuLi4i'
-    'LCAiSFAuLi4iXSB9ICAgb3UgICBbIHsidHJhbnNhY3Rpb25faWQiOiAiSFAuLi4ifSwgLi4uIF0gICAgICAgIOKAlCBhdMOpIDUw'
-    'MCBwb3IgY2hhbWFkYQovLyAgIERFTEVURSAgeyAidHJhbnNhY3Rpb25faWQiOiAiSFAuLi4iIH0gICAob3UgUE9TVCBjb20gImRl'
-    'c2ZhemVyIjogdHJ1ZSkgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4oCUIERFU0ZBWiBvIHJlZW1ib2xzbyAoYSB2ZW5k'
-    'YSB2b2x0YSBhIGNvbnRhcikKLy8gQXV0ZW50aWNhw6fDo286IG8gTUVTTU8gc2VncmVkbyBkb3Mgb3V0cm9zIHdlYmhvb2tzIChj'
-    'YWJlw6dhbGhvIHgtd2ViaG9vay1zZWNyZXQgPSB2YXJpw6F2ZWwgV0VCSE9PS19TRUNSRVQpLiBBcXVpIG8gc2VncmVkbyDDqSBP'
-    'QlJJR0FUw5NSSU8gKG1leGUgZW0gZGluaGVpcm8pOiBzZW0gZWxlIGNvbmZpZ3VyYWRvIGEgcm90YSByZWN1c2EgdHVkby4KLy8g'
-    'w4kgaWRlbXBvdGVudGU6IG1hbmRhciBvIG1lc21vIEhQIGR1YXMgdmV6ZXMgbsOjbyBmYXogbWFsIChhIDLCqiByZXNwb3N0YSBk'
-    'aXogImphX3JlZW1ib2xzYWRvIikuCmFzeW5jIGZ1bmN0aW9uIHRyYXRhcihyZXE6IE5leHRSZXF1ZXN0LCBkZXNmYXplclBvck1l'
-    'dG9kbzogYm9vbGVhbikgewogIHRyeSB7CiAgICBjb25zdCBzZWNyZXQgPSBwcm9jZXNzLmVudi5XRUJIT09LX1NFQ1JFVAogICAg'
-    'aWYgKCFzZWNyZXQpIHJldHVybiBOZXh0UmVzcG9uc2UuanNvbih7IGVycm9yOiAnV0VCSE9PS19TRUNSRVQgbsOjbyBlc3TDoSBj'
-    'b25maWd1cmFkbyBubyBzZXJ2aWRvcjogZXN0YSByb3RhIGZpY2EgZmVjaGFkYSBhdMOpIGNvbmZpZ3VyYXInIH0sIHsgc3RhdHVz'
-    'OiA1MDAsIGhlYWRlcnM6IENPUlMgfSkKICAgIGlmIChyZXEuaGVhZGVycy5nZXQoJ3gtd2ViaG9vay1zZWNyZXQnKSAhPT0gc2Vj'
-    'cmV0KSByZXR1cm4gTmV4dFJlc3BvbnNlLmpzb24oeyBlcnJvcjogJ1VuYXV0aG9yaXplZCcgfSwgeyBzdGF0dXM6IDQwMSwgaGVh'
-    'ZGVyczogQ09SUyB9KQoKICAgIGxldCBib2R5OiBhbnkKICAgIHRyeSB7IGJvZHkgPSBhd2FpdCByZXEuanNvbigpIH0gY2F0Y2gg'
-    'eyByZXR1cm4gTmV4dFJlc3BvbnNlLmpzb24oeyBlcnJvcjogJ0pTT04gaW52w6FsaWRvJyB9LCB7IHN0YXR1czogNDAwLCBoZWFk'
-    'ZXJzOiBDT1JTIH0pIH0KICAgIGNvbnN0IHsgaXRlbXMsIHJlamVjdGVkLCBkZXNmYXplciB9ID0gcGFyc2VSZWVtYm9sc29Cb2R5'
-    'KGJvZHkpCiAgICBpZiAoaXRlbXMubGVuZ3RoID09PSAwKSByZXR1cm4gTmV4dFJlc3BvbnNlLmpzb24oeyBlcnJvcjogJ25lbmh1'
-    'bSB0cmFuc2FjdGlvbl9pZCB2w6FsaWRvJywgcmVqZWN0ZWQ6IHJlamVjdGVkLnNsaWNlKDAsIDUpIH0sIHsgc3RhdHVzOiA0MDAs'
-    'IGhlYWRlcnM6IENPUlMgfSkKICAgIGlmIChpdGVtcy5sZW5ndGggPiBNQVhfUkVFTUJPTFNPU19QT1JfQ0hBTUFEQSkgcmV0dXJu'
-    'IE5leHRSZXNwb25zZS5qc29uKHsgZXJyb3I6IGBubyBtw6F4aW1vICR7TUFYX1JFRU1CT0xTT1NfUE9SX0NIQU1BREF9IHRyYW5z'
-    'YWN0aW9uX2lkIHBvciBjaGFtYWRhYCB9LCB7IHN0YXR1czogNDEzLCBoZWFkZXJzOiBDT1JTIH0pCgogICAgY29uc3QgcmVzdWx0'
-    'YWRvcyA9IGF3YWl0IGFwbGljYXJSZWVtYm9sc29zKGNyZWF0ZUFkbWluQ2xpZW50KCksIGl0ZW1zLCBkZXNmYXplclBvck1ldG9k'
-    'byB8fCBkZXNmYXplcikKICAgIGNvbnN0IHJlc3VtbzogUmVjb3JkPHN0cmluZywgbnVtYmVyPiA9IHt9CiAgICBmb3IgKGNvbnN0'
-    'IHIgb2YgcmVzdWx0YWRvcykgcmVzdW1vW3Iuc3RhdHVzXSA9IChyZXN1bW9bci5zdGF0dXNdID8/IDApICsgMQogICAgY29uc3Qg'
-    'dGVtRXJybyA9IHJlc3VsdGFkb3Muc29tZShyID0+IHIuc3RhdHVzID09PSAnZXJybycpCiAgICByZXR1cm4gTmV4dFJlc3BvbnNl'
-    'Lmpzb24oeyBvazogIXRlbUVycm8sIHJlY2ViaWRvczogaXRlbXMubGVuZ3RoLCByZWplaXRhZG9zOiByZWplY3RlZC5sZW5ndGgs'
-    'IHJlc3VtbywgcmVzdWx0YWRvcyB9LCB7IHN0YXR1czogdGVtRXJybyA/IDUwMCA6IDIwMCwgaGVhZGVyczogQ09SUyB9KQogIH0g'
-    'Y2F0Y2ggKGU6IGFueSkgewogICAgY29uc29sZS5lcnJvcignW3JlZW1ib2xzb3NdJywgZT8ubWVzc2FnZSA/PyBlKQogICAgcmV0'
-    'dXJuIE5leHRSZXNwb25zZS5qc29uKHsgZXJyb3I6ICdFcnJvIGFvIHByb2Nlc3NhciBvIHJlZW1ib2xzbycgfSwgeyBzdGF0dXM6'
-    'IDUwMCwgaGVhZGVyczogQ09SUyB9KQogIH0KfQpleHBvcnQgYXN5bmMgZnVuY3Rpb24gUE9TVChyZXE6IE5leHRSZXF1ZXN0KSB7'
-    'IHJldHVybiB0cmF0YXIocmVxLCBmYWxzZSkgfQpleHBvcnQgYXN5bmMgZnVuY3Rpb24gREVMRVRFKHJlcTogTmV4dFJlcXVlc3Qp'
-    'IHsgcmV0dXJuIHRyYXRhcihyZXEsIHRydWUpIH0K'),
+    'YWxlJykuCi8vIFVSTDogIC9hcGkvcHVibGljL3JlZW1ib2xzb3MgIOKAlCBmaWNhIGVtIC9hcGkvcHVibGljIGRlIHByb3DDs3Np'
+    'dG86IG8gbWlkZGxld2FyZSBzw7MgZGVpeGEgcGFzc2FyIFNFTSBsb2dpbiBhcyByb3RhcyAvYXBpL3B1YmxpYy8qIGUgL2FwaS93'
+    'ZWJob29rcy8qIChjb21vIC9hcGkvcHVibGljL2V2ZW50cyBlIC9hcGkvcHVibGljL3RyYW5zZmVyLXNhbGUpLgovLyAgIFBPU1Qg'
+    'ICAgeyAidHJhbnNhY3Rpb25faWQiOiAiSFAwMDUyOTAzODIwIiB9ICAgICAgICAgICAgICAgICAgICAgIChvcGNpb25hbDogIm1v'
+    'dGl2byI6ICJ0ZXh0byIpCi8vICAgUE9TVCAgICB7ICJ0cmFuc2FjdGlvbl9pZHMiOiBbIkhQLi4uIiwgIkhQLi4uIl0gfSAgIG91'
+    'ICAgWyB7InRyYW5zYWN0aW9uX2lkIjogIkhQLi4uIn0sIC4uLiBdICAgICAgICDigJQgYXTDqSA1MDAgcG9yIGNoYW1hZGEKLy8g'
+    'ICBERUxFVEUgIHsgInRyYW5zYWN0aW9uX2lkIjogIkhQLi4uIiB9ICAgKG91IFBPU1QgY29tICJkZXNmYXplciI6IHRydWUpICAg'
+    'ICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKAlCBERVNGQVogbyByZWVtYm9sc28gKGEgdmVuZGEgdm9sdGEgYSBjb250YXIp'
+    'Ci8vIEF1dGVudGljYcOnw6NvOiBvIE1FU01PIHNlZ3JlZG8gZG9zIG91dHJvcyB3ZWJob29rcyAoY2FiZcOnYWxobyB4LXdlYmhv'
+    'b2stc2VjcmV0ID0gdmFyacOhdmVsIFdFQkhPT0tfU0VDUkVUKS4gQXF1aSBvIHNlZ3JlZG8gw6kgT0JSSUdBVMOTUklPIChtZXhl'
+    'IGVtIGRpbmhlaXJvKTogc2VtIGVsZSBjb25maWd1cmFkbyBhIHJvdGEgcmVjdXNhIHR1ZG8uCi8vIMOJIGlkZW1wb3RlbnRlOiBt'
+    'YW5kYXIgbyBtZXNtbyBIUCBkdWFzIHZlemVzIG7Do28gZmF6IG1hbCAoYSAywqogcmVzcG9zdGEgZGl6ICJqYV9yZWVtYm9sc2Fk'
+    'byIpLgphc3luYyBmdW5jdGlvbiB0cmF0YXIocmVxOiBOZXh0UmVxdWVzdCwgZGVzZmF6ZXJQb3JNZXRvZG86IGJvb2xlYW4pIHsK'
+    'ICB0cnkgewogICAgY29uc3Qgc2VjcmV0ID0gcHJvY2Vzcy5lbnYuV0VCSE9PS19TRUNSRVQKICAgIGlmICghc2VjcmV0KSByZXR1'
+    'cm4gTmV4dFJlc3BvbnNlLmpzb24oeyBlcnJvcjogJ1dFQkhPT0tfU0VDUkVUIG7Do28gZXN0w6EgY29uZmlndXJhZG8gbm8gc2Vy'
+    'dmlkb3I6IGVzdGEgcm90YSBmaWNhIGZlY2hhZGEgYXTDqSBjb25maWd1cmFyJyB9LCB7IHN0YXR1czogNTAwLCBoZWFkZXJzOiBD'
+    'T1JTIH0pCiAgICBpZiAocmVxLmhlYWRlcnMuZ2V0KCd4LXdlYmhvb2stc2VjcmV0JykgIT09IHNlY3JldCkgcmV0dXJuIE5leHRS'
+    'ZXNwb25zZS5qc29uKHsgZXJyb3I6ICdVbmF1dGhvcml6ZWQnIH0sIHsgc3RhdHVzOiA0MDEsIGhlYWRlcnM6IENPUlMgfSkKCiAg'
+    'ICBsZXQgYm9keTogYW55CiAgICB0cnkgeyBib2R5ID0gYXdhaXQgcmVxLmpzb24oKSB9IGNhdGNoIHsgcmV0dXJuIE5leHRSZXNw'
+    'b25zZS5qc29uKHsgZXJyb3I6ICdKU09OIGludsOhbGlkbycgfSwgeyBzdGF0dXM6IDQwMCwgaGVhZGVyczogQ09SUyB9KSB9CiAg'
+    'ICBjb25zdCB7IGl0ZW1zLCByZWplY3RlZCwgZGVzZmF6ZXIgfSA9IHBhcnNlUmVlbWJvbHNvQm9keShib2R5KQogICAgaWYgKGl0'
+    'ZW1zLmxlbmd0aCA9PT0gMCkgcmV0dXJuIE5leHRSZXNwb25zZS5qc29uKHsgZXJyb3I6ICduZW5odW0gdHJhbnNhY3Rpb25faWQg'
+    'dsOhbGlkbycsIHJlamVjdGVkOiByZWplY3RlZC5zbGljZSgwLCA1KSB9LCB7IHN0YXR1czogNDAwLCBoZWFkZXJzOiBDT1JTIH0p'
+    'CiAgICBpZiAoaXRlbXMubGVuZ3RoID4gTUFYX1JFRU1CT0xTT1NfUE9SX0NIQU1BREEpIHJldHVybiBOZXh0UmVzcG9uc2UuanNv'
+    'bih7IGVycm9yOiBgbm8gbcOheGltbyAke01BWF9SRUVNQk9MU09TX1BPUl9DSEFNQURBfSB0cmFuc2FjdGlvbl9pZCBwb3IgY2hh'
+    'bWFkYWAgfSwgeyBzdGF0dXM6IDQxMywgaGVhZGVyczogQ09SUyB9KQoKICAgIGNvbnN0IHJlc3VsdGFkb3MgPSBhd2FpdCBhcGxp'
+    'Y2FyUmVlbWJvbHNvcyhjcmVhdGVBZG1pbkNsaWVudCgpLCBpdGVtcywgZGVzZmF6ZXJQb3JNZXRvZG8gfHwgZGVzZmF6ZXIpCiAg'
+    'ICBjb25zdCByZXN1bW86IFJlY29yZDxzdHJpbmcsIG51bWJlcj4gPSB7fQogICAgZm9yIChjb25zdCByIG9mIHJlc3VsdGFkb3Mp'
+    'IHJlc3Vtb1tyLnN0YXR1c10gPSAocmVzdW1vW3Iuc3RhdHVzXSA/PyAwKSArIDEKICAgIGNvbnN0IHRlbUVycm8gPSByZXN1bHRh'
+    'ZG9zLnNvbWUociA9PiByLnN0YXR1cyA9PT0gJ2Vycm8nKQogICAgcmV0dXJuIE5leHRSZXNwb25zZS5qc29uKHsgb2s6ICF0ZW1F'
+    'cnJvLCByZWNlYmlkb3M6IGl0ZW1zLmxlbmd0aCwgcmVqZWl0YWRvczogcmVqZWN0ZWQubGVuZ3RoLCByZXN1bW8sIHJlc3VsdGFk'
+    'b3MgfSwgeyBzdGF0dXM6IHRlbUVycm8gPyA1MDAgOiAyMDAsIGhlYWRlcnM6IENPUlMgfSkKICB9IGNhdGNoIChlOiBhbnkpIHsK'
+    'ICAgIGNvbnNvbGUuZXJyb3IoJ1tyZWVtYm9sc29zXScsIGU/Lm1lc3NhZ2UgPz8gZSkKICAgIHJldHVybiBOZXh0UmVzcG9uc2Uu'
+    'anNvbih7IGVycm9yOiAnRXJybyBhbyBwcm9jZXNzYXIgbyByZWVtYm9sc28nIH0sIHsgc3RhdHVzOiA1MDAsIGhlYWRlcnM6IENP'
+    'UlMgfSkKICB9Cn0KZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIFBPU1QocmVxOiBOZXh0UmVxdWVzdCkgeyByZXR1cm4gdHJhdGFyKHJl'
+    'cSwgZmFsc2UpIH0KZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIERFTEVURShyZXE6IE5leHRSZXF1ZXN0KSB7IHJldHVybiB0cmF0YXIo'
+    'cmVxLCB0cnVlKSB9Cg=='),
 }
+ANTIGOS = {  # arquivos que a versão 1 criou no lugar ERRADO (bloqueados pelo login): caminho → sha256 do texto
+  'app/api/reembolsos/route.ts': '0da7eb86c55c723926f9f674a5209701217efe36d213937fc2b1adee4e99735b',
+}
+MIDDLEWARES = ('middleware.ts', 'src/middleware.ts', 'proxy.ts', 'src/proxy.ts', 'middleware.js', 'src/middleware.js')
 def txt(b64): return base64.b64decode(b64).decode('utf-8')
 def p(rel): return os.path.join(ROOT, *rel.split('/'))
 def falha(m): print('NADA foi alterado.\n  - ' + m); sys.exit(1)
@@ -174,7 +183,11 @@ if UNDO:
                 if DRY: print(f'(simulação) apagaria {rel}')
                 else: os.remove(p(rel)); feito.append(rel)
             else: print(f'  ! {rel} foi alterado por você: NÃO apaguei')
-    for d in ('app/api/reembolsos',):
+    for rel, h in ANTIGOS.items():
+        if os.path.exists(p(rel)) and hashlib.sha256(leia(rel).encode('utf-8')).hexdigest() == h:
+            if DRY: print(f'(simulação) apagaria {rel} (cópia da versão 1, no lugar errado)')
+            else: os.remove(p(rel)); feito.append(rel + ' (versão 1)')
+    for d in ('app/api/reembolsos', 'app/api/public/reembolsos'):
         try:
             if not DRY: os.rmdir(p(d))
         except OSError: pass
@@ -190,16 +203,24 @@ for rel, (h, b64) in ARQUIVOS.items():
 dif = [r for r, e in estado.items() if e == 'diferente']
 if dif: falha('já existe, com conteúdo diferente, e não vou sobrescrever: ' + ', '.join(dif))
 novos = [r for r, e in estado.items() if e == 'falta']
-if not novos: print('Já aplicado. Nada foi alterado.'); sys.exit(0)
-if DRY: print('(simulação) nada foi gravado. Criaria:'); [print('  + ' + r) for r in novos]; sys.exit(0)
+velhos = [r for r, h in ANTIGOS.items() if os.path.exists(p(r)) and hashlib.sha256(leia(r).encode('utf-8')).hexdigest() == h]
+velhos_editados = [r for r in ANTIGOS if os.path.exists(p(r)) and r not in velhos]
+if not novos and not velhos: print('Já aplicado. Nada foi alterado.'); sys.exit(0)
+if DRY:
+    print('(simulação) nada foi gravado. Faria:'); [print('  + criar ' + r) for r in novos]; [print('  - apagar ' + r + ' (cópia da versão 1, no lugar errado)') for r in velhos]; sys.exit(0)
 for rel in novos:
     os.makedirs(os.path.dirname(p(rel)), exist_ok=True); t = txt(ARQUIVOS[rel][1]); open(p(rel), 'wb').write((t.replace('\n', '\r\n') if crlf else t).encode('utf-8'))
-print('OK: endpoint de reembolso instalado.\n' + '\n'.join('  ✓ ' + r for r in novos))
+for r in velhos: os.remove(p(r)); d = os.path.dirname(p(r)); (os.rmdir(d) if os.path.isdir(d) and not os.listdir(d) else None)
+print('OK: endpoint de reembolso instalado.\n' + '\n'.join('  ✓ ' + r for r in novos) + ''.join('\n  ✓ apaguei ' + r + ' (era a cópia da versão 1, no lugar errado: o login a bloqueava)' for r in velhos) + ''.join('\n  ! ' + r + ' tem alterações suas: NÃO apaguei (apague à mão: ele é desnecessário)' for r in velhos_editados))
+mw = [m for m in MIDDLEWARES if os.path.exists(p(m))]
+if not mw: print('\n  ATENÇÃO: não achei o arquivo do middleware (middleware.ts / proxy.ts). Confirme que /api/public/* passa SEM login.')
+elif not any(('/api/public' in leia(m)) for m in mw): print(f'\n  ATENÇÃO: o seu {mw[0]} NÃO parece liberar /api/public (sem login). Sem isso a rota devolve a página de login. Libere o prefixo /api/public no middleware.')
+else: print(f'\n  ✓ conferi o {mw[0]}: o prefixo /api/public passa sem login.')
 print("""
 PRÓXIMOS PASSOS (nesta ordem — o gatilho do banco é o que tira a venda dos números):
   1) Supabase → SQL Editor: rode sql/01_reembolso_tipo.sql SOZINHO; depois sql/02_reembolso_campos_e_gatilho.sql.
   2) Confirme que a variável WEBHOOK_SECRET existe na Vercel (o endpoint usa a MESMA dos outros webhooks e fica FECHADO sem ela).
   3) git add -A · git commit · git push · espere o deploy.
   4) Teste (troque SEU-SITE e o segredo):
-       curl -X POST https://SEU-SITE/api/reembolsos -H "x-webhook-secret: SEU_SEGREDO" -H "Content-Type: application/json" -d '{"transaction_id":"HP0000000000"}'
+       curl -X POST https://SEU-SITE/api/public/reembolsos -H "x-webhook-secret: SEU_SEGREDO" -H "Content-Type: application/json" -d '{"transaction_id":"HP0000000000"}'
      Para DESFAZER:   curl -X DELETE ...  (mesmo corpo)     ·     Vários de uma vez:  {"transaction_ids":["HP...","HP..."]}  (até 500)""")
