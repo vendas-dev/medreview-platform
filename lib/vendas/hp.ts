@@ -54,10 +54,29 @@ export const modosPermitidos = (sit: Situacao): Modo[] => (sit === 'self_checkou
 export interface PedidoInfo { lead_name: string; product: string; vertical: string }
 export interface Conf { campo: 'lead' | 'produto' | 'vertical'; rotulo: string; pedido: string; banco: string; status: 'confere' | 'diverge' | 'sem_dado' }
 const contem = (a: string, b: string) => !!a && !!b && (a === b || a.includes(b) || b.includes(a))
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const emailNorm = (s?: string | null) => (s ?? '').trim().toLowerCase()
+/** "Nome do lead" digitado pelo closer × o que está no banco. Se o closer digitou o E-MAIL do lead nesse campo (acontece), compara com o E-MAIL do banco — e não com o nome.
+ *  Igual = confere. Se o e-mail for outro (ou o banco não tiver e-mail), olha o texto antes do @: se contém os nomes do lead, confere (provavelmente outro e-mail da mesma pessoa). */
+function conferirLead(v: VendaBanco, p: PedidoInfo): Conf {
+  const digitado = (p.lead_name ?? '').trim(), nome = normalizar(v.lead_name)
+  if (EMAIL.test(digitado)) {
+    const dg = emailNorm(digitado), leadEhEmail = EMAIL.test((v.lead_name ?? '').trim())
+    const emBanco = emailNorm(v.email) || (leadEhEmail ? emailNorm(v.lead_name) : '')
+    const local = normalizar(dg.split('@')[0]).replace(/ /g, ''), partes = leadEhEmail ? [] : nome.split(' ').filter(x => x.length > 2)
+    const pelaNome = !!local && partes.length > 0 && partes.filter(x => local.includes(x)).length / partes.length >= 0.6
+    const banco = v.email?.trim() || (leadEhEmail ? (v.lead_name ?? '').trim() : '') || v.lead_name || '—'
+    return { campo: 'lead', rotulo: 'E-mail do lead', pedido: digitado, banco, status: emBanco === dg || pelaNome ? 'confere' : !emBanco && !nome ? 'sem_dado' : 'diverge' }
+  }
+  const pl = normalizar(p.lead_name)
+  return { campo: 'lead', rotulo: 'Nome do lead', pedido: p.lead_name, banco: v.lead_name ?? '—', status: !nome ? 'sem_dado' : contem(nome, pl) ? 'confere' : (() => { const a = new Set(nome.split(' ')), b = pl.split(' ').filter(x => x.length > 2); return b.length && b.filter(x => a.has(x)).length / b.length >= 0.6 ? 'confere' : 'diverge' })() }
+}
+
 export function compararPedido(v: VendaBanco, p: PedidoInfo, rotuloVertical: (x?: string | null) => string): { resumo: 'confere' | 'parcial' | 'diverge'; campos: Conf[] } {
-  const lead = normalizar(v.lead_name), pl = normalizar(p.lead_name), prod = normalizar(v.product), pp = normalizar(p.product)
+  const prod = normalizar(v.product), pp = normalizar(p.product)
   const campos: Conf[] = [
-    { campo: 'lead', rotulo: 'Nome do lead', pedido: p.lead_name, banco: v.lead_name ?? '—', status: !lead ? 'sem_dado' : contem(lead, pl) ? 'confere' : (() => { const a = new Set(lead.split(' ')), b = pl.split(' ').filter(x => x.length > 2); return b.length && b.filter(x => a.has(x)).length / b.length >= 0.6 ? 'confere' : 'diverge' })() },
+    conferirLead(v, p),
     { campo: 'produto', rotulo: 'Produto', pedido: p.product, banco: v.product ?? '—', status: !prod ? 'sem_dado' : contem(prod, pp) ? 'confere' : 'diverge' },
     { campo: 'vertical', rotulo: 'Vertical', pedido: rotuloVertical(p.vertical), banco: rotuloVertical(v.vertical), status: !v.vertical ? 'sem_dado' : v.vertical === p.vertical ? 'confere' : 'diverge' },
   ]
