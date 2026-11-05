@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, CheckCircle2, Clock, Copy, ExternalLink, Hash, Loader2, MessageCircle, Package, Pencil, Quote, Save, ThumbsDown, ThumbsUp, User, XCircle } from 'lucide-react'
+import { Check, CheckCircle2, Clock, Copy, ExternalLink, Hash, Loader2, MessageCircle, Package, Pencil, Quote, Save, ThumbsDown, ThumbsUp, User, XCircle, ChevronDown } from 'lucide-react'
 import type { Decisao, TrocaRow } from '@/lib/vendas/types'
 import { fmtDataHora, teamCor } from '@/lib/vendas/format'
 import { Avatar, Banner, Btn, TeamBadge, TextArea, VerticalChip } from './ui'
@@ -39,12 +39,13 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
     if (!r.ok) setErro(r.error ?? 'Não foi possível resolver.')
   }
   const [hpAberto, setHpAberto] = useState(false); const [transfAberto, setTransfAberto] = useState(false); const [transferida, setTransferida] = useState<string | null>(null)
+  const [aberto, setAberto] = useState(false)      // minimizada por padrão: o gestor expande só a que quer ler
   const corModo = modo ? COR_STATUS[modo] : cor
   return (
     <motion.article layout="position" initial={{ opacity: 0, y: 12 }} animate={{ opacity: resolvida ? 0.7 : 1, y: 0 }} whileHover={resolvida ? { opacity: 1 } : undefined} transition={{ duration: 0.3 }} data-v="troca" data-id={t.id} data-status={t.status} data-decision={t.decision ?? ''} data-resolved={resolvida ? 'true' : 'false'}
       className="vd-card vd-lift" style={{ position: 'relative', overflow: 'hidden', padding: '26px 28px 26px 34px' }}>
       <span aria-hidden style={{ position: 'absolute', inset: '0 auto 0 0', width: 7, background: `linear-gradient(180deg,${cor},color-mix(in srgb,${cor} 55%,transparent))` }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+      <div data-v="troca-cabecalho" onClick={e => { if (!(e.target as HTMLElement).closest('button, a, input, textarea, select')) setAberto(a => !a) }} style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', cursor: 'pointer' }}>
         <Avatar name={t.requester_name} src={t.requester_avatar} size={52} ring={teamCor(t.requester_team)} />
         <div style={{ flex: 1, minWidth: 200 }}>
           <div data-v="troca-quem" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><span className="vd-title" style={{ fontSize: 17, fontWeight: 800, color: 'var(--foreground)' }}>{t.requester_name}</span><TeamBadge team={t.requester_team} /></div>
@@ -54,7 +55,18 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
           {st === 'pendente' ? <Clock size={15} /> : st === 'negada' ? <XCircle size={15} /> : <CheckCircle2 size={15} />}{ROTULO[st]}
         </span>
         {podeEditar && <Btn data-v="troca-editar" size="sm" icon={<Pencil size={14} />} onClick={() => onEdit!(t)} title="Editar a solicitação">Editar</Btn>}
+        <button type="button" data-v="troca-toggle" aria-expanded={aberto} aria-controls={`troca-corpo-${t.id}`} aria-label={aberto ? 'Minimizar a solicitação' : 'Expandir a solicitação'} title={aberto ? 'Minimizar' : 'Expandir'} onClick={() => setAberto(a => !a)} className="vd-btn" style={{ width: 42, height: 42, borderRadius: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border)', background: 'var(--secondary)', color: 'var(--foreground)', cursor: 'pointer', flexShrink: 0 }}><ChevronDown size={20} style={{ transition: 'transform .22s', transform: aberto ? 'rotate(180deg)' : 'none' }} /></button>
       </div>
+      {!aberto && (
+        <div data-v="troca-resumo" role="button" tabIndex={0} aria-expanded={false} onClick={() => setAberto(true)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAberto(true) } }} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px 22px', marginTop: 18, padding: '14px 18px', borderRadius: 16, background: 'var(--secondary)', cursor: 'pointer' }}>
+          <span data-v="troca-resumo-vertical"><VerticalChip v={t.vertical} /></span>
+          <span data-v="troca-resumo-produto" title={t.product} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flex: '1 1 220px', minWidth: 0, fontSize: 15, fontWeight: 700, color: 'var(--foreground)' }}><Package size={15} style={{ flexShrink: 0, color: 'var(--muted-foreground)' }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.product}</span></span>
+          <span data-v="troca-resumo-hp" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, letterSpacing: '0.05em', color: 'var(--muted-foreground)' }}><Hash size={14} />HP<code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 14, fontWeight: 800, letterSpacing: 0, color: 'var(--foreground)', overflowWrap: 'anywhere' }}>{t.transaction_id}</code></span>
+        </div>
+      )}
+      <AnimatePresence initial={false}>
+        {aberto && (
+          <motion.div key="corpo" id={`troca-corpo-${t.id}`} data-v="troca-corpo" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} style={{ overflow: 'hidden', margin: '0 -6px -6px', padding: '0 6px 6px' }}>
       <div style={{ height: 1, background: 'var(--border)', margin: '22px 0' }} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '22px 28px' }}>
         <Info icon={<Package size={13} />} label="Produto"><div>{t.product}</div><div style={{ marginTop: 8 }}><VerticalChip v={t.vertical} /></div></Info>
@@ -133,6 +145,10 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
           </AnimatePresence>
         </div>
       )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* fim troca-corpo */}
       {admin && hpAberto && <ConsultarHpModal troca={t} onClose={() => setHpAberto(false)} />}
       {admin && transfAberto && <TransferirVendaModal troca={t} onClose={() => setTransfAberto(false)} onTransferida={r => setTransferida(r.resultado)} />}
     </motion.article>

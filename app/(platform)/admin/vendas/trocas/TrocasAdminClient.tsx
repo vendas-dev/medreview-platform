@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, Inbox, Repeat2, Users, UsersRound } from 'lucide-react'
+import { ArrowDownUp, BarChart3, Inbox, Repeat2, Users, UsersRound } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
 import { TrocaCard } from '@/components/vendas/TrocaCard'
 import { TrocaModal } from '@/components/vendas/TrocaModal'
@@ -10,12 +10,15 @@ import { VERTICAIS_ATIVAS, teamCor, verticalCor, verticalLabel } from '@/lib/ven
 import { periodoToRange, type Periodo } from '@/lib/vendas/periodo'
 import type { CloserResumo, Decisao, TrocaRow } from '@/lib/vendas/types'
 
+/** Ordena as solicitações pela DATA em que foram enviadas: "recentes" (mais nova primeiro) ou "antigas" (mais velha primeiro). Empate: pelo id, para a ordem ser estável. */
+const porData = (ordem: string) => (a: TrocaRow, b: TrocaRow) => { const d = Date.parse(a.created_at) - Date.parse(b.created_at); return (ordem === 'antigas' ? d : -d) || a.id.localeCompare(b.id) }
+
 /** Superadmin: a fila de pedidos. CONCEDER ou NEGAR (a justificativa é obrigatória nos dois); o closer é avisado. Resolvidos ficam esmaecidos. */
 export function TrocasAdminClient() {
-  const [status, setStatus] = useState('pendente'); const [periodo, setPeriodo] = useState<Periodo | null>(null); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [closerId, setCloserId] = useState('todos')
+  const [status, setStatus] = useState('pendente'); const [periodo, setPeriodo] = useState<Periodo | null>(null); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [closerId, setCloserId] = useState('todos'); const [ordem, setOrdem] = useState('recentes')
   const [fixas, setFixas] = useState<Set<string>>(new Set()); const [trocas, setTrocas] = useState<TrocaRow[]>([]); const [pendTotal, setPendTotal] = useState(0); const [closers, setClosers] = useState<CloserResumo[]>([]); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null); const [editando, setEditando] = useState<TrocaRow | null>(null)
-  const filtroAtivo = status !== 'pendente' || periodo !== null || vertical !== 'todas' || team !== 'todos' || closerId !== 'todos'
-  const limpar = () => { setStatus('pendente'); setPeriodo(null); setVertical('todas'); setTeam('todos'); setCloserId('todos') }
+  const filtroAtivo = status !== 'pendente' || periodo !== null || vertical !== 'todas' || team !== 'todos' || closerId !== 'todos' || ordem !== 'recentes'
+  const limpar = () => { setStatus('pendente'); setPeriodo(null); setVertical('todas'); setTeam('todos'); setCloserId('todos'); setOrdem('recentes') }
   useEffect(() => { api<{ closers: CloserResumo[] }>('/api/admin/vendas/resumo').then(r => { if (r.ok) setClosers(r.data!.closers) }) }, [])
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null); setFixas(new Set())
@@ -46,9 +49,10 @@ export function TrocasAdminClient() {
       <VendasStyle />
       <PageHeader icon={<Repeat2 size={26} />} title="Trocas de Venda" subtitle="Solicitações dos closers. Conceda ou negue — nos dois casos a justificativa é obrigatória e o closer recebe a resposta."
         right={<div data-v="pendentes-total" className="vd-chip" style={{ padding: '10px 18px', borderRadius: 99, fontSize: 14, fontWeight: 800, color: pendTotal ? '#b45309' : 'var(--muted-foreground)', background: pendTotal ? 'color-mix(in srgb,#f59e0b 16%,transparent)' : 'var(--secondary)' }}>{pendTotal} pendente{pendTotal === 1 ? '' : 's'}</div>} />
-      <FilterBar ativo={filtroAtivo} onClear={limpar} topo={
+      <FilterBar ativo={filtroAtivo} onClear={limpar} topo={<>
         <Segmented name="status" value={status} onChange={mudarStatus} items={[{ value: 'pendente', label: 'Pendentes', count: n.pendente, cor: '#f59e0b' }, { value: 'concedida', label: 'Concedidas', count: n.concedida, cor: '#16a34a' }, { value: 'negada', label: 'Negadas', count: n.negada, cor: '#dc2626' }, { value: 'todas', label: 'Todas', count: trocas.length }]} />
-      }>
+        <Select name="ordem" caption="Ordenar por data" icon={<ArrowDownUp size={18} />} value={ordem} onChange={setOrdem} defaultValue="recentes" minWidth={200} options={[{ value: 'recentes', label: 'Mais recentes' }, { value: 'antigas', label: 'Mais antigas' }]} />
+      </>}>
         <PeriodoFilter value={periodo} onChange={setPeriodo} allowAll padrao={null} />
         <Select name="vertical" caption="Vertical" icon={<BarChart3 size={18} />} value={vertical} onChange={setVertical} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as verticais' }, ...VERTICAIS_ATIVAS.map(v => ({ value: v, label: verticalLabel(v), cor: verticalCor(v) }))]} />
         <Select name="time" caption="Time" icon={<UsersRound size={18} />} value={team} onChange={v => { setTeam(v); setCloserId('todos') }} defaultValue="todos" options={[{ value: 'todos', label: 'Todos os times' }, { value: 'R1', label: 'Time R1', cor: teamCor('R1') }, { value: 'OAO', label: 'Time OAO', cor: teamCor('OAO') }]} />
@@ -57,7 +61,7 @@ export function TrocasAdminClient() {
       {erro && <Banner tipo={erro.migracao ? 'aviso' : 'erro'}>{erro.msg}</Banner>}
       {carregando ? <Skeleton linhas={5} />
         : lista.length === 0 ? <EmptyState icon={<Inbox size={30} />} title={status === 'pendente' ? 'Tudo em dia!' : 'Nenhuma solicitação encontrada'} text={status === 'pendente' ? 'Não há solicitações pendentes no momento.' : 'Ajuste ou limpe os filtros para ver outras solicitações.'} />
-        : <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>{lista.map(t => <TrocaCard key={t.id} t={t} admin onDecide={decidir} onEdit={setEditando} onEditResposta={editarResposta} />)}</div>}
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>{[...lista].sort(porData(ordem)).map(t => <TrocaCard key={t.id} t={t} admin onDecide={decidir} onEdit={setEditando} onEditResposta={editarResposta} />)}</div>}
       <TrocaModal open={!!editando} troca={editando} admin team={null} onClose={() => setEditando(null)} onSaved={t => { setTrocas(ts => ts.map(x => (x.id === t.id ? t : x))); setFixas(f => new Set(f).add(t.id)) }} />
     </div>
   )

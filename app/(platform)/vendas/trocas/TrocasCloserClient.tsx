@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, CheckCircle2, Clock, Inbox, Plus, Repeat2, XCircle } from 'lucide-react'
+import { ArrowDownUp, BarChart3, CheckCircle2, Clock, Inbox, Plus, Repeat2, XCircle } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
 import { TrocaCard } from '@/components/vendas/TrocaCard'
 import { TrocaModal } from '@/components/vendas/TrocaModal'
@@ -10,13 +10,16 @@ import { verticaisDoTime, verticalCor, verticalLabel } from '@/lib/vendas/format
 import { periodoToRange, type Periodo } from '@/lib/vendas/periodo'
 import type { TrocaRow } from '@/lib/vendas/types'
 
+/** Ordena as solicitações pela DATA em que foram enviadas: "recentes" (mais nova primeiro) ou "antigas" (mais velha primeiro). Empate: pelo id, para a ordem ser estável. */
+const porData = (ordem: string) => (a: TrocaRow, b: TrocaRow) => { const d = Date.parse(a.created_at) - Date.parse(b.created_at); return (ordem === 'antigas' ? d : -d) || a.id.localeCompare(b.id) }
+
 /** As solicitações de troca do PRÓPRIO closer: filtra por data, vertical e status; concedidas em verde, negadas em vermelho. */
 export function TrocasCloserClient({ team }: { team: string | null }) {
-  const [periodo, setPeriodo] = useState<Periodo | null>(null); const [vertical, setVertical] = useState('todas'); const [status, setStatus] = useState('todas')
+  const [periodo, setPeriodo] = useState<Periodo | null>(null); const [vertical, setVertical] = useState('todas'); const [status, setStatus] = useState('todas'); const [ordem, setOrdem] = useState('recentes')
   const [trocas, setTrocas] = useState<TrocaRow[]>([]); const [pendTotal, setPendTotal] = useState(0); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null); const [modal, setModal] = useState(false); const [editando, setEditando] = useState<TrocaRow | null>(null)
   const opcoes = verticaisDoTime(team)
-  const filtroAtivo = periodo !== null || vertical !== 'todas' || status !== 'todas'
-  const limpar = () => { setPeriodo(null); setVertical('todas'); setStatus('todas') }
+  const filtroAtivo = periodo !== null || vertical !== 'todas' || status !== 'todas' || ordem !== 'recentes'
+  const limpar = () => { setPeriodo(null); setVertical('todas'); setStatus('todas'); setOrdem('recentes') }
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null)
     const r = await api<{ trocas: TrocaRow[]; pendentes_total: number }>('/api/trocas' + qs({ ...(periodo ? periodoToRange(periodo) : {}), vertical: vertical === 'todas' ? '' : vertical }))
@@ -38,9 +41,10 @@ export function TrocasCloserClient({ team }: { team: string | null }) {
         <Kpi dataV="kpi-concedidas" label="Concedidas" value={n.concedida} icon={<CheckCircle2 size={22} />} cor="#16a34a" />
         <Kpi dataV="kpi-negadas" label="Negadas" value={n.negada} icon={<XCircle size={22} />} cor="#dc2626" />
       </div>
-      <FilterBar ativo={filtroAtivo} onClear={limpar} topo={
+      <FilterBar ativo={filtroAtivo} onClear={limpar} topo={<>
         <Segmented name="status" value={status} onChange={setStatus} items={[{ value: 'todas', label: 'Todas', count: trocas.length }, { value: 'pendente', label: 'Pendentes', count: n.pendente, cor: '#f59e0b' }, { value: 'concedida', label: 'Concedidas', count: n.concedida, cor: '#16a34a' }, { value: 'negada', label: 'Negadas', count: n.negada, cor: '#dc2626' }]} />
-      }>
+        <Select name="ordem" caption="Ordenar por data" icon={<ArrowDownUp size={18} />} value={ordem} onChange={setOrdem} defaultValue="recentes" minWidth={200} options={[{ value: 'recentes', label: 'Mais recentes' }, { value: 'antigas', label: 'Mais antigas' }]} />
+      </>}>
         <PeriodoFilter value={periodo} onChange={setPeriodo} allowAll padrao={null} />
         {opcoes.length > 1 && <Select name="vertical" caption="Vertical" icon={<BarChart3 size={18} />} value={vertical} onChange={setVertical} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as verticais' }, ...opcoes.map(v => ({ value: v, label: verticalLabel(v), cor: verticalCor(v) }))]} />}
       </FilterBar>
@@ -48,7 +52,7 @@ export function TrocasCloserClient({ team }: { team: string | null }) {
       {pendTotal > n.pendente && !erro && <Banner tipo="aviso">Você tem {pendTotal} solicitaç{pendTotal === 1 ? 'ão pendente' : 'ões pendentes'} no total — algumas estão fora dos filtros atuais.</Banner>}
       {carregando ? <Skeleton linhas={5} />
         : lista.length === 0 ? <EmptyState icon={<Inbox size={30} />} title="Nenhuma solicitação por aqui" text="Use “Nova solicitação” para pedir a troca de uma venda. Quando a gestão responder, você vê o resultado e a justificativa neste lugar." />
-        : <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>{lista.map(t => <TrocaCard key={t.id} t={t} onEdit={setEditando} />)}</div>}
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>{[...lista].sort(porData(ordem)).map(t => <TrocaCard key={t.id} t={t} onEdit={setEditando} />)}</div>}
       <TrocaModal open={!!editando} troca={editando} team={team} onClose={() => setEditando(null)} onSaved={t => setTrocas(ts => ts.map(x => (x.id === t.id ? t : x)))} />
       <TrocaModal open={modal} onClose={() => setModal(false)} team={team} onCreated={() => { carregar() }} />
     </div>

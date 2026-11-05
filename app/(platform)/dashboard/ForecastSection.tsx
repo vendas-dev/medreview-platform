@@ -7,6 +7,7 @@ import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import { DealsModal } from './ForecastDealsModal'
 import type { DealsQuery } from '@/lib/dashboard/forecastDeals'
 import { composeClosingForecast, LINKS_WEIGHT } from '@/lib/dashboard/forecastMath'
+import { ForecastYoY } from './ForecastYoY'
 
 // ══════════════════════════════════════════════════════════════════════
 // Tipos
@@ -1175,6 +1176,9 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
 
         {/* 5 — saúde da recorrência */}
         <VitalBlock total={commercial.forecast} monthly={commercial.monthlyForecast} detail={commercial.forecastDetail} />
+
+        {/* 6 — este mês × o mesmo mês do ano passado: tabela acumulada + gráficos dia a dia (total e por vertical) */}
+        <ForecastYoY />
       </div>
 
       <DealsModal query={dealsQ} onClose={closeDeals} theme={DEALS_THEME} />
