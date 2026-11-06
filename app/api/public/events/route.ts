@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizeName, matchCloser } from '@/lib/telao/format'
 import { Closer } from '@/lib/telao/types'
+import { normalizeOfferCode } from '@/lib/telao/offer'
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -45,6 +46,10 @@ const SaleSchema = z.object({
   // em _X% ou _XX.X% (ex: NT12345678901_7.5%). Cupom sem esse sufixo (ex: só
   // "NT12345678901") é tratado como cupom sem desconto atrelado.
   coupon_code:          z.string().nullable().optional(),
+  // Código da OFERTA da Hotmart (cada produto tem várias ofertas, cada uma com um código — ex.: "8h0jsbyi"). Texto de UMA linha, opcional.
+  // z.unknown() de propósito: como as demais colunas de enriquecimento, um valor estranho NUNCA barra a venda —
+  // normalizeOfferCode() deixa em uma linha (ou vira null).
+  offer_code:           z.unknown().optional(),
   // Identificador estável do HubSpot — opcional, útil se algum dia o evento
   // vier de lá. Não é confiável pra vendas que vêm direto da Hotmart.
   deal_id:              z.string().nullable().optional(),
@@ -250,6 +255,7 @@ export async function POST(req: NextRequest) {
     if (data.event_type === 'sale') {
       const saleType = deriveSaleType(data)
       const isEventCoupon = (data.coupon_code ?? '').toUpperCase().startsWith('EV_')
+      const offerCode = normalizeOfferCode(data.offer_code)
       insertData = {
         ...insertData,
         lead_name:           data.lead_name,
@@ -261,6 +267,8 @@ export async function POST(req: NextRequest) {
         total_installments:  data.total_installments ?? null,
         sale_type:           saleType,
         coupon_code:         data.coupon_code || null,
+        // só envia a coluna quando há código: venda sem oferta grava IGUAL a sempre (e funciona mesmo antes da migração)
+        ...(offerCode ? { offer_code: offerCode } : {}),
         deal_id:             data.deal_id || null,
         transaction_id:      data.transaction_id || null,
         // Dados do comprador — pra insights futuros (recompra, vendas por
@@ -344,7 +352,14 @@ export async function POST(req: NextRequest) {
       insertData = { ...insertData, ambassador_name: data.ambassador_name, college: data.college, class: data.class }
     }
 
-    const { data: inserted, error } = await admin.from('telao_events').insert(insertData).select().single()
+    let { data: inserted, error } = await admin.from('telao_events').insert(insertData).select().single()
+    // Rede de segurança: se o banco ainda NÃO tem a coluna offer_code (migração não rodada), a venda não se perde —
+    // grava sem o código e deixa o aviso no log.
+    if (error && 'offer_code' in insertData && /offer_code/.test(error.message ?? '')) {
+      console.error('[telao/events] ATENÇÃO: a coluna telao_events.offer_code não existe — rode migration-oferta.sql. Gravando a venda SEM o código da oferta.')
+      const semOferta = { ...insertData }; delete semOferta.offer_code
+      ;({ data: inserted, error } = await admin.from('telao_events').insert(semOferta).select().single())
+    }
 
     if (error) {
       console.error('[telao/events] Insert error:', error)
@@ -382,6 +397,7 @@ export async function POST(req: NextRequest) {
       is_self_checkout:   isSelfCO,
       seller_type:        finalSellerType,
       sale_type:          data.event_type === 'sale' ? deriveSaleType(data) : null,
+      offer_code:        inserted?.offer_code ?? null,
       link_matched:       matchedLink ? true : false,
     }, { status: 201, headers: CORS })
 

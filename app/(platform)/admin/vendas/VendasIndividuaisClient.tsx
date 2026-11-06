@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BarChart3, ChevronDown, ChevronsDownUp, ChevronsUpDown, Info, ShoppingBag, Target, UserCheck, Users, Wallet, UsersRound } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
+import { ArrowDownUp } from 'lucide-react'
+import { ORDENS, ordemValida } from '@/lib/vendas/ordem'
 import { VendasTable } from '@/components/vendas/VendasTable'
 import { EditarVendaModal } from '@/components/vendas/EditarVendaModal'
 import { Avatar, Banner, Btn, Chip, EmptyState, FilterBar, Kpi, Legenda, PageHeader, Select, Skeleton, Switch, TeamBadge, VendasStyle } from '@/components/vendas/ui'
@@ -40,14 +42,15 @@ function verticaisDoCloser(c: CloserResumo): string[] {
 
 /** Superadmin: as vendas de cada closer, em lista expansível, com filtros de período, vertical, time e closer (valem para tudo). */
 export function VendasIndividuaisClient() {
+  const [ordem, setOrdem] = useState('recentes')
   const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [closerId, setCloserId] = useState('todos'); const [recorrentes, setRecorrentes] = useState(true); const [inativos, setInativos] = useState(false)
   const [resumo, setResumo] = useState<{ closers: CloserResumo[]; truncated: boolean; meta_mes: string | null; total: { vendas: number; valor: number }; ocultos: { closers: number; vendas: number; valor: number } } | null>(null); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null)
   const [aberto, setAberto] = useState<Set<string>>(new Set()); const [blocos, setBlocos] = useState<Record<string, Bloco>>({}); const [editando, setEditando] = useState<{ venda: VendaRow; closer: CloserResumo } | null>(null); const [aviso, setAviso] = useState<string | null>(null)
   const range = useMemo(() => (periodo ? periodoToRange(periodo) : {}), [periodo])
   const filtrosRows = useMemo(() => qs({ ...range, vertical: vertical === 'todas' ? '' : vertical, recorrentes: recorrentes ? '' : '0' }), [range, vertical, recorrentes])
   const abertoRef = useRef(aberto); abertoRef.current = aberto
-  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || team !== 'todos' || closerId !== 'todos' || !recorrentes || inativos
-  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCloserId('todos'); setRecorrentes(true); setInativos(false) }
+  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || team !== 'todos' || closerId !== 'todos' || !recorrentes || inativos || ordem !== 'recentes'
+  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCloserId('todos'); setRecorrentes(true); setInativos(false); setOrdem('recentes') }
 
   const carregarResumo = useCallback(async (silencioso = false) => {
     if (!silencioso) setCarregando(true); setErro(null)
@@ -96,6 +99,7 @@ export function VendasIndividuaisClient() {
         <Select name="vertical" caption="Vertical" icon={<BarChart3 size={18} />} value={vertical} onChange={setVertical} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as verticais' }, ...VERTICAIS_ATIVAS.map(v => ({ value: v, label: verticalLabel(v), cor: verticalCor(v) }))]} />
         <Select name="time" caption="Time" icon={<UsersRound size={18} />} value={team} onChange={v => { setTeam(v); setCloserId('todos') }} defaultValue="todos" options={[{ value: 'todos', label: 'Todos os times' }, { value: 'R1', label: 'Time R1', cor: teamCor('R1') }, { value: 'OAO', label: 'Time OAO', cor: teamCor('OAO') }]} />
         <Select name="closer" caption="Closer" icon={<Users size={18} />} value={closerId} onChange={setCloserId} defaultValue="todos" searchable minWidth={240} options={closerOpts} />
+        <Select name="ordem" caption="Ordenar por" icon={<ArrowDownUp size={18} />} value={ordem} onChange={setOrdem} defaultValue="recentes" options={ORDENS.map(o => ({ value: o.value, label: o.label }))} />
         <Switch dataV="filtro-recorrentes" checked={recorrentes} onChange={setRecorrentes} label="Parcelas recorrentes" />
         <Switch dataV="filtro-inativos" checked={inativos} onChange={setInativos} label="Mostrar inativos" />
       </FilterBar>
@@ -153,7 +157,7 @@ export function VendasIndividuaisClient() {
                         <div data-v="closer-corpo" style={{ borderTop: '1px solid var(--border)' }}>
                           {!b || b.carregando ? <div style={{ padding: 22 }}><Skeleton linhas={3} /></div>
                             : b.erro ? <div style={{ padding: 20 }}><Banner tipo="erro">{b.erro}</Banner></div>
-                            : <VendasTable rows={b.rows} mode="admin" onSaveObs={salvarObs} onEdit={v => setEditando({ venda: v, closer: c })} pageSize={25} empty="Sem vendas deste closer neste período." />}
+                            : <VendasTable rows={b.rows} mode="admin" ordem={ordemValida(ordem)} onSaveObs={salvarObs} onEdit={v => setEditando({ venda: v, closer: c })} pageSize={25} empty="Sem vendas deste closer neste período." />}
                         </div>
                       </motion.div>
                     )}

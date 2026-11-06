@@ -4,6 +4,7 @@ import { Barcode, Check, ChevronLeft, ChevronRight, Copy, CreditCard, FileText, 
 import type { VendaRow } from '@/lib/vendas/types'
 import { afiliado, fmtBRL, fmtDataHora, formaPagamento, formatPhone, oferta, parcelas, verticalCor, verticalLabel } from '@/lib/vendas/format'
 import { Chip } from './ui'
+import { ordenarVendas, type Ordem } from '@/lib/vendas/ordem'
 
 type SaveObs = (row: VendaRow, texto: string | null) => Promise<{ ok: boolean; error?: string }>
 const TH: React.CSSProperties = { position: 'sticky', top: 0, zIndex: 2, background: 'color-mix(in srgb,var(--secondary) 85%,var(--card))', color: 'var(--muted-foreground)', fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', textAlign: 'left', padding: '14px 16px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
@@ -61,11 +62,13 @@ function ObsCell({ row, onSave }: { row: VendaRow; onSave: SaveObs }) {
   )
 }
 
-export function VendasTable({ rows, mode, onSaveObs, onEdit, pageSize = 25, empty = 'Nenhuma venda neste período.' }: { rows: VendaRow[]; mode: 'closer' | 'admin'; onSaveObs: SaveObs; onEdit?: (row: VendaRow) => void; pageSize?: number; empty?: string }) {
+export function VendasTable({ rows, mode, onSaveObs, onEdit, pageSize = 25, ordem = 'recentes', empty = 'Nenhuma venda neste período.' }: { rows: VendaRow[]; mode: 'closer' | 'admin'; onSaveObs: SaveObs; onEdit?: (row: VendaRow) => void; pageSize?: number; ordem?: Ordem; empty?: string }) {
   const [page, setPage] = useState(0)
   const pages = Math.max(1, Math.ceil(rows.length / pageSize))
   useEffect(() => { setPage(p => Math.min(p, pages - 1)) }, [pages])
-  const slice = useMemo(() => rows.slice(page * pageSize, page * pageSize + pageSize), [rows, page, pageSize])
+  const ordenadas = useMemo(() => ordenarVendas(rows, ordem), [rows, ordem])      // a ordem escolhida (padrão: mais recentes primeiro)
+  useEffect(() => { setPage(0) }, [ordem])
+  const slice = useMemo(() => ordenadas.slice(page * pageSize, page * pageSize + pageSize), [ordenadas, page, pageSize])
   if (rows.length === 0) return <div data-v="tabela-vazia" style={{ padding: '44px 16px', textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 14.5 }}>{empty}</div>
   const cols = ['Data', 'ID Transação', 'Vertical', 'Produto', 'Valor', 'Cupom', 'Nome', 'E-mail', 'Telefone', 'Oferta', 'Forma de pagamento', 'Qnt. Parcelas', 'Afiliado', 'Obs']
   return (

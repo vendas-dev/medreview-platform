@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { canAccessModule } from '@/lib/rbac/permissions'
 import { UserAvatar } from '@/components/shell/Sidebar'
 import { useTrocasBadge } from '@/lib/vendas/useTrocasBadge'
+import { Table2 as IconeVendasGerais } from 'lucide-react'
 import { MedLogoSVG } from '@/components/MedLogo'
 import { useTheme } from '@/components/ThemeProvider'
 import type { ModuleKey } from '@/types/database'
@@ -16,6 +17,7 @@ const NAV = [
   { key: 'dashboard',   label: 'Dashboard',    icon: LayoutDashboard, href: '/dashboard',   always: true },
   { key: 'minhas-vendas', label: 'Minhas Vendas',   icon: Receipt, href: '/vendas',              always: true, closerOnly: true },
   { key: 'trocas-venda',  label: 'Trocas de Venda', icon: Repeat2, href: '/vendas/trocas',       always: true, closerOnly: true },
+  { key: 'vendas-gerais', label: 'Vendas Gerais', icon: IconeVendasGerais, href: '/admin/vendas/gerais', always: true, adminOnly: true },
   { key: 'vendas-admin',  label: 'Vendas Individuais', icon: Receipt, href: '/admin/vendas',     always: true, adminOnly: true },
   { key: 'trocas-admin',  label: 'Trocas de Venda', icon: Repeat2, href: '/admin/vendas/trocas', always: true, adminOnly: true },
   { key: 'telao',       label: 'Telão',         icon: Monitor,         href: '/telao' },

@@ -12,7 +12,7 @@ import { finishTierWinners, tickTierWinners } from './tiers-server'
 export const rowToDraft = (r: any): CampaignDraft => ({
   name: r.name, subtitle: r.subtitle ?? '', prize: r.prize ?? '', prize_mode: r.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: r.prizes && typeof r.prizes === 'object' ? r.prizes : {}, emoji: r.emoji ?? '🏁', theme: r.theme ?? 'roxo', criterion: r.criterion,
   teams: r.teams ?? {}, starts_on: String(r.starts_on).slice(0, 10), ends_on: String(r.ends_on).slice(0, 10),
-  count_recurring: r.count_recurring === true, verticals: r.verticals && r.verticals.length ? r.verticals : null, notify: r.notify !== false,
+  count_recurring: r.count_recurring === true, verticals: r.verticals && r.verticals.length ? r.verticals : null, offer_codes: Array.isArray(r.offer_codes) && r.offer_codes.length ? r.offer_codes : null, notify: r.notify !== false,
 })
 /** Só guarda prêmio das posições que existem (se diminuiu o nº de premiados, o resto sai) e tira espaços. */
 export function cleanPrizes(d: CampaignDraft): CampaignDraft['prizes'] {
@@ -20,9 +20,11 @@ export function cleanPrizes(d: CampaignDraft): CampaignDraft['prizes'] {
   for (const t of TEAMS) if (d.teams[t]) out[t] = Array.from({ length: Math.max(0, Math.min(50, d.teams[t]!.winners || 0)) }, (_, i) => (d.prizes?.[t]?.[i] ?? '').trim().slice(0, 120))
   return out
 }
-export const draftToDb = (d: CampaignDraft) => ({
+export const draftToDb = (d: CampaignDraft, hadOffers = false) => ({
   name: d.name.trim(), subtitle: d.subtitle.trim(), prize: d.prize_mode === 'tiered' ? '' : d.prize.trim(), prize_mode: d.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: d.prize_mode === 'tiered' ? cleanPrizes(d) : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams,
   starts_on: d.starts_on, ends_on: d.ends_on, count_recurring: d.count_recurring, verticals: d.verticals && d.verticals.length ? d.verticals : null, notify: d.notify,
+  // só mexe na coluna quando há ofertas (ou havia, para poder LIMPAR): antes da migração, campanha sem oferta salva igual a sempre
+  ...(d.offer_codes?.length || hadOffers ? { offer_codes: d.offer_codes?.length ? d.offer_codes : null } : {}),
 })
 
 export async function loadParticipants(admin: any, teams: Team[]): Promise<Participant[]> {
@@ -36,15 +38,25 @@ export async function loadCloserRefs(admin: any): Promise<CloserRef[]> {
   return (data ?? []) as CloserRef[]
 }
 
-const SALE_COLS = 'id,event_type,vertical,value,occurred_at,closer_id,closer_hubspot_id,closer_name,co_closer_id,co_closer_hubspot_id,is_self_checkout,is_recurring,installment_number,sale_type'
-/** Vendas dos dias [from, to] (horário de SP = UTC-3). Lê em páginas: funciona mesmo se o banco limitar linhas por consulta. */
-export async function loadSales(admin: any, from: string, to: string): Promise<SaleRow[]> {
+const SALE_COLS_BASE = 'id,event_type,vertical,value,occurred_at,closer_id,closer_hubspot_id,closer_name,co_closer_id,co_closer_hubspot_id,is_self_checkout,is_recurring,installment_number,sale_type'
+const SALE_COLS = `${SALE_COLS_BASE},offer_code`
+export const OFFER_COLUMN_MISSING = 'A coluna telao_events.offer_code ainda não existe no banco — rode a migração das ofertas (migration-oferta.sql) antes de usar campanha por oferta.'
+/** Vendas dos dias [from, to] (horário de SP = UTC-3). Lê em páginas: funciona mesmo se o banco limitar linhas por consulta.
+ *  needOffers: a campanha filtra por oferta — sem a coluna offer_code no banco NÃO dá para apurar certo, então falha com mensagem clara
+ *  (campanha sem filtro de oferta continua funcionando mesmo antes da migração). */
+export async function loadSales(admin: any, from: string, to: string, needOffers = false): Promise<SaleRow[]> {
   if (to < from) return []
   const fromIso = `${from}T03:00:00.000Z`, toIso = `${addDays(to, 1)}T03:00:00.000Z`
   const out: SaleRow[] = []
+  let cols = SALE_COLS
   for (let off = 0, i = 0; i < 400; i++) {
-    const { data, error } = await admin.from('telao_events').select(SALE_COLS).eq('event_type', 'sale')
+    const page = () => admin.from('telao_events').select(cols).eq('event_type', 'sale')
       .gte('occurred_at', fromIso).lt('occurred_at', toIso).order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(off, off + 999)
+    let { data, error } = await page()
+    if (error && cols === SALE_COLS && /offer_code/.test(error.message ?? '')) {      // banco sem a coluna (migração ainda não rodou)
+      if (needOffers) throw new Error(OFFER_COLUMN_MISSING)
+      cols = SALE_COLS_BASE; ({ data, error } = await page())
+    }
     if (error) throw new Error(`telao_events: ${error.message}`)
     const got = (data ?? []) as SaleRow[]
     if (got.length === 0) break
@@ -57,7 +69,7 @@ export async function evaluateDraft(admin: any, d: CampaignDraft, today: string)
   const teams = (Object.keys(d.teams) as Team[]).filter(t => TEAMS.includes(t))
   const participants = await loadParticipants(admin, teams)
   const upto = d.ends_on < today ? d.ends_on : today
-  const [sales, closers] = upto >= d.starts_on ? await Promise.all([loadSales(admin, d.starts_on, upto), loadCloserRefs(admin)]) : [[], [] as CloserRef[]]
+  const [sales, closers] = upto >= d.starts_on ? await Promise.all([loadSales(admin, d.starts_on, upto, !!d.offer_codes?.length), loadCloserRefs(admin)]) : [[], [] as CloserRef[]]
   return { ev: evaluate(d, participants, attributeSales(sales, participants, closers), today), participants }
 }
 

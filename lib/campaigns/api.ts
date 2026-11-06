@@ -1,6 +1,7 @@
 import { CampaignDraft, CampaignRow, Team, TEAMS, THEMES, CRITERIA, EMOJIS } from './types'
 import { rowToDraft } from './server'
 import { cleanTiers } from './tiers'
+import { parseOfferCodes } from '@/lib/telao/offer'
 
 /** Lê o rascunho vindo da tela e devolve só o que é válido (nunca confia no que chega). */
 export function parseDraft(b: any): CampaignDraft | null {
@@ -20,6 +21,7 @@ export function parseDraft(b: any): CampaignDraft | null {
     teams, starts_on: String(b.starts_on ?? ''), ends_on: String(b.ends_on ?? ''),
     count_recurring: b.count_recurring === true,
     verticals: Array.isArray(b.verticals) && b.verticals.length ? b.verticals.filter((v: unknown) => typeof v === 'string').slice(0, 10) : null,
+    offer_codes: b.offer_codes == null ? null : (Array.isArray(b.offer_codes) || typeof b.offer_codes === 'string') ? (() => { const c = parseOfferCodes(b.offer_codes).codes.slice(0, 200); return c.length || Array.isArray(b.offer_codes) ? c : null })() : null,      // lista vazia = filtro ligado sem códigos (a validação barra ao publicar)
     notify: b.notify !== false,
   }
 }

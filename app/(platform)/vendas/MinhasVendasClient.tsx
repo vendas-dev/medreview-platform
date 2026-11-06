@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { BarChart3, Receipt, Repeat2, ShoppingBag, TrendingUp, Wallet } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
+import { ArrowDownUp } from 'lucide-react'
+import { ORDENS, ordemValida } from '@/lib/vendas/ordem'
 import { VendasTable } from '@/components/vendas/VendasTable'
 import { TrocaModal } from '@/components/vendas/TrocaModal'
 import { Avatar, Banner, Btn, EmptyState, FilterBar, Kpi, PageHeader, SearchBox, Select, Skeleton, Switch, VendasStyle, VerticalChip } from '@/components/vendas/ui'
@@ -12,12 +14,13 @@ import { periodoPadrao, periodoToRange, type Periodo } from '@/lib/vendas/period
 import type { VendaRow } from '@/lib/vendas/types'
 
 export function MinhasVendasClient({ team }: { team: string | null }) {
+  const [ordem, setOrdem] = useState('recentes')
   const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [recorrentes, setRecorrentes] = useState(true); const [busca, setBusca] = useState('')
   const [rows, setRows] = useState<VendaRow[]>([]); const [vinculado, setVinculado] = useState(true); const [truncado, setTruncado] = useState(false); const [closer, setCloser] = useState<{ name: string; avatar_url: string | null } | null>(null)
   const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null); const [modal, setModal] = useState(false)
   const opcoes = verticaisDoTime(team)
-  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || !recorrentes || !!busca
-  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setRecorrentes(true); setBusca('') }
+  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || !recorrentes || !!busca || ordem !== 'recentes'
+  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setRecorrentes(true); setBusca(''); setOrdem('recentes') }
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null)
@@ -55,6 +58,7 @@ export function MinhasVendasClient({ team }: { team: string | null }) {
       <FilterBar ativo={filtroAtivo} onClear={limpar}>
         <PeriodoFilter value={periodo} onChange={p => setPeriodo(p ?? periodoPadrao())} padrao={periodoPadrao()} />
         {opcoes.length > 1 && <Select name="vertical" caption="Vertical" icon={<BarChart3 size={18} />} value={vertical} onChange={setVertical} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as verticais' }, ...opcoes.map(v => ({ value: v, label: verticalLabel(v), cor: verticalCor(v) }))]} />}
+        <Select name="ordem" caption="Ordenar por" icon={<ArrowDownUp size={18} />} value={ordem} onChange={setOrdem} defaultValue="recentes" options={ORDENS.map(o => ({ value: o.value, label: o.label }))} />
         <Switch dataV="filtro-recorrentes" checked={recorrentes} onChange={setRecorrentes} label="Parcelas recorrentes" />
         <SearchBox value={busca} onChange={setBusca} placeholder="Buscar nome, e-mail, ID, cupom…" />
       </FilterBar>
@@ -84,7 +88,7 @@ export function MinhasVendasClient({ team }: { team: string | null }) {
           </div>
           <div className="vd-card vd-up" style={{ overflow: 'hidden' }}>
             {carregando ? <div style={{ padding: 20 }}><Skeleton linhas={6} /></div>
-              : <VendasTable rows={filtradas} mode="closer" onSaveObs={salvarObs} empty={busca ? 'Nenhuma venda encontrada para esta busca.' : 'Você não tem vendas neste período.'} />}
+              : <VendasTable rows={filtradas} mode="closer" ordem={ordemValida(ordem)} onSaveObs={salvarObs} empty={busca ? 'Nenhuma venda encontrada para esta busca.' : 'Você não tem vendas neste período.'} />}
           </div>
         </>
       )}

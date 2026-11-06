@@ -18,6 +18,7 @@ import { useTheme } from '@/components/ThemeProvider'
 import { MedLogoSVG } from '@/components/MedLogo'
 import { usePresence } from '@/hooks/usePresence'
 import { useTrocasBadge } from '@/lib/vendas/useTrocasBadge'
+import { Table2 as IconeVendasGerais } from 'lucide-react'
 import { useActiveModuleKeys, useActiveModules } from '@/hooks/useModules'
 import type { ModuleKey } from '@/types/database'
 
@@ -47,6 +48,7 @@ const buildNav = (isAdmin: boolean, trocasPendentes = 0): NavItem[] => [
     ? [{
         key: 'vendas', label: 'Vendas', icon: Receipt, href: '/admin/vendas', always: true, collapsedLink: true, staticLabel: true, badge: trocasPendentes,
         children: [
+          { label: 'Vendas Gerais', icon: IconeVendasGerais, href: '/admin/vendas/gerais' },
           { label: 'Vendas Individuais', icon: Users, href: '/admin/vendas' },
           { label: 'Trocas de Venda', icon: Repeat2, href: '/admin/vendas/trocas', badge: trocasPendentes },
         ],

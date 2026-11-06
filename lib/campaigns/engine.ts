@@ -1,4 +1,5 @@
 import { fmtBRL, normalizeName } from '@/lib/telao/format'
+import { MAX_OFFER_CODES, isValidOfferCode, offerKey, offersLabel } from '@/lib/telao/offer'
 import { finishMessagesTiers, howToWinTiers, tierStanding, tierTargetsKey, tiersText, TierStanding, validateTiers } from './tiers'
 import { CampaignDraft, Criterion, CRITERIA, criterionInfo, Phase, Team, TEAMS, TeamRule } from './types'
 
@@ -33,9 +34,10 @@ export function phaseOf(d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>, today: 
  * "A regra" da campanha: o que, se mudar, muda QUEM ganha. Nome, descrição, prêmio, ícone e cor ficam de fora
  * (mexer neles só reescreve os textos dos avisos). Usado pra decidir se uma edição refaz os ganhadores.
  */
-export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals'>): string {
+export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals' | 'offer_codes'>): string {
   const teams = TEAMS.filter(t => d.teams[t]).map(t => [t, d.teams[t]!.winners, d.teams[t]!.target ?? null, ...(d.criterion === 'tier_revenue' ? [tierTargetsKey(d.teams[t]!.tiers)] : [])])
-  return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null])
+  const oc = d.offer_codes && d.offer_codes.length ? [...new Set(d.offer_codes.map(offerKey))].sort() : null      // só entra na assinatura quando há filtro: campanha antiga mantém a assinatura de antes
+  return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null, ...(oc ? [oc] : [])])
 }
 
 // ── validação (a tela e a API usam a MESMA) ────────────────────────────────────
@@ -52,6 +54,15 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
     else if (d.prize.trim().length > 120) e.push('O prêmio pode ter até 120 caracteres.')
   }
   if (!CRITERIA.some(c => c.id === d.criterion)) e.push('Escolha o critério da campanha.')
+  const oc = d.offer_codes
+  if (Array.isArray(oc)) {                                                           // filtro por oferta LIGADO
+    if (oc.length === 0) { if (strict) e.push('Informe pelo menos um código de oferta (ou desligue o filtro por oferta).') }
+    else {
+      const bad = oc.filter(c => !isValidOfferCode(c))
+      if (bad.length) e.push(`Código de oferta inválido: ${bad.slice(0, 3).join(', ')}${bad.length > 3 ? '…' : ''}. Use só letras, números, ponto, hífen e sublinhado.`)
+      if (new Set(oc.map(offerKey)).size > MAX_OFFER_CODES) e.push(`Informe no máximo ${MAX_OFFER_CODES} códigos de oferta.`)
+    }
+  }
   const teams = (Object.keys(d.teams) as Team[]).filter(t => TEAMS.includes(t))
   if (strict && teams.length === 0) e.push('Escolha pelo menos um time (OAO, R1 ou ambos).')
   const info = CRITERIA.find(c => c.id === d.criterion)
@@ -104,7 +115,10 @@ export const periodText = (d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>): str
   d.starts_on === d.ends_on ? `no dia ${fmtDM(d.starts_on)}` : `de ${fmtDM(d.starts_on)} a ${fmtDM(d.ends_on)}`
 
 /** A regra em uma frase, pronta pra prévia e pra notificação. */
-export function howToWin(d: CampaignDraft): string {
+/** " Só contam vendas das ofertas: a, b." (vazio quando a campanha não filtra por oferta) */
+export const offersText = (d: Pick<CampaignDraft, 'offer_codes'>): string => (d.offer_codes && d.offer_codes.length ? ` Só contam vendas ${d.offer_codes.length === 1 ? 'da oferta' : 'das ofertas'}: ${offersLabel(d.offer_codes)}.` : '')
+export function howToWin(d: CampaignDraft): string { return howToWinBase(d) + offersText(d) }
+function howToWinBase(d: CampaignDraft): string {
   if (d.criterion === 'tier_revenue') return howToWinTiers(d, periodText(d))
   const who = winnersText(d), when = periodText(d), end = d.prize_mode === 'tiered' ? 'ganham prêmios' : 'ganham o prêmio'
   const targets = (): string => {
@@ -135,8 +149,9 @@ export interface SaleRow {
   closer_id?: string | null; closer_hubspot_id?: string | null; closer_name?: string | null
   co_closer_id?: string | null; co_closer_hubspot_id?: string | null
   is_self_checkout?: boolean | null; is_recurring?: boolean | null; installment_number?: number | null; sale_type?: string | null
+  offer_code?: string | null
 }
-export interface Credit { saleId: string; userId: string; at: string; value: number; vertical: string; recurring: boolean }
+export interface Credit { saleId: string; userId: string; at: string; value: number; vertical: string; recurring: boolean; offer?: string | null }
 
 export function attributeSales(rows: SaleRow[], participants: Participant[], closers: CloserRef[]): Credit[] {
   const byUser = new Map(participants.map(p => [p.userId, p]))
@@ -157,7 +172,7 @@ export function attributeSales(rows: SaleRow[], participants: Participant[], clo
     if (r.event_type && r.event_type !== 'sale') continue
     if (r.value === null || r.value === undefined || !Number.isFinite(Number(r.value))) continue
     const recurring = r.is_recurring === true && (r.installment_number ?? 1) > 1 || r.sale_type === 'recorrente'
-    const base = { saleId: r.id, at: r.occurred_at, value: Number(r.value), vertical: r.vertical, recurring }
+    const base = { saleId: r.id, at: r.occurred_at, value: Number(r.value), vertical: r.vertical, recurring, offer: r.offer_code ?? null }
     const main = r.is_self_checkout ? null : resolve(r.closer_id, r.closer_hubspot_id, r.closer_name)
     if (main) out.push({ ...base, userId: main })
     const co = resolve(r.co_closer_id, r.co_closer_hubspot_id, null)        // transferência: quem recebeu o crédito soma também
@@ -182,11 +197,13 @@ export interface Evaluation { phase: Phase; teams: TeamEval[]; raceComplete: boo
 export function evaluate(d: CampaignDraft, participants: Participant[], credits: Credit[], today: string): Evaluation {
   const info = criterionInfo(d.criterion)
   const phase = phaseOf(d, today)
+  const offerKeys = d.offer_codes && d.offer_codes.length ? new Set(d.offer_codes.map(offerKey)) : null
   const inScope = credits.filter(c => {
     const day = spDay(c.at)
     if (day < d.starts_on || day > d.ends_on) return false
     if (c.recurring && !d.count_recurring) return false
     if (d.verticals && d.verticals.length && !d.verticals.includes(c.vertical)) return false
+    if (offerKeys && !(c.offer && offerKeys.has(offerKey(c.offer)))) return false      // filtro por oferta: venda sem código ou de outra oferta não conta
     return true
   })
   const byUser = new Map<string, Credit[]>()

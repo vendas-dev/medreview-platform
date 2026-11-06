@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { CampaignDraft, criterionInfo, Team, TEAMS, THEMES } from '@/lib/campaigns/types'
 import { diffDays, durationDays, fmtDM, howToWin, launchMessage, metricText, phaseOf, prizeFor, validateDraft } from '@/lib/campaigns/engine'
 import { fmtBRL } from '@/lib/telao/format'
+import { offersLabel } from '@/lib/telao/offer'
 import { NotificationCard } from '@/components/notifications/NotificationBell'
 import { TierTeamBlock } from './TierViews'
 
@@ -147,6 +148,7 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
         <p data-participants style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted-foreground)' }}>
           👥 <strong style={{ color: 'var(--foreground)' }}>{pl(total, 'pessoa concorre', 'pessoas concorrem')}</strong>{teams.length > 1 ? ` · ${teams.map(t => `${t} ${pt[t]}`).join(' · ')}` : ''}
           {d.count_recurring ? ' · parcelas de recorrência contam' : ''}
+          {d.offer_codes?.length ? <span data-offers-summary> · 🏷️ só {d.offer_codes.length === 1 ? 'a oferta' : `as ${d.offer_codes.length} ofertas`}: {offersLabel(d.offer_codes, 3)}</span> : null}
         </p>
 
         <Standings d={d} live={live} loading={liveLoading} today={today} />

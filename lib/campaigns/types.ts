@@ -52,6 +52,7 @@ export interface CampaignDraft {
   starts_on: string; ends_on: string               // YYYY-MM-DD (São Paulo), inclusive
   count_recurring: boolean                         // parcelas de recorrência contam como venda?
   verticals: string[] | null                       // null = todas as do time
+  offer_codes?: string[] | null                    // null/ausente = todas as ofertas · lista = SÓ vendas dessas ofertas da Hotmart (código da oferta)
   notify: boolean                                  // avisar os participantes (lançamento, resultado)
 }
 
@@ -66,6 +67,6 @@ export function emptyDraft(today: string): CampaignDraft {
   return {
     name: '', subtitle: '', prize: '', prize_mode: 'single', prizes: {}, emoji: '🏁', theme: 'roxo', criterion: 'revenue_rank',
     teams: { OAO: { winners: 3, target: null }, R1: { winners: 4, target: null } },
-    starts_on: today, ends_on: today, count_recurring: false, verticals: null, notify: true,
+    starts_on: today, ends_on: today, count_recurring: false, verticals: null, offer_codes: null, notify: true,
   }
 }

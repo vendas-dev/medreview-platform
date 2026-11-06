@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Copy, Eye, Pencil, Plus, RefreshCw, Rocket, Trash2, Trophy, X, Ban } from 'lucide-react'
 import { CampaignDraft, CampaignRow, criterionInfo, emptyDraft, Phase, Team, TEAMS } from '@/lib/campaigns/types'
 import { fmtDM, metricText, prizeFor, prizeHeadline, spDay, todaySP, winnersText, Evaluation } from '@/lib/campaigns/engine'
+import { offersLabel } from '@/lib/telao/offer'
 import { CampaignBanner } from '@/components/campaigns/CampaignPreview'
 import { CampaignBuilder } from '@/components/campaigns/CampaignBuilder'
 import { Btn, CampaignStyles, IconBtn } from '@/components/campaigns/ui'
@@ -174,6 +175,7 @@ function CampaignCard({ c, today, i, onView, onPublish, onEdit, onDuplicate, onD
           <Fact k="REGRA">
             <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--foreground)', lineHeight: 1.4 }}>{winnersText(c)}</span>
             <span data-chip="criterio" style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{info.icon} {info.label}</span>
+            {c.offer_codes?.length ? <span data-chip="ofertas" title={c.offer_codes.join(', ')} style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)' }}>🏷️ só {c.offer_codes.length === 1 ? 'a oferta' : `as ${c.offer_codes.length} ofertas`}: {offersLabel(c.offer_codes, 3)}</span> : null}
           </Fact>
           <Fact k="PRÊMIO">
             <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--foreground)' }}>🎁 {prizeHeadline(c) || <span style={{ opacity: 0.5, fontWeight: 500 }}>sem prêmio definido</span>}</span>
@@ -240,7 +242,7 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
             <button onClick={onClose} aria-label="Fechar" style={{ position: 'absolute', top: 12, right: 12, width: 32, height: 32, borderRadius: 10, border: 'none', background: 'rgba(0,0,0,.35)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
           </div>
           <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--foreground)' }}>🎁 <strong>{prizeHeadline(c)}</strong> · {winnersText(c)} · {data.participants} {data.participants === 1 ? 'pessoa concorre' : 'pessoas concorrem'}</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--foreground)' }}>🎁 <strong>{prizeHeadline(c)}</strong> · {winnersText(c)} · {data.participants} {data.participants === 1 ? 'pessoa concorre' : 'pessoas concorrem'}{c.offer_codes?.length ? <span data-offers-detail title={c.offer_codes.join(', ')}> · 🏷️ só {c.offer_codes.length === 1 ? 'a oferta' : `as ${c.offer_codes.length} ofertas`}: {offersLabel(c.offer_codes, 3)}</span> : null}</p>
 
             {data.winners.length > 0 && (
               <div data-winners>

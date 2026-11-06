@@ -9,6 +9,7 @@ import { TierEditor } from './TierEditor'
 import { tiersValid } from '@/lib/campaigns/tiers'
 import type { TeamRule } from '@/lib/campaigns/types'
 import { Btn, CampaignStyles } from './ui'
+import { MAX_OFFER_CODES, offerKey, parseOfferCodes } from '@/lib/telao/offer'
 
 // ══ Criador de campanhas ═════════════════════════════════════════════════════
 // Janela com TOPO fixo (título + progresso), CORPO com duas áreas que rolam separadas (formulário e prévia)
@@ -66,15 +67,24 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   const [serverErr, setServerErr] = useState<string | null>(null)
   const [live, setLive] = useState<PreviewData | null>(null)
   const [liveLoading, setLiveLoading] = useState(false)
+  const [offerText, setOfferText] = useState('')                       // o que está digitado e ainda não virou "chip"
+  const [offerMsg, setOfferMsg] = useState<string | null>(null)
   const patch = (p: Partial<CampaignDraft>) => setD(x => ({ ...x, ...p }))
   const info = criterionInfo(d.criterion)
-  const errors = useMemo(() => validateDraft(d, true), [d])
-  const draftErrors = useMemo(() => validateDraft(d, false), [d])
+  // o que o usuário digitou no campo de ofertas e ainda não apertou Enter JÁ CONTA (validação e envio): nada se perde por falta de um Enter
+  const dv = useMemo<CampaignDraft>(() => {
+    const t = offerText.trim()
+    if (!t || !Array.isArray(d.offer_codes)) return d
+    const have = new Set(d.offer_codes.map(offerKey))
+    return { ...d, offer_codes: [...d.offer_codes, ...parseOfferCodes(t).codes.filter(c => !have.has(offerKey(c)))].slice(0, MAX_OFFER_CODES) }
+  }, [d, offerText])
+  const errors = useMemo(() => validateDraft(dv, true), [dv])
+  const draftErrors = useMemo(() => validateDraft(dv, false), [dv])
   const saveErrors = status === 'published' ? errors : draftErrors      // campanha já publicada: o servidor exige tudo, a tela também
   const teamKey = TEAMS.filter(t => d.teams[t]).join('+')
 
   // prévia do ranking: só refaz quando muda algo que altera o RESULTADO (não o visual); espera 600 ms de calma
-  const sig = JSON.stringify([d.criterion, d.teams, d.starts_on, d.ends_on, d.count_recurring, d.verticals])
+  const sig = JSON.stringify([d.criterion, d.teams, d.starts_on, d.ends_on, d.count_recurring, d.verticals, d.offer_codes])
   const seq = useRef(0)
   useEffect(() => {
     if (durationDays(d) === 0 || TEAMS.every(t => !d.teams[t])) { setLive(null); return }
@@ -98,13 +108,24 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   const MED = ['🥇', '🥈', '🥉']
   const setPrize = (t: Team, i: number, v: string) => { const list = [...(d.prizes[t] ?? [])]; while (list.length <= i) list.push(''); list[i] = v; patch({ prizes: { ...d.prizes, [t]: list } }) }
   const copyPrizes = (from: Team, to: Team) => { const src = d.prizes[from] ?? [], n = d.teams[to]?.winners ?? 0; patch({ prizes: { ...d.prizes, [to]: Array.from({ length: n }, (_, i) => src[i] ?? '') } }) }
+  const offersOn = Array.isArray(d.offer_codes)
+  const addOffers = (raw: string): boolean => {              // true = tudo foi entendido (o campo pode ser limpo)
+    const p = parseOfferCodes(raw), cur = d.offer_codes ?? [], have = new Set(cur.map(offerKey))
+    const add = p.codes.filter(c => !have.has(offerKey(c))), room = Math.max(0, MAX_OFFER_CODES - cur.length), take = add.slice(0, room)
+    setOfferMsg(p.rejected.length ? `Não entendi: ${p.rejected.slice(0, 3).join(', ')}${p.rejected.length > 3 ? '…' : ''}. Código de oferta tem só letras, números, ponto, hífen e sublinhado.` : add.length > room ? `Máximo de ${MAX_OFFER_CODES} códigos por campanha.` : p.codes.length && !add.length ? 'Esse código já estava na lista.' : null)
+    if (take.length) patch({ offer_codes: [...cur, ...take] })
+    return p.rejected.length === 0 && add.length <= room
+  }
+  const removeOffer = (c: string) => { setOfferMsg(null); patch({ offer_codes: (d.offer_codes ?? []).filter(x => offerKey(x) !== offerKey(c)) }) }      // lista vazia continua LIGADA: quem decide desligar é o usuário
   const toggleVert = (v: string) => { const cur = d.verticals ?? []; const next = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]; patch({ verticals: next.length ? next : null }) }
 
   async function submit(publish: boolean) {
+    const pendente = offerText.trim()
+    if (pendente && parseOfferCodes(pendente).rejected.length) { setServerErr(`Código de oferta inválido: ${parseOfferCodes(pendente).rejected.slice(0, 3).join(', ')}. Corrija ou apague antes de salvar.`); return }
     setSaving(publish ? 'publish' : 'draft'); setServerErr(null)
     try {
       const url = editingId ? `/api/admin/campaigns/${editingId}` : '/api/admin/campaigns'
-      const r = await fetch(url, { method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft: d, publish }) })
+      const r = await fetch(url, { method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft: dv, publish }) })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) { setServerErr(j?.error ?? 'Não consegui salvar.'); return }
       if (editingId && publish) {                                   // editou e quer publicar: a edição já foi salva, agora publica
@@ -197,6 +218,31 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                     {d.criterion === c.id && <span style={{ position: 'absolute', top: 12, right: 12, width: 20, height: 20, borderRadius: '50%', background: '#6366f1', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={12} strokeWidth={3.5} /></span>}
                   </button>
                 ))}
+              </div>
+              <div data-offer-block style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <label className="cb-check">
+                  <input data-f="offer-on" type="checkbox" checked={offersOn} onChange={e => { setOfferText(''); setOfferMsg(null); patch({ offer_codes: e.target.checked ? [] : null }) }} />
+                  <span><strong>🏷️ Só vendas de ofertas específicas</strong><span>Cada produto da Hotmart tem várias ofertas, e cada oferta tem um código. Ligando isto, só entram na conta as vendas das ofertas que você informar — vale para o critério escolhido acima (receita, quantidade, primeiro a bater…).</span></span>
+                </label>
+                {offersOn && (
+                  <Field label="Códigos das ofertas" hint={`${(d.offer_codes ?? []).length}/${MAX_OFFER_CODES}`}>
+                    <div data-offer-chips style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {(d.offer_codes ?? []).map(c => (
+                        <span key={c} data-offer-chip={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 6px 0 12px', borderRadius: 999, background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.35)', fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)' }}>
+                          <code style={{ fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace' }}>{c}</code>
+                          <button type="button" data-offer-remove={c} aria-label={`Remover a oferta ${c}`} onClick={() => removeOffer(c)} style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(99,102,241,.18)', color: 'var(--foreground)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={12} /></button>
+                        </span>
+                      ))}
+                    </div>
+                    <input className="cp-field" data-f="offer-input" value={offerText} autoComplete="off" spellCheck={false} placeholder="Cole ou digite e aperte Enter"
+                      onChange={e => { setOfferText(e.target.value); if (offerMsg) setOfferMsg(null) }}
+                      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === ' ') && offerText.trim()) { e.preventDefault(); if (addOffers(offerText)) setOfferText('') } else if (e.key === 'Enter') e.preventDefault() }}
+                      onPaste={e => { const t = e.clipboardData.getData('text'); if (t.trim()) { e.preventDefault(); if (addOffers(`${offerText} ${t}`)) setOfferText('') } }}
+                      onBlur={() => { if (offerText.trim() && addOffers(offerText)) setOfferText('') }} />
+                    {offerMsg && <Note tone="warn" data-offer-msg>{offerMsg}</Note>}
+                    {(d.offer_codes ?? []).length === 0 && !offerText.trim() && <Note data-offer-empty>Informe pelo menos um código de oferta — sem isso a campanha não pode ser publicada.</Note>}
+                  </Field>
+                )}
               </div>
             </Section>
 
