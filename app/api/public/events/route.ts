@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizeName, matchCloser } from '@/lib/telao/format'
 import { Closer } from '@/lib/telao/types'
-import { normalizeOfferCode } from '@/lib/telao/offer'
+import { normalizeOfferCode, normalizeProductId } from '@/lib/telao/offer'
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -50,6 +50,8 @@ const SaleSchema = z.object({
   // z.unknown() de propósito: como as demais colunas de enriquecimento, um valor estranho NUNCA barra a venda —
   // normalizeOfferCode() deixa em uma linha (ou vira null).
   offer_code:           z.unknown().optional(),
+  // ID do PRODUTO da Hotmart (numérico, ex.: 2366290). Texto de UMA linha, opcional. Mesmo cuidado do offer_code: valor estranho NUNCA barra a venda.
+  product_id:           z.unknown().optional(),
   // Identificador estável do HubSpot — opcional, útil se algum dia o evento
   // vier de lá. Não é confiável pra vendas que vêm direto da Hotmart.
   deal_id:              z.string().nullable().optional(),
@@ -256,6 +258,7 @@ export async function POST(req: NextRequest) {
       const saleType = deriveSaleType(data)
       const isEventCoupon = (data.coupon_code ?? '').toUpperCase().startsWith('EV_')
       const offerCode = normalizeOfferCode(data.offer_code)
+      const productId = normalizeProductId(data.product_id)
       insertData = {
         ...insertData,
         lead_name:           data.lead_name,
@@ -269,6 +272,7 @@ export async function POST(req: NextRequest) {
         coupon_code:         data.coupon_code || null,
         // só envia a coluna quando há código: venda sem oferta grava IGUAL a sempre (e funciona mesmo antes da migração)
         ...(offerCode ? { offer_code: offerCode } : {}),
+        ...(productId ? { product_id: productId } : {}),
         deal_id:             data.deal_id || null,
         transaction_id:      data.transaction_id || null,
         // Dados do comprador — pra insights futuros (recompra, vendas por
@@ -353,12 +357,15 @@ export async function POST(req: NextRequest) {
     }
 
     let { data: inserted, error } = await admin.from('telao_events').insert(insertData).select().single()
-    // Rede de segurança: se o banco ainda NÃO tem a coluna offer_code (migração não rodada), a venda não se perde —
-    // grava sem o código e deixa o aviso no log.
-    if (error && 'offer_code' in insertData && /offer_code/.test(error.message ?? '')) {
-      console.error('[telao/events] ATENÇÃO: a coluna telao_events.offer_code não existe — rode migration-oferta.sql. Gravando a venda SEM o código da oferta.')
-      const semOferta = { ...insertData }; delete semOferta.offer_code
-      ;({ data: inserted, error } = await admin.from('telao_events').insert(semOferta).select().single())
+    // Rede de segurança: se o banco ainda NÃO tem a coluna offer_code ou product_id (migração não rodada), a venda não se perde —
+    // grava sem aquele dado e deixa o aviso no log (uma coluna por tentativa).
+    let tentativa: Record<string, unknown> = insertData
+    for (let t = 0; t < 2 && error; t++) {
+      const falta = (['offer_code', 'product_id'] as const).find(c => c in tentativa && new RegExp(c).test(error!.message ?? ''))
+      if (!falta) break
+      console.error(`[telao/events] ATENÇÃO: a coluna telao_events.${falta} não existe — rode migration-oferta.sql / migration-produto.sql. Gravando a venda SEM esse dado.`)
+      tentativa = { ...tentativa }; delete tentativa[falta]
+      ;({ data: inserted, error } = await admin.from('telao_events').insert(tentativa).select().single())
     }
 
     if (error) {
@@ -398,6 +405,7 @@ export async function POST(req: NextRequest) {
       seller_type:        finalSellerType,
       sale_type:          data.event_type === 'sale' ? deriveSaleType(data) : null,
       offer_code:        inserted?.offer_code ?? null,
+      product_id:       inserted?.product_id ?? null,
       link_matched:       matchedLink ? true : false,
     }, { status: 201, headers: CORS })
 

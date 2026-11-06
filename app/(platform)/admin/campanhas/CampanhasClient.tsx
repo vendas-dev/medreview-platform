@@ -176,6 +176,8 @@ function CampaignCard({ c, today, i, onView, onPublish, onEdit, onDuplicate, onD
             <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--foreground)', lineHeight: 1.4 }}>{winnersText(c)}</span>
             <span data-chip="criterio" style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{info.icon} {info.label}</span>
             {c.offer_codes?.length ? <span data-chip="ofertas" title={c.offer_codes.join(', ')} style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)' }}>🏷️ só {c.offer_codes.length === 1 ? 'a oferta' : `as ${c.offer_codes.length} ofertas`}: {offersLabel(c.offer_codes, 3)}</span> : null}
+            {c.product_ids?.length ? <span data-chip="produtos" title={c.product_ids.join(', ')} style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)' }}>🧩 só {c.product_ids.length === 1 ? 'o produto' : `os ${c.product_ids.length} produtos`} ID: {offersLabel(c.product_ids, 3)}</span> : null}
+            {c.offer_codes?.length && c.product_ids?.length ? <span data-chip="condicao" style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>condição: produto <strong style={{ color: 'var(--foreground)' }}>{c.filter_logic === 'or' ? 'OU' : c.filter_logic === 'and' ? 'E' : '?'}</strong> oferta</span> : null}
           </Fact>
           <Fact k="PRÊMIO">
             <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--foreground)' }}>🎁 {prizeHeadline(c) || <span style={{ opacity: 0.5, fontWeight: 500 }}>sem prêmio definido</span>}</span>
@@ -242,7 +244,7 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
             <button onClick={onClose} aria-label="Fechar" style={{ position: 'absolute', top: 12, right: 12, width: 32, height: 32, borderRadius: 10, border: 'none', background: 'rgba(0,0,0,.35)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
           </div>
           <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--foreground)' }}>🎁 <strong>{prizeHeadline(c)}</strong> · {winnersText(c)} · {data.participants} {data.participants === 1 ? 'pessoa concorre' : 'pessoas concorrem'}{c.offer_codes?.length ? <span data-offers-detail title={c.offer_codes.join(', ')}> · 🏷️ só {c.offer_codes.length === 1 ? 'a oferta' : `as ${c.offer_codes.length} ofertas`}: {offersLabel(c.offer_codes, 3)}</span> : null}</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--foreground)' }}>🎁 <strong>{prizeHeadline(c)}</strong> · {winnersText(c)} · {data.participants} {data.participants === 1 ? 'pessoa concorre' : 'pessoas concorrem'}{c.offer_codes?.length ? <span data-offers-detail title={c.offer_codes.join(', ')}> · 🏷️ só {c.offer_codes.length === 1 ? 'a oferta' : `as ${c.offer_codes.length} ofertas`}: {offersLabel(c.offer_codes, 3)}</span> : null}{c.product_ids?.length ? <span data-products-detail title={c.product_ids.join(', ')}> · 🧩 só {c.product_ids.length === 1 ? 'o produto' : `os ${c.product_ids.length} produtos`} ID: {offersLabel(c.product_ids, 3)}{c.offer_codes?.length ? ` (${c.filter_logic === 'or' ? 'OU' : 'E'} oferta)` : ''}</span> : null}</p>
 
             {data.winners.length > 0 && (
               <div data-winners>

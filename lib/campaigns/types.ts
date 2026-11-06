@@ -53,6 +53,8 @@ export interface CampaignDraft {
   count_recurring: boolean                         // parcelas de recorrência contam como venda?
   verticals: string[] | null                       // null = todas as do time
   offer_codes?: string[] | null                    // null/ausente = todas as ofertas · lista = SÓ vendas dessas ofertas da Hotmart (código da oferta)
+  product_ids?: string[] | null                    // null/ausente = todos os produtos · lista = SÓ vendas desses produtos da Hotmart (ID do produto)
+  filter_logic?: 'and' | 'or' | null               // com produtos E ofertas ligados: 'and' = precisa ser do produto E da oferta · 'or' = basta uma das duas
   notify: boolean                                  // avisar os participantes (lançamento, resultado)
 }
 
@@ -67,6 +69,6 @@ export function emptyDraft(today: string): CampaignDraft {
   return {
     name: '', subtitle: '', prize: '', prize_mode: 'single', prizes: {}, emoji: '🏁', theme: 'roxo', criterion: 'revenue_rank',
     teams: { OAO: { winners: 3, target: null }, R1: { winners: 4, target: null } },
-    starts_on: today, ends_on: today, count_recurring: false, verticals: null, offer_codes: null, notify: true,
+    starts_on: today, ends_on: today, count_recurring: false, verticals: null, offer_codes: null, product_ids: null, filter_logic: null, notify: true,
   }
 }

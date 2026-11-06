@@ -22,6 +22,8 @@ export function parseDraft(b: any): CampaignDraft | null {
     count_recurring: b.count_recurring === true,
     verticals: Array.isArray(b.verticals) && b.verticals.length ? b.verticals.filter((v: unknown) => typeof v === 'string').slice(0, 10) : null,
     offer_codes: b.offer_codes == null ? null : (Array.isArray(b.offer_codes) || typeof b.offer_codes === 'string') ? (() => { const c = parseOfferCodes(b.offer_codes).codes.slice(0, 200); return c.length || Array.isArray(b.offer_codes) ? c : null })() : null,      // lista vazia = filtro ligado sem códigos (a validação barra ao publicar)
+    product_ids: b.product_ids == null ? null : (Array.isArray(b.product_ids) || typeof b.product_ids === 'string') ? (() => { const c = parseOfferCodes(b.product_ids).codes.slice(0, 200); return c.length || Array.isArray(b.product_ids) ? c : null })() : null,      // lista vazia = filtro ligado sem IDs (a validação barra ao publicar)
+    filter_logic: b.filter_logic === 'and' || b.filter_logic === 'or' ? b.filter_logic : null,
     notify: b.notify !== false,
   }
 }

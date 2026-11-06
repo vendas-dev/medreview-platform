@@ -4,6 +4,7 @@
 
 export const OFFER_MAX_LEN = 100          // tamanho máximo do texto gravado na venda (a coluna tem a mesma trava)
 export const MAX_OFFER_CODES = 50         // máximo de códigos em UMA campanha
+export const MAX_PRODUCT_IDS = 50         // máximo de IDs de produto em UMA campanha
 const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /**
@@ -64,4 +65,30 @@ export function offerMatches(campaignCodes: string[] | null | undefined, saleCod
   if (!campaignCodes || campaignCodes.length === 0) return true
   const k = offerKey(saleCode)
   return k !== '' && campaignCodes.some(c => offerKey(c) === k)
+}
+
+// ── ID do PRODUTO (Hotmart): mesmas regras do código da oferta (uma linha, até 100 caracteres, comparação sem diferenciar maiúscula) ──
+// O ID do produto na Hotmart é numérico (ex.: 2366290); guardamos como TEXTO para não perder nada.
+export const normalizeProductId = (v: unknown): string | null => normalizeOfferCode(v)
+export const isValidProductId = (s: unknown): boolean => isValidOfferCode(s)
+export const parseProductIds = (input: unknown): ParsedOffers => parseOfferCodes(input)
+
+/** Quando a campanha filtra por produto E por oferta: 'and' = a venda precisa ser do produto E da oferta · 'or' = basta uma das duas. */
+export type FilterLogic = 'and' | 'or'
+export interface SaleFilter { offer_codes?: string[] | null; product_ids?: string[] | null; filter_logic?: FilterLogic | string | null }
+
+/**
+ * A venda entra na campanha, dado o filtro de ofertas e/ou de produtos?
+ *  • nenhum filtro → entra qualquer venda (inclusive sem código e sem produto)
+ *  • só ofertas → o código da oferta da venda precisa ser um dos informados
+ *  • só produtos → o ID do produto da venda precisa ser um dos informados
+ *  • os dois → 'and': precisa casar com os dois · 'or': basta casar com um
+ * Venda sem código/sem ID nunca casa com aquele filtro. Se a condição estiver ausente (não deveria: a validação exige), vale 'and', o mais restritivo.
+ */
+export function saleMatchesFilter(f: SaleFilter, sale: { offer?: unknown; product?: unknown }): boolean {
+  const o = !!(f.offer_codes && f.offer_codes.length > 0), p = !!(f.product_ids && f.product_ids.length > 0)
+  if (!o && !p) return true
+  const om = o && offerMatches(f.offer_codes, sale.offer), pm = p && offerMatches(f.product_ids, sale.product)
+  if (o && p) return f.filter_logic === 'or' ? om || pm : om && pm
+  return o ? om : pm
 }

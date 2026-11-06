@@ -149,6 +149,7 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
           👥 <strong style={{ color: 'var(--foreground)' }}>{pl(total, 'pessoa concorre', 'pessoas concorrem')}</strong>{teams.length > 1 ? ` · ${teams.map(t => `${t} ${pt[t]}`).join(' · ')}` : ''}
           {d.count_recurring ? ' · parcelas de recorrência contam' : ''}
           {d.offer_codes?.length ? <span data-offers-summary> · 🏷️ só {d.offer_codes.length === 1 ? 'a oferta' : `as ${d.offer_codes.length} ofertas`}: {offersLabel(d.offer_codes, 3)}</span> : null}
+          {d.product_ids?.length ? <span data-products-summary> · 🧩 {d.offer_codes?.length ? (d.filter_logic === 'or' ? 'produto OU oferta: ' : d.filter_logic === 'and' ? 'produto E oferta: ' : 'produto + oferta: ') : ''}só {d.product_ids.length === 1 ? 'o produto' : `os ${d.product_ids.length} produtos`} ID: {offersLabel(d.product_ids, 3)}</span> : null}
         </p>
 
         <Standings d={d} live={live} loading={liveLoading} today={today} />

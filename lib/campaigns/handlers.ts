@@ -42,7 +42,7 @@ export async function hCreateCampaign(admin: any, userId: string, body: any, now
   const errors = validateDraft(draft, publish)
   if (errors.length) return bad(errors[0], { errors })
   const { data, error } = await admin.from('campaigns').insert({ ...draftToDb(draft), status: 'draft', created_by: userId }).select().single()
-  if (error || !data) { console.error('[campanhas] criar:', error?.message); return bad(/offer_codes/.test(error?.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : 'Não consegui salvar a campanha.', {}, 500) }  // MIGRACAO_OFERTAS:criar
+  if (error || !data) { console.error('[campanhas] criar:', error?.message); return bad(/offer_codes/.test(error?.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : /product_ids|filter_logic/.test(error?.message ?? '') ? 'Falta rodar a migração do produto no banco (migration-produto.sql).' : 'Não consegui salvar a campanha.', {}, 500) }  // MIGRACAO_OFERTAS:criar MIGRACAO_PRODUTO:criar
   if (publish) {
     const r = await publishCampaign(admin, data.id, now)
     if (!r.ok) return bad(r.errors[0], { errors: r.errors, id: data.id })
@@ -73,8 +73,8 @@ export async function hPatchCampaign(admin: any, id: string, body: any, now: Dat
   const prev = rowToDraft(r), status: string = r.status, wasFinal = !!r.finalized_at          // guarda ANTES de alterar
   const errors = validateDraft(draft, status !== 'draft')
   if (errors.length) return bad(errors[0], { errors })
-  const { error } = await admin.from('campaigns').update({ ...draftToDb(draft, !!prev.offer_codes?.length), updated_at: now.toISOString() }).eq('id', id)
-  if (error) return bad(/offer_codes/.test(error.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : 'Não consegui salvar.', {}, 500)   // MIGRACAO_OFERTAS:editar
+  const { error } = await admin.from('campaigns').update({ ...draftToDb(draft, { offers: !!prev.offer_codes?.length, products: !!prev.product_ids?.length, logic: !!prev.filter_logic }), updated_at: now.toISOString() }).eq('id', id)
+  if (error) return bad(/offer_codes/.test(error.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : /product_ids|filter_logic/.test(error.message ?? '') ? 'Falta rodar a migração do produto no banco (migration-produto.sql).' : 'Não consegui salvar.', {}, 500)   // MIGRACAO_OFERTAS:editar MIGRACAO_PRODUTO:editar
   if (status === 'draft') return ok({ ok: true, ruleChanged: false, reset: { notifications: 0, winners: 0 }, sync: { updated: 0, removed: 0, recipients: 0 } })
 
   const ruleChanged = ruleSignature(prev) !== ruleSignature(draft), startChanged = prev.starts_on !== draft.starts_on
@@ -127,7 +127,7 @@ export async function hCampaignAction(admin: any, id: string, userId: string, bo
       const d = rowToDraft(r)
       const { data, error } = await admin.from('campaigns').insert({
         name: `${d.name} (cópia)`.slice(0, 60), subtitle: d.subtitle, prize: d.prize_mode === 'tiered' ? '' : d.prize, prize_mode: d.prize_mode, prizes: d.prize_mode === 'tiered' ? d.prizes : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams,
-        starts_on: addDays(d.starts_on, shift), ends_on: addDays(d.ends_on, shift), count_recurring: d.count_recurring, verticals: d.verticals, ...(d.offer_codes?.length ? { offer_codes: d.offer_codes } : {}), notify: d.notify, status: 'draft', created_by: userId,
+        starts_on: addDays(d.starts_on, shift), ends_on: addDays(d.ends_on, shift), count_recurring: d.count_recurring, verticals: d.verticals, ...(d.offer_codes?.length ? { offer_codes: d.offer_codes } : {}), ...(d.product_ids?.length ? { product_ids: d.product_ids } : {}), ...(d.filter_logic && d.offer_codes?.length && d.product_ids?.length ? { filter_logic: d.filter_logic } : {}), notify: d.notify, status: 'draft', created_by: userId,
       }).select().single()
       return error || !data ? bad('Não consegui duplicar.', {}, 500) : ok({ ok: true, id: data.id })
     }

@@ -9,7 +9,7 @@ import { TierEditor } from './TierEditor'
 import { tiersValid } from '@/lib/campaigns/tiers'
 import type { TeamRule } from '@/lib/campaigns/types'
 import { Btn, CampaignStyles } from './ui'
-import { MAX_OFFER_CODES, offerKey, parseOfferCodes } from '@/lib/telao/offer'
+import { MAX_OFFER_CODES, MAX_PRODUCT_IDS, offerKey, parseOfferCodes } from '@/lib/telao/offer'
 
 // ══ Criador de campanhas ═════════════════════════════════════════════════════
 // Janela com TOPO fixo (título + progresso), CORPO com duas áreas que rolam separadas (formulário e prévia)
@@ -69,22 +69,26 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   const [liveLoading, setLiveLoading] = useState(false)
   const [offerText, setOfferText] = useState('')                       // o que está digitado e ainda não virou "chip"
   const [offerMsg, setOfferMsg] = useState<string | null>(null)
+  const [productText, setProductText] = useState('')                   // o que está digitado no campo de produtos e ainda não virou chip
+  const [productMsg, setProductMsg] = useState<string | null>(null)
   const patch = (p: Partial<CampaignDraft>) => setD(x => ({ ...x, ...p }))
   const info = criterionInfo(d.criterion)
   // o que o usuário digitou no campo de ofertas e ainda não apertou Enter JÁ CONTA (validação e envio): nada se perde por falta de um Enter
   const dv = useMemo<CampaignDraft>(() => {
-    const t = offerText.trim()
-    if (!t || !Array.isArray(d.offer_codes)) return d
-    const have = new Set(d.offer_codes.map(offerKey))
-    return { ...d, offer_codes: [...d.offer_codes, ...parseOfferCodes(t).codes.filter(c => !have.has(offerKey(c)))].slice(0, MAX_OFFER_CODES) }
-  }, [d, offerText])
+    const ot = offerText.trim(), pt = productText.trim()
+    let r = d
+    if (ot && Array.isArray(d.offer_codes)) { const have = new Set(d.offer_codes.map(offerKey)); r = { ...r, offer_codes: [...d.offer_codes, ...parseOfferCodes(ot).codes.filter(c => !have.has(offerKey(c)))].slice(0, MAX_OFFER_CODES) } }
+    if (pt && Array.isArray(d.product_ids)) { const have = new Set(d.product_ids.map(offerKey)); r = { ...r, product_ids: [...d.product_ids, ...parseOfferCodes(pt).codes.filter(c => !have.has(offerKey(c)))].slice(0, MAX_PRODUCT_IDS) } }
+    if (r.filter_logic && !(Array.isArray(r.offer_codes) && Array.isArray(r.product_ids))) r = { ...r, filter_logic: null }      // a condição E/OU só existe com produto E oferta ligados
+    return r
+  }, [d, offerText, productText])
   const errors = useMemo(() => validateDraft(dv, true), [dv])
   const draftErrors = useMemo(() => validateDraft(dv, false), [dv])
   const saveErrors = status === 'published' ? errors : draftErrors      // campanha já publicada: o servidor exige tudo, a tela também
   const teamKey = TEAMS.filter(t => d.teams[t]).join('+')
 
   // prévia do ranking: só refaz quando muda algo que altera o RESULTADO (não o visual); espera 600 ms de calma
-  const sig = JSON.stringify([d.criterion, d.teams, d.starts_on, d.ends_on, d.count_recurring, d.verticals, d.offer_codes])
+  const sig = JSON.stringify([d.criterion, d.teams, d.starts_on, d.ends_on, d.count_recurring, d.verticals, d.offer_codes, d.product_ids, d.filter_logic])
   const seq = useRef(0)
   useEffect(() => {
     if (durationDays(d) === 0 || TEAMS.every(t => !d.teams[t])) { setLive(null); return }
@@ -117,11 +121,22 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
     return p.rejected.length === 0 && add.length <= room
   }
   const removeOffer = (c: string) => { setOfferMsg(null); patch({ offer_codes: (d.offer_codes ?? []).filter(x => offerKey(x) !== offerKey(c)) }) }      // lista vazia continua LIGADA: quem decide desligar é o usuário
+  const productsOn = Array.isArray(d.product_ids)
+  const addProducts = (raw: string): boolean => {            // true = tudo foi entendido (o campo pode ser limpo)
+    const p = parseOfferCodes(raw), cur = d.product_ids ?? [], have = new Set(cur.map(offerKey))
+    const add = p.codes.filter(c => !have.has(offerKey(c))), room = Math.max(0, MAX_PRODUCT_IDS - cur.length), take = add.slice(0, room)
+    setProductMsg(p.rejected.length ? `Não entendi: ${p.rejected.slice(0, 3).join(', ')}${p.rejected.length > 3 ? '…' : ''}. ID de produto tem só letras, números, ponto, hífen e sublinhado.` : add.length > room ? `Máximo de ${MAX_PRODUCT_IDS} IDs por campanha.` : p.codes.length && !add.length ? 'Esse ID já estava na lista.' : null)
+    if (take.length) patch({ product_ids: [...cur, ...take] })
+    return p.rejected.length === 0 && add.length <= room
+  }
+  const removeProduct = (c: string) => { setProductMsg(null); patch({ product_ids: (d.product_ids ?? []).filter(x => offerKey(x) !== offerKey(c)) }) }      // lista vazia continua LIGADA: quem decide desligar é o usuário
   const toggleVert = (v: string) => { const cur = d.verticals ?? []; const next = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]; patch({ verticals: next.length ? next : null }) }
 
   async function submit(publish: boolean) {
     const pendente = offerText.trim()
     if (pendente && parseOfferCodes(pendente).rejected.length) { setServerErr(`Código de oferta inválido: ${parseOfferCodes(pendente).rejected.slice(0, 3).join(', ')}. Corrija ou apague antes de salvar.`); return }
+    const pendenteP = productText.trim()
+    if (pendenteP && parseOfferCodes(pendenteP).rejected.length) { setServerErr(`ID de produto inválido: ${parseOfferCodes(pendenteP).rejected.slice(0, 3).join(', ')}. Corrija ou apague antes de salvar.`); return }
     setSaving(publish ? 'publish' : 'draft'); setServerErr(null)
     try {
       const url = editingId ? `/api/admin/campaigns/${editingId}` : '/api/admin/campaigns'
@@ -244,6 +259,45 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                   </Field>
                 )}
               </div>
+              <div data-product-block style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <label className="cb-check">
+                  <input data-f="product-on" type="checkbox" checked={productsOn} onChange={e => { setProductText(''); setProductMsg(null); patch({ product_ids: e.target.checked ? [] : null }) }} />
+                  <span><strong>🧩 Só vendas de produtos específicos (ID do produto)</strong><span>Cada produto da Hotmart tem um ID numérico (ex.: 2366290). Ligando isto, só entram na conta as vendas dos produtos que você informar. Se ligar também as ofertas, você escolhe se vale produto E oferta ou produto OU oferta.</span></span>
+                </label>
+                {productsOn && (
+                  <Field label="IDs dos produtos" hint={`${(d.product_ids ?? []).length}/${MAX_PRODUCT_IDS}`}>
+                    <div data-product-chips style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {(d.product_ids ?? []).map(c => (
+                        <span key={c} data-product-chip={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 6px 0 12px', borderRadius: 999, background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.38)', fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)' }}>
+                          <code style={{ fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace' }}>{c}</code>
+                          <button type="button" data-product-remove={c} aria-label={`Remover o produto ${c}`} onClick={() => removeProduct(c)} style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(16,185,129,.2)', color: 'var(--foreground)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={12} /></button>
+                        </span>
+                      ))}
+                    </div>
+                    <input className="cp-field" data-f="product-input" value={productText} autoComplete="off" spellCheck={false} inputMode="numeric" placeholder="Cole ou digite o ID e aperte Enter"
+                      onChange={e => { setProductText(e.target.value); if (productMsg) setProductMsg(null) }}
+                      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === ' ') && productText.trim()) { e.preventDefault(); if (addProducts(productText)) setProductText('') } else if (e.key === 'Enter') e.preventDefault() }}
+                      onPaste={e => { const t = e.clipboardData.getData('text'); if (t.trim()) { e.preventDefault(); if (addProducts(`${productText} ${t}`)) setProductText('') } }}
+                      onBlur={() => { if (productText.trim() && addProducts(productText)) setProductText('') }} />
+                    {productMsg && <Note tone="warn" data-product-msg>{productMsg}</Note>}
+                    {(d.product_ids ?? []).length === 0 && !productText.trim() && <Note data-product-empty>Informe pelo menos um ID de produto — sem isso a campanha não pode ser publicada.</Note>}
+                  </Field>
+                )}
+              </div>
+              {offersOn && productsOn && (
+                <div data-logic-block role="group" aria-label="Condição entre produto e oferta" style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <span className="cb-label">Como combinar produto e oferta?</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+                    {([['and', 'E', 'A venda precisa ser do produto E da oferta (as duas coisas ao mesmo tempo).'], ['or', 'OU', 'Vale se for do produto OU da oferta (basta uma das duas).']] as const).map(([id, label, desc]) => (
+                      <button key={id} type="button" className="cp-opt" aria-pressed={d.filter_logic === id} data-logic={id} onClick={() => patch({ filter_logic: id })} style={{ padding: 16, minHeight: 88 }}>
+                        <span style={{ display: 'block', fontSize: 15, fontWeight: 900, color: 'var(--foreground)' }}>{label}</span>
+                        <span style={{ display: 'block', marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>{desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {d.filter_logic !== 'and' && d.filter_logic !== 'or' && <Note tone="warn" data-logic-empty>Escolha E ou OU para poder publicar.</Note>}
+                </div>
+              )}
             </Section>
 
             <Section n={3} title="Quem participa e quantos ganham?" hint="Cada time é apurado separado — o ticket maior do OAO não passa na frente do R1." done={done[2]}>
