@@ -194,14 +194,14 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
   }, [simResult, selectedRow, cursoLabelFull, entregaveisFinal, totalCheioComUpsell, effectivePV, hoveredParcela])
 
   return (
-    <div style={{ padding: 'clamp(14px,3vw,28px)', maxWidth: 1440, margin: '0 auto' }}>
+    <div className="calc2-root">
 
       {/* Header — mais direto, menos decorativo. Classes ".calc2-hdr*"
           definem o visual CLARO por padrão; o bloco ".dark .calc2-hdr*"
           logo abaixo restaura, char a char, o gradiente escuro original —
           modo escuro fica 100% como estava. */}
-      <div className="calc2-hdr" style={{ borderRadius: 12, padding: 'clamp(16px,2.4vw,22px)', marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div>
+      <div className="calc2-hdr" style={{ borderRadius: 12, padding: 'clamp(14px,2.4vw,22px)', marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0, flex: '1 1 220px' }}>
           <span className="calc2-hdr-badge" style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 5, background: 'rgba(245,158,11,0.15)', display: 'inline-block', marginBottom: 8 }}>
             Simulador de Oferta
           </span>
@@ -213,16 +213,16 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="calc2-hdr-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {hasUrl && (
-            <button onClick={refresh} disabled={loading} title="Atualizar" className="calc2-hdr-btn"
+            <button onClick={refresh} disabled={loading} title="Atualizar" aria-label="Atualizar planilha" className="calc2-hdr-btn"
               style={{ width: 38, height: 38, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
             </button>
           )}
           {isAdmin && (
             <button onClick={() => setShowSettings(true)} className="calc2-hdr-btn"
-              style={{ display: 'flex', alignItems: 'center', gap: 7, height: 38, padding: '0 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 7, height: 38, padding: '0 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
               <Settings size={14} /> Configurações
             </button>
           )}
@@ -230,9 +230,9 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
       </div>
 
       {isAdmin && !hasUrl && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.25)', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: '13px 16px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.25)', marginBottom: 16 }}>
           <AlertCircle size={17} style={{ color: '#d97706', flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: '1 1 200px', minWidth: 0 }}>
             <p style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 2px' }}>Planilha não configurada</p>
             <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0 }}>Cole a URL CSV da planilha nas configurações para carregar os produtos.</p>
           </div>
@@ -246,7 +246,7 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16 }}>
           <AlertCircle size={15} style={{ color: '#ef4444', flexShrink: 0 }} />
-          <p style={{ fontSize: 12.5, color: '#ef4444', margin: 0 }}>Erro ao carregar planilha: {error}</p>
+          <p style={{ fontSize: 12.5, color: '#ef4444', margin: 0, minWidth: 0, overflowWrap: 'anywhere' }}>Erro ao carregar planilha: {error}</p>
         </div>
       )}
 
@@ -258,8 +258,8 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
       )}
 
       {/* Layout 3 colunas — configuração | oferta+negociação | prévia WhatsApp */}
-      <div className="calc2-grid" style={{ display: 'grid', gridTemplateColumns: '340px 1fr 320px', gap: 16, alignItems: 'start' }}>
-        <div>
+      <div className="calc2-grid">
+        <div className="calc2-col calc2-col-config">
           <SalesConfigurator
             rows={rows}
             settings={settings}
@@ -277,7 +277,7 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
           />
         </div>
 
-        <div>
+        <div className="calc2-col calc2-col-pay">
           <PaymentCard
             result={simResult}
             cursoLabel={cursoLabelFull}
@@ -310,7 +310,7 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
           />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="calc2-col calc2-side">
           <WhatsAppPreview message={liveMessage} isHoveringParcela={!!hoveredParcela} />
           <InstallmentsPanel
             result={simResult}
@@ -344,13 +344,49 @@ export function CalculadoraView({ isAdmin = false, userTeam = null }: Props) {
         .dark .calc2-hdr-btn { border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.08); color: #fff; }
         .dark .calc2-hdr-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
 
-        @media (max-width: 1180px) {
-          .calc2-grid { grid-template-columns: 320px 1fr !important; }
-          .calc2-grid > div:nth-child(3) { grid-column: 1 / -1; }
+        /* ── Layout responsivo ─────────────────────────────────────────
+           ≥1181 px: 3 colunas (configuração | oferta | prévia)
+           768–1180: 2 colunas (tablet em pé inclusive); prévia + parcelas descem lado a lado
+           641–767:  1 coluna; prévia + parcelas lado a lado
+           ≤640:     1 coluna, tudo empilhado
+           "min-width:0" em TODA coluna: sem isso, um texto que não quebra
+           (nome longo de produto) alargava a página inteira. */
+        .calc2-root { max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: clamp(12px,3vw,28px); padding-left: max(clamp(12px,3vw,28px), env(safe-area-inset-left)); padding-right: max(clamp(12px,3vw,28px), env(safe-area-inset-right)); padding-bottom: max(clamp(12px,3vw,28px), env(safe-area-inset-bottom)); }
+        .calc2-root *, .calc2-root *::before, .calc2-root *::after { box-sizing: border-box; }
+        .calc2-root button, .calc2-root [role="button"], .calc2-root [role="option"], .calc2-root summary { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        .calc2-grid { display: grid; grid-template-columns: minmax(300px,340px) minmax(0,1fr) minmax(280px,320px); gap: 16px; align-items: start; }
+        .calc2-col { min-width: 0; }
+        .calc2-side { display: flex; flex-direction: column; gap: 12px; }
+        .calc2-hdr-btn { min-height: 38px; min-width: 38px; }
+
+        @media (min-width: 1800px) {
+          .calc2-root { max-width: 1680px; }
+          .calc2-grid { grid-template-columns: minmax(340px,380px) minmax(0,1fr) minmax(320px,360px); gap: 20px; }
         }
-        @media (max-width: 860px) {
-          .calc2-grid { grid-template-columns: 1fr !important; }
-          .calc2-grid > div:nth-child(3) { grid-column: auto; }
+        @media (max-width: 1180px) {
+          .calc2-grid { grid-template-columns: minmax(280px,340px) minmax(0,1fr); }
+          .calc2-side { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; align-items: start; }
+        }
+        @media (max-width: 767px) {
+          .calc2-grid { grid-template-columns: minmax(0,1fr); }
+          .calc2-side { grid-column: auto; }
+        }
+        @media (max-width: 640px) {
+          .calc2-side { grid-template-columns: minmax(0,1fr); }
+          .calc2-hdr-actions { width: 100%; }
+          .calc2-hdr-actions .calc2-hdr-btn:last-child:not(:only-child) { flex: 1 1 auto; justify-content: center; }
+        }
+
+        /* ── Toque (celular e tablet): alvos de 44 px, campos de 16 px (o iOS
+           dá zoom em campo menor que isso) e nada que dependa de "hover". ── */
+        @media (pointer: coarse) {
+          .calc2-hdr-btn { min-height: 44px; min-width: 44px; }
+          .calc2-root input:not([type="range"]), .calc2-settings input:not([type="range"]) { font-size: 16px !important; min-height: 44px; }
+          .calc2-tap { min-height: 44px !important; }
+          .calc2-copybtn { width: 44px !important; height: 44px !important; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .calc2-root *, .calc2-settings * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
         }
       `}</style>
 

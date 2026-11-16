@@ -28,6 +28,9 @@ export interface VendaRow {
   closer_name: string | null
   obs: string | null
   obs_updated_at: string | null
+  is_refunded?: boolean | null         // venda REEMBOLSADA: aparece na lista apagada, com a etiqueta "Reembolso", e fica fora das somas
+  refunded_at?: string | null
+  refund_reason?: string | null
 }
 
 export type StatusTroca = 'pendente' | 'resolvida'
@@ -46,6 +49,8 @@ export interface TrocaRow {
   lead_name: string
   hubspot_url: string
   botmaker_url: string
+  hubspot_url_2?: string | null          // 2º link do HubSpot (opcional)
+  botmaker_url_2?: string | null         // 2º link do Botmaker (opcional)
   reason: string
   status: StatusTroca
   decision: Decisao | null            // concedida | negada (vazio só nos pedidos antigos, anteriores a esta função)

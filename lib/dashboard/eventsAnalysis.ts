@@ -7,6 +7,12 @@ const VERT_LABEL: Record<string, string> = {
 }
 const vLabel = (k: string) => VERT_LABEL[k] ?? k
 
+/** Venda de evento: cupom EV_… OU (event_name E event_category preenchidos, mesmo com cupom vazio). */
+export function isEventSale(r: { coupon_code?: string | null; event_name?: string | null; event_category?: string | null }): boolean {
+  if (/^EV./i.test(r.coupon_code ?? '')) return true     // igual ao ilike 'EV_%' de antes (no LIKE, "_" vale qualquer caractere)
+  return !!(r.event_name ?? '').trim() && !!(r.event_category ?? '').trim()
+}
+
 // ── Período — mesmos atalhos usados no resto do sistema (Hoje/Ontem/Esta
 // semana/Este mês), mais "Mês passado" e "Intervalo" personalizado. Tudo em
 // horário de São Paulo, usando os mesmos helpers já usados em todo o resto
@@ -62,13 +68,16 @@ export interface EventsAnalysisParams {
 export async function computeEventsAnalysis(admin: any, params: EventsAnalysisParams) {
   const { start, end, label } = getEventsPeriodBounds(params.period, params.customStart, params.customEnd)
 
-  // Qualquer venda com cupom de evento (EV_) — é esse o critério combinado
-  // pra tudo que é "venda de evento" no sistema.
+  // Venda de evento = cupom começando com EV_  OU  event_name E event_category
+  // preenchidos (mesmo com o cupom vazio — ex.: checkout de evento sem cupom).
+  // A consulta traz os dois grupos; o filtro abaixo confirma, descartando textos
+  // em branco (só espaços), que o banco consideraria "preenchidos".
   const { data: rows } = await admin.from('telao_events')
     .select('value, vertical, product, event_name, event_category, coupon_code, closer_id, closer_hubspot_id, is_self_checkout, occurred_at')
-    .eq('event_type', 'sale').ilike('coupon_code', 'EV_%')
+    .eq('event_type', 'sale')
+    .or('coupon_code.ilike.EV_*,and(event_name.not.is.null,event_category.not.is.null)')
     .gte('occurred_at', start).lte('occurred_at', end).limit(999999)
-  const all = (rows ?? []) as any[]
+  const all = ((rows ?? []) as any[]).filter(isEventSale)
 
   const { data: closerProfiles } = await admin.from('profiles').select('id, name, hubspot_id').neq('role', 'superadmin')
   const closers = (closerProfiles ?? []) as any[]

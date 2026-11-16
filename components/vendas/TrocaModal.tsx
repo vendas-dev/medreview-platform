@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, FileText, Hash, Link2, Loader2, MessageCircle, Package, Pencil, Repeat2, Save, Send, User, X } from 'lucide-react'
+import { CheckCircle2, FileText, Hash, Link2, Loader2, MessageCircle, Package, Pencil, Plus, Repeat2, Save, Send, User, X } from 'lucide-react'
 import { api } from '@/lib/vendas/client'
 import { verticaisDoTime, verticalCor, verticalLabel } from '@/lib/vendas/format'
 import { maskName, maskTx, maskUrl } from '@/lib/vendas/mask'
@@ -9,17 +9,37 @@ import { validarTroca } from '@/lib/vendas/validate'
 import type { TrocaRow } from '@/lib/vendas/types'
 import { Banner, Btn, Field, Select, TextArea, TextInput } from './ui'
 
-const VAZIO = { vertical: '', product: '', transaction_id: '', lead_name: '', hubspot_url: '', botmaker_url: '', reason: '' }
+const VAZIO = { vertical: '', product: '', transaction_id: '', lead_name: '', hubspot_url: '', botmaker_url: '', hubspot_url_2: '', botmaker_url_2: '', reason: '' }
 const item = (i: number) => ({ initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { delay: 0.05 + i * 0.045, duration: 0.28, ease: [0.2, 0.7, 0.2, 1] as any } })
+
+/** "Adicionar Link …": abre uma segunda caixinha (no máximo uma a mais de cada tipo). Fica FORA do <Field> porque o Field é um <label> (clicar num botão ali dentro ativaria o campo). */
+function LinkExtra({ ativo, foco, onAdd, onRemove, rotuloAdd, rotuloCampo, icon, erro, value, onChange, placeholder, dataV }: { ativo: boolean; foco: boolean; onAdd: () => void; onRemove: () => void; rotuloAdd: string; rotuloCampo: string; icon: React.ReactNode; erro?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder: string; dataV: string }) {
+  return (
+    <>
+      <AnimatePresence initial={false}>
+        {ativo && (
+          <motion.div key="extra" data-v={dataV + '-bloco'} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, paddingTop: 14 }}>
+              <div style={{ flex: 1, minWidth: 0 }}><Field label={rotuloCampo} erro={erro} icon={icon}><TextInput data-v={dataV} autoFocus={foco} erro={!!erro} value={value} onChange={onChange} placeholder={placeholder} /></Field></div>
+              <button type="button" data-v={dataV + '-remover'} aria-label={'Remover: ' + rotuloCampo} title="Remover este link" onClick={onRemove} className="vd-icon vd-btn" style={{ width: 48, height: 48, flexShrink: 0, border: '1.5px solid var(--border)', borderRadius: 13, background: 'transparent', color: 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={17} /></button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {!ativo && <div style={{ marginTop: 10 }}><Btn type="button" data-v={dataV + '-adicionar'} variant="soft" size="sm" icon={<Plus size={14} />} onClick={onAdd}>{rotuloAdd}</Btn></div>}
+    </>
+  )
+}
 
 /** Popup central (com animação sutil): o closer SOLICITA a troca de uma venda; com `troca`, EDITA a solicitação (closer: a própria pendente; admin: qualquer uma). */
 export function TrocaModal({ open, onClose, team, onCreated, troca, admin, onSaved }: { open: boolean; onClose: () => void; team: string | null; onCreated?: (t: TrocaRow) => void; troca?: TrocaRow | null; admin?: boolean; onSaved?: (t: TrocaRow) => void }) {
   const edicao = !!troca; const equipe = edicao ? troca!.requester_team : team      // a vertical vale para o time de QUEM pediu
   const opcoes = verticaisDoTime(equipe)
-  const inicial: typeof VAZIO | null = troca ? { vertical: troca.vertical, product: troca.product, transaction_id: troca.transaction_id, lead_name: troca.lead_name, hubspot_url: troca.hubspot_url, botmaker_url: troca.botmaker_url, reason: troca.reason } : null
+  const inicial: typeof VAZIO | null = troca ? { vertical: troca.vertical, product: troca.product, transaction_id: troca.transaction_id, lead_name: troca.lead_name, hubspot_url: troca.hubspot_url, botmaker_url: troca.botmaker_url, hubspot_url_2: troca.hubspot_url_2 ?? '', botmaker_url_2: troca.botmaker_url_2 ?? '', reason: troca.reason } : null
   const [f, setF] = useState({ ...VAZIO }); const [erros, setErros] = useState<Record<string, string>>({}); const [geral, setGeral] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false); const [feito, setFeito] = useState(false); const primeiro = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (open) { setF(inicial ? { ...inicial } : { ...VAZIO, vertical: opcoes.length === 1 ? opcoes[0] : '' }); setErros({}); setGeral(null); setFeito(false); setEnviando(false) } /* eslint-disable-next-line */ }, [open])
+  const [extra, setExtra] = useState<{ hub: boolean; bot: boolean; foco: 'hub' | 'bot' | null }>({ hub: false, bot: false, foco: null })      // os campos de 2º link só aparecem quando a pessoa pede (ou já existem no pedido)
+  useEffect(() => { if (open) { setF(inicial ? { ...inicial } : { ...VAZIO, vertical: opcoes.length === 1 ? opcoes[0] : '' }); setErros({}); setGeral(null); setFeito(false); setEnviando(false); setExtra({ hub: !!inicial?.hubspot_url_2, bot: !!inicial?.botmaker_url_2, foco: null }) } /* eslint-disable-next-line */ }, [open])
   useEffect(() => {
     if (!open) return
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[data-v="select-menu"]') && !enviando) onClose() }
@@ -31,7 +51,7 @@ export function TrocaModal({ open, onClose, team, onCreated, troca, admin, onSav
   async function enviar(e: React.FormEvent) {
     e.preventDefault(); setGeral(null)
     const v = validarTroca(f, equipe); if (!v.ok) { setErros(v.errors); return }
-    if (inicial && (Object.keys(inicial) as (keyof typeof VAZIO)[]).every(k => v.value[k] === inicial[k])) { setGeral('Você não alterou nenhum campo.'); return }
+    if (inicial && (Object.keys(inicial) as (keyof typeof VAZIO)[]).every(k => (v.value[k] ?? '') === inicial[k])) { setGeral('Você não alterou nenhum campo.'); return }
     setEnviando(true)
     const r = edicao ? await api<{ troca: TrocaRow }>(`/api/trocas/${troca!.id}`, { method: 'PATCH', body: v.value }) : await api<{ troca: TrocaRow }>('/api/trocas', { method: 'POST', body: v.value })
     setEnviando(false)
@@ -67,8 +87,12 @@ export function TrocaModal({ open, onClose, team, onCreated, troca, admin, onSav
                   <motion.div {...item(1)}><Field label="Produto" erro={erros.product} icon={<Package size={14} />}><TextInput data-v="troca-produto" erro={!!erros.product} value={f.product} onChange={set('product', s => maskName(s))} maxLength={200} placeholder="Ex.: Extensive TSA 2027" /></Field></motion.div>
                   <motion.div {...item(2)}><Field label="ID Transação Hotmart" erro={erros.transaction_id} icon={<Hash size={14} />} hint="Maiúsculas automáticas. Ex.: HP1234567890"><TextInput mono data-v="troca-tx" erro={!!erros.transaction_id} value={f.transaction_id} onChange={set('transaction_id', maskTx)} maxLength={80} placeholder="HP1234567890" /></Field></motion.div>
                   <motion.div {...item(3)}><Field label="Nome do Lead" erro={erros.lead_name} icon={<User size={14} />}><TextInput data-v="troca-lead" erro={!!erros.lead_name} value={f.lead_name} onChange={set('lead_name', s => maskName(s))} maxLength={200} placeholder="Nome do comprador" /></Field></motion.div>
-                  <motion.div {...item(4)} style={{ gridColumn: '1 / -1' }}><Field label="Link do Negócio HubSpot" erro={erros.hubspot_url} icon={<Link2 size={14} />}><TextInput data-v="troca-hubspot" erro={!!erros.hubspot_url} value={f.hubspot_url} onChange={set('hubspot_url', maskUrl)} placeholder="https://app.hubspot.com/contacts/…" /></Field></motion.div>
-                  <motion.div {...item(5)} style={{ gridColumn: '1 / -1' }}><Field label="Link da Conversa Botmaker" erro={erros.botmaker_url} icon={<MessageCircle size={14} />}><TextInput data-v="troca-botmaker" erro={!!erros.botmaker_url} value={f.botmaker_url} onChange={set('botmaker_url', maskUrl)} placeholder="https://go.botmaker.com/…" /></Field></motion.div>
+                  <motion.div {...item(4)} style={{ gridColumn: '1 / -1' }}><Field label="Link do Negócio HubSpot" erro={erros.hubspot_url} icon={<Link2 size={14} />}><TextInput data-v="troca-hubspot" erro={!!erros.hubspot_url} value={f.hubspot_url} onChange={set('hubspot_url', maskUrl)} placeholder="https://app.hubspot.com/contacts/…" /></Field>
+                    <LinkExtra dataV="troca-hubspot-2" ativo={extra.hub} foco={extra.foco === 'hub'} rotuloAdd="Adicionar Link HubSpot" rotuloCampo="2º link do Negócio HubSpot" icon={<Link2 size={14} />} erro={erros.hubspot_url_2} value={f.hubspot_url_2} onChange={set('hubspot_url_2', maskUrl)} placeholder="https://app.hubspot.com/contacts/…"
+                      onAdd={() => setExtra(s => ({ ...s, hub: true, foco: 'hub' }))} onRemove={() => { setF(s => ({ ...s, hubspot_url_2: '' })); setExtra(s => ({ ...s, hub: false })); setErros(s => { const n = { ...s }; delete n.hubspot_url_2; return n }) }} /></motion.div>
+                  <motion.div {...item(5)} style={{ gridColumn: '1 / -1' }}><Field label="Link da Conversa Botmaker" erro={erros.botmaker_url} icon={<MessageCircle size={14} />}><TextInput data-v="troca-botmaker" erro={!!erros.botmaker_url} value={f.botmaker_url} onChange={set('botmaker_url', maskUrl)} placeholder="https://go.botmaker.com/…" /></Field>
+                    <LinkExtra dataV="troca-botmaker-2" ativo={extra.bot} foco={extra.foco === 'bot'} rotuloAdd="Adicionar Link Botmaker" rotuloCampo="2º link da Conversa Botmaker" icon={<MessageCircle size={14} />} erro={erros.botmaker_url_2} value={f.botmaker_url_2} onChange={set('botmaker_url_2', maskUrl)} placeholder="https://go.botmaker.com/…"
+                      onAdd={() => setExtra(s => ({ ...s, bot: true, foco: 'bot' }))} onRemove={() => { setF(s => ({ ...s, botmaker_url_2: '' })); setExtra(s => ({ ...s, bot: false })); setErros(s => { const n = { ...s }; delete n.botmaker_url_2; return n }) }} /></motion.div>
                   <motion.div {...item(6)} style={{ gridColumn: '1 / -1' }}><Field label="Motivo da Troca" erro={erros.reason} icon={<FileText size={14} />} hint={<span style={{ display: 'flex', justifyContent: 'space-between' }}><span>Conte o que aconteceu para a gestão decidir com contexto.</span><span>{f.reason.trim().length}/2000</span></span>}><TextArea data-v="troca-motivo" erro={!!erros.reason} value={f.reason} onChange={set('reason')} maxLength={2000} rows={4} placeholder="Explique por que esta venda deve ser trocada…" /></Field></motion.div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, padding: '20px 28px 26px' }}>

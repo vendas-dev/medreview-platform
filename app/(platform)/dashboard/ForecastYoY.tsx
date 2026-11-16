@@ -3,8 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { CalendarRange, BarChart3, Layers, AlertTriangle, Flag } from 'lucide-react'
 import {
-  buildRoutes, buildSeries, buildTable, chartScale, fmtAxis, fmtMi, fmtNum, fmtPct, fmtReais, MONTHS_PT, STATUS_LABEL,
-  type Route, type Series, type Status, type TableRow, type VKey, type YoYData,
+  buildPlanoDia, buildRoutes, buildSeries, buildTable, chartScale, fmtAxis, fmtMi, fmtNum, fmtPct, fmtReais, fmtShare, MONTHS_PT, niceScale, STATUS_LABEL,
+  type PlanoDia, type Route, type Series, type Status, type TableRow, type VKey, type YoYData,
 } from '@/lib/dashboard/yoy'
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -17,11 +17,13 @@ import {
 const ACCENT = '#6366f1', BRAND_A = '#4f46e5', BRAND_B = '#7c3aed'
 const brandGrad = `linear-gradient(135deg,${BRAND_A},${BRAND_B})`
 // as mesmas cores por vertical do resto do Forecast
-const VC: Record<VKey, { label: string; init: string; color: string; from: string; to: string }> = {
-  anest: { label: 'Anest-Review', init: 'AN', color: '#4f7be8', from: '#6f95f0', to: '#3f69d4' },
-  oft: { label: 'Oft-Review', init: 'OF', color: '#dba21a', from: '#efbd3f', to: '#c58d0c' },
-  ortop: { label: 'Ortop-Review', init: 'OR', color: '#e67a38', from: '#f1975a', to: '#d3652a' },
-  r1: { label: 'Med-Review R1', init: 'R1', color: '#8460e2', from: '#a184f0', to: '#6f4bd0' },
+// bar1/bar2 = as cores das BARRAS de 2026 (sólidas); prevMix = quanto % da cor da vertical entra nas barras vazadas de 2025 (o resto é cinza-azulado).
+// Anest: azul mais FORTE e 2025 mais acinzentado — com o tom antigo as duas séries ficavam parecidas (distância 56 de 441; agora ~111, mais que Oft 97 e Ortop 90).
+const VC: Record<VKey, { label: string; init: string; color: string; from: string; to: string; bar1: string; bar2: string; prevMix: number }> = {
+  anest: { label: 'Anest-Review', init: 'AN', color: '#4f7be8', from: '#6f95f0', to: '#3f69d4', bar1: '#2f5fe3', bar2: '#2146b8', prevMix: 20 },
+  oft: { label: 'Oft-Review', init: 'OF', color: '#dba21a', from: '#efbd3f', to: '#c58d0c', bar1: '#efbd3f', bar2: '#c58d0c', prevMix: 45 },
+  ortop: { label: 'Ortop-Review', init: 'OR', color: '#e67a38', from: '#f1975a', to: '#d3652a', bar1: '#f1975a', bar2: '#d3652a', prevMix: 45 },
+  r1: { label: 'Med-Review R1', init: 'R1', color: '#8460e2', from: '#a184f0', to: '#6f4bd0', bar1: '#a184f0', bar2: '#6f4bd0', prevMix: 45 },
 }
 const CHART_ORDER: VKey[] = ['anest', 'oft', 'ortop', 'r1']
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
@@ -50,7 +52,7 @@ function useDismissOnScroll(clear: () => void) {
     return () => { window.removeEventListener('scroll', clear, true); window.removeEventListener('resize', clear) }
   }, [clear])
 }
-function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
+function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null); const [w, setW] = useState(960)
   useLayoutEffect(() => {
     const el = ref.current; if (!el) return
@@ -154,15 +156,116 @@ function RouteList({ routes, d, foco }: { routes: Route[]; d: YoYData; foco?: st
     </div>
   )
 }
+// ── os dias fortes do mês INTEIRO de 2025 (% FIXA) e o plano HORA A HORA do dia clicado ──────────────────────────────────────
+const HSP = typeof Intl !== 'undefined' ? new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }) : null
+const horaAgoraSP = () => (HSP ? +HSP.format(new Date()) : new Date().getHours())
+const hh = (h: number) => `${h}h`
 function Picos({ r, d }: { r: Route; d: YoYData }) {
-  if (!r.picos.length) return null
-  const share = Math.round(r.picos.reduce((a, p) => a + p.share, 0))
+  const [aberto, setAberto] = useState<number | null>(null)
+  const plano = useMemo(() => (aberto === null ? null : buildPlanoDia(d, 'total', aberto)), [d, aberto])
+  if (!r.picosMes.length) return null
+  const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), n = r.picosMes.length
   return (
-    <div className="yy-picoline" data-testid="picos-total">
-      <span className="yy-picolab">★ Onde {d.yearPrev} concentrou o resto do mês</span>
-      {r.picos.map(p => <em key={p.day} title={`Em ${d.yearPrev} o dia ${p.day} vendeu ${fmtReais(p.valor)}`}><b>{dd2(p.day)}/{d.month.slice(5)}</b> {p.wd} · {Math.round(p.share)}%</em>)}
-      <small>{share}% do que 2025 vendeu daqui até o fim do mês</small>
+    <div className="yy-picos" data-testid="picos-total">
+      <div className="yy-picoline">
+        <span className="yy-picolab">★ Onde {d.yearPrev} concentrou a receita de {mes}</span>
+        {r.picosMes.map(p => (
+          <button key={p.day} type="button" className={`yy-pico${aberto === p.day ? ' on' : ''}`} data-day={p.day} data-quando={p.quando} aria-expanded={aberto === p.day} aria-controls="yy-plano-total"
+            title={`Em ${d.yearPrev} o dia ${p.day} vendeu ${fmtReais(p.valor)}: ${fmtShare(p.share)} da receita de ${mes} de ${d.yearPrev}. Clique para ver quanto fazer hora a hora.`} onClick={() => setAberto(a => (a === p.day ? null : p.day))}>
+            <b>{dd2(p.day)}/{mm}</b> {p.wd} · <span data-k="share">{fmtShare(p.share)}</span>
+            {p.quando !== 'vem' && <u>{p.quando === 'hoje' ? 'hoje' : 'já passou'}</u>}
+            <i className="yy-caret" aria-hidden>▾</i>
+          </button>
+        ))}
+        <small data-testid="picos-soma">{n === 1 ? 'esse dia' : `esses ${n} dias`} = {fmtShare(r.picosMesShare)} de toda a receita de {mes} de {d.yearPrev}</small>
+      </div>
+      {aberto === null && <p className="yy-picohint">Clique em um dia para ver quanto fazer, hora a hora, para ele pesar o mesmo na nossa meta de {d.yearCur}.</p>}
+      {plano && <HourPlan p={plano} d={d} id="yy-plano-total" onClose={() => setAberto(null)} />}
     </div>
+  )
+}
+function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; onClose: () => void }) {
+  const [hover, setHover] = useState<{ h: number; a: Anchor } | null>(null)
+  const clear = useCallback(() => setHover(null), []); useDismissOnScroll(clear)
+  const [wrapRef, w] = useWidth<HTMLDivElement>()
+  const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), meta = p.temMeta
+  const val = (x: { alvo: number; prev: number }) => (meta ? x.alvo : x.prev)
+  const valores = p.horas.map(val), maxV = Math.max(0, ...valores), sc = useMemo(() => niceScale(maxV), [maxV])
+  const acum = useMemo(() => { let a = 0; return p.horas.map(x => (a += val(x))) }, [p, meta])           // sem meta: o acumulado de 2025
+  const totalRef = meta ? p.alvoDia : p.valorPrev
+  const W = Math.max(w, 660), H = 300, L = 62, R = 70, T = 34, B = 42, pw = W - L - R, ph = H - T - B, bw = pw / 24
+  const xc = (h: number) => L + bw * h + bw / 2, yv = (v: number) => T + ph - (sc.top > 0 ? v / sc.top : 0) * ph, yc = (v: number) => T + ph - (totalRef > 0 ? v / totalRef : 0) * ph
+  const agora = p.quando === 'hoje' ? horaAgoraSP() : null
+  const top3 = useMemo(() => new Set([...p.horas].sort((a, b) => val(b) - val(a) || a.h - b.h).slice(0, 3).filter(x => val(x) > 0).map(x => x.h)), [p, meta])
+  const forte = p.horaForte === null ? null : p.horas[p.horaForte]
+  // no celular o gráfico é mais largo que a tela: abre já com a hora mais forte à vista (a pessoa ainda pode arrastar; se já arrastou, não mexe)
+  useEffect(() => { const el = wrapRef.current; if (!el || !forte || el.scrollWidth <= el.clientWidth || el.scrollLeft > 0) return; el.scrollLeft = Math.max(0, xc(forte.h) - el.clientWidth / 2) }, [p.day, p.key, w, meta])       // eslint-disable-line react-hooks/exhaustive-deps
+  const gid = `yy-pg-${id}`, line = p.horas.map((x, i) => `${xc(x.h).toFixed(1)},${yc(acum[i]).toFixed(1)}`).join(' ')
+  const quandoTxt = p.quando === 'hoje' ? 'hoje: a faixa marca a hora de agora (Brasília)' : p.quando === 'passou' ? 'este dia já passou: a curva mostra quanto teria sido preciso fazer em cada hora' : 'este dia ainda vem'
+  const show = (h: number, el: Element) => { const r = el.getBoundingClientRect(), bh = Math.min(r.height, Math.max(2, (sc.top > 0 ? val(p.horas[h]) / sc.top : 0) * r.height)); setHover({ h, a: { x: r.left, y: r.bottom - bh, w: r.width, h: bh } }) }
+  const hv = hover ? p.horas[hover.h] : null
+  return (
+    <section className="yy-plano" id={id} data-testid="yoy-plano" data-day={p.day} data-modo={meta ? 'meta' : 'prev'} data-quando={p.quando} aria-label={`Quanto fazer hora a hora no dia ${dd2(p.day)}/${mm}`}>
+      <header className="yy-plhead">
+        <div style={{ minWidth: 0 }}>
+          <h4 className="yy-pltitle">{dd2(p.day)}/{mm}: quanto fazer, hora a hora</h4>
+          <p className="yy-plsub">{p.wdCur} em {d.yearCur} (em {d.yearPrev} foi {p.wdPrev}) · {quandoTxt}</p>
+        </div>
+        <button type="button" className="yy-plclose" aria-label="Fechar o gráfico hora a hora" onClick={onClose}>×</button>
+      </header>
+      <div className="yy-plcards">
+        <div className="yy-plcard" data-k="peso"><span>Peso do dia em {d.yearPrev}</span><b>{fmtShare(p.share)}</b><small>{fmtReais(p.valorPrev)} de {fmtReais(p.fechPrev)} (receita de {mes} de {d.yearPrev})</small></div>
+        <div className="yy-plcard" data-k="meta"><span>Nossa meta de {mes} de {d.yearCur}</span><b>{meta ? fmtMi(p.meta) : '—'}</b><small>{meta ? 'a meta cadastrada (a geral)' : 'sem meta cadastrada para este mês'}</small></div>
+        <div className="yy-plcard yy-plhero" data-k="dia"><span>Meta deste dia</span><b>{meta ? fmtMi(p.alvoDia) : '—'}</b><small>{meta ? `${fmtShare(p.share)} × ${fmtMi(p.meta)} = ${fmtReais(p.alvoDia)}` : 'cadastre a meta do mês para calcular'}</small></div>
+        <div className="yy-plcard" data-k="forte"><span>Hora mais forte</span><b>{forte ? `${hh(forte.h)} às ${hh((forte.h + 1) % 24)}` : '—'}</b><small>{forte ? `${fmtReais(val(forte))}${totalRef > 0 ? ` · ${fmtShare(val(forte) / totalRef * 100)} do dia` : ''}` : 'sem detalhe por hora'}</small></div>
+      </div>
+      {!p.temHoras ? <p className="yy-plvazio" data-testid="plano-sem-horas">Não há detalhe por hora das vendas de {d.yearPrev} neste dia, então não dá para repartir a meta do dia pelas horas.</p> : (
+        <>
+          {!meta && <p className="yy-plaviso" role="note" data-testid="plano-sem-meta">Sem meta cadastrada para {mes} de {d.yearCur}: as barras mostram como {d.yearPrev} vendeu em cada hora. Cadastre a meta do mês para ver quanto fazer.</p>}
+          <div className="yy-legend" aria-hidden>
+            <span><i className="yy-sw" style={{ background: 'linear-gradient(180deg,#818cf8,#4f46e5)' }} />{meta ? 'Meta de cada hora' : `Como ${d.yearPrev} vendeu em cada hora`}</span>
+            <span><i className="yy-swline" />{meta ? `Acumulado até a hora (termina na meta do dia: ${fmtMi(p.alvoDia)})` : `Acumulado de ${d.yearPrev} (termina em ${fmtMi(p.valorPrev)})`}</span>
+          </div>
+          <p className="yy-plhint" data-testid="plano-dica">Arraste o gráfico para o lado para ver as outras horas.</p>
+          <div className="yy-plscroll" ref={wrapRef} data-testid="plano-chart">
+            <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${meta ? 'Meta' : 'Receita de ' + d.yearPrev} por hora do dia ${dd2(p.day)}/${mm}: ${forte ? `a hora mais forte é ${hh(forte.h)} às ${hh((forte.h + 1) % 24)} com ${fmtReais(val(forte))}` : ''}. Total do dia ${fmtReais(totalRef)}.`}>
+              <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#4f46e5" /></linearGradient></defs>
+              {sc.ticks.map(t => <g key={t}><line className="yy-gridline" x1={L} x2={W - R} y1={yv(t)} y2={yv(t)} /><text className="yy-axis" x={L - 8} y={yv(t) + 4} textAnchor="end">{fmtAxis(t)}</text></g>)}
+              {[0, 0.25, 0.5, 0.75, 1].map(f => <text key={f} className="yy-axis yy-axis-r" x={W - R + 8} y={yc(totalRef * f) + 4}>{f === 1 ? fmtAxis(totalRef) : `${Math.round(f * 100)}%`}</text>)}
+              {agora !== null && <rect className="yy-agora" data-testid="plano-agora" x={L + bw * agora} y={T} width={bw} height={ph} />}
+              {p.horas.map((x, i) => { const v = valores[i], hgt = sc.top > 0 ? (v / sc.top) * ph : 0; return (
+                <g key={x.h}>
+                  <rect className={`yy-plbar${top3.has(x.h) ? ' yy-top' : ''}${v <= 0 ? ' yy-zero' : ''}`} data-testid="plano-bar" data-h={x.h} data-v={v} x={L + bw * x.h + bw * 0.16} width={bw * 0.68} y={T + ph - hgt} height={hgt} rx={3} fill={`url(#${gid})`} />
+                  <text className={`yy-axis${agora === x.h ? ' yy-axis-today' : ''}`} x={xc(x.h)} y={H - B + 18} textAnchor="middle">{bw >= 28 || x.h % 2 === 0 ? hh(x.h) : ''}</text>
+                </g>) })}
+              <polyline className="yy-plline" data-testid="plano-linha" points={line} fill="none" />
+              {p.horas.map((x, i) => <circle key={x.h} className="yy-pldot" cx={xc(x.h)} cy={yc(acum[i])} r={hover?.h === x.h ? 5 : 2.6} />)}
+              {p.horas.map(x => <rect key={x.h} className="yy-plhit" data-testid="plano-hit" data-h={x.h} x={L + bw * x.h} y={T} width={bw} height={ph} fill="transparent" tabIndex={0}
+                aria-label={`${hh(x.h)} às ${hh((x.h + 1) % 24)}: ${meta ? 'meta' : 'receita de ' + d.yearPrev} ${fmtReais(val(x))}, acumulado ${fmtReais(acum[x.h])}`}
+                onMouseEnter={e => show(x.h, e.currentTarget)} onFocus={e => show(x.h, e.currentTarget)} onBlur={clear} onMouseLeave={clear} />)}
+              <text className="yy-axis" x={L} y={T - 14} textAnchor="start">{meta ? 'por hora' : `${d.yearPrev}, por hora`}</text><text className="yy-axis yy-axis-r" x={W - R} y={T - 14} textAnchor="end">acumulado</text>
+            </svg>
+          </div>
+          <details className="yy-pltab" data-testid="plano-tabela">
+            <summary>Ver em tabela</summary>
+            <div className="yy-plscroll2"><table className="yy-pltable">
+              <thead><tr><th scope="col">Hora</th><th scope="col">{meta ? 'Meta da hora' : `Receita de ${d.yearPrev}`}</th><th scope="col">Acumulado</th><th scope="col">% do dia</th>{meta && <th scope="col">Em {d.yearPrev}</th>}<th scope="col">Vendas em {d.yearPrev}</th></tr></thead>
+              <tbody>{p.horas.map((x, i) => <tr key={x.h} data-h={x.h}><th scope="row">{hh(x.h)} às {hh((x.h + 1) % 24)}</th><td>{fmtReais(val(x))}</td><td>{fmtReais(acum[i])}</td><td>{fmtShare(totalRef > 0 ? val(x) / totalRef * 100 : 0)}</td>{meta && <td>{fmtReais(x.prev)}</td>}<td>{x.prevN}</td></tr>)}</tbody>
+            </table></div>
+          </details>
+          <p className="yy-plnota"><b>Como é calculado:</b> o dia {dd2(p.day)}/{mm} pesou {fmtShare(p.share)} da receita de {mes} de {d.yearPrev}. Aplicando o mesmo peso à nossa meta de {mes} de {d.yearCur}, o dia precisa render {meta ? fmtReais(p.alvoDia) : '—'}. Esse valor é repartido pelas 24 horas (horário de Brasília) na mesma proporção em que {d.yearPrev} vendeu naquele dia. A soma das horas fecha exatamente a meta do dia.</p>
+        </>
+      )}
+      <Tip anchor={hover?.a ?? null}>{hv && (
+        <>
+          <b>{hh(hv.h)} às {hh((hv.h + 1) % 24)}{agora === hv.h ? ' · agora' : ''}</b>
+          <span>{meta ? 'Meta da hora' : `Receita de ${d.yearPrev}`}<em>{fmtReais(val(hv))}</em></span>
+          <span>Acumulado até {hh((hv.h + 1) % 24)}<em>{fmtReais(acum[hv.h])}{totalRef > 0 ? ` · ${fmtShare(acum[hv.h] / totalRef * 100)}` : ''}</em></span>
+          {meta && <span>Em {d.yearPrev} nessa hora<em>{fmtReais(hv.prev)}</em></span>}
+          <span>Vendas em {d.yearPrev}<em>{hv.prevN}</em></span>
+        </>
+      )}</Tip>
+    </section>
   )
 }
 
@@ -219,7 +322,7 @@ function YoYTable({ rows, d, routes }: { rows: TableRow[]; d: YoYData; routes: R
 }
 
 // ── 3) e 4) barras dia a dia ────────────────────────────────────────────────────────────────────────────────────────────────────
-function DayBars({ s, d, from, to, id, name, peaks, ampliada }: { s: Series; d: YoYData; from: string; to: string; id: string; name: string; peaks: Set<number>; ampliada: boolean }) {
+function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: Series; d: YoYData; from: string; to: string; id: string; name: string; peaks: Set<number>; ampliada: boolean; pmix?: number }) {
   const [hover, setHover] = useState<{ i: number; a: Anchor } | null>(null)
   const N = s.days.length, sc = useMemo(() => chartScale(s, ampliada), [s, ampliada]), { top, ticks } = sc, cut = useMemo(() => new Set(sc.clipped), [sc]), nivel = useMemo(() => { const m = new Map<number, number>(); let antDia = -99, ant = -1; for (const dia of sc.clipped) { const n = dia - antDia <= 2 ? (ant + 1) % 3 : 0; m.set(dia, n); antDia = dia; ant = n } return m }, [sc]), mes = MONTHS_PT[+d.month.slice(5) - 1]
   const pct = (v: number | null) => (v && v > 0 ? `${Math.min(100, (v / top) * 100)}%` : '0%')
@@ -227,7 +330,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada }: { s: Series; d: 
   const clear = useCallback(() => setHover(null), []); useDismissOnScroll(clear)
   const show = (i: number, el: HTMLElement) => { const r = el.getBoundingClientRect(), p = s.days[i], frac = Math.min(1, Math.max(p.cur ?? 0, p.prev ?? 0) / top); setHover({ i, a: { x: r.left, y: Math.max(r.top, r.bottom - r.height * frac), w: r.width, h: Math.min(r.height * frac, r.height) } }) }
   return (
-    <div data-testid={`chart-${id}`} style={{ ['--yy-c' as any]: from, ['--yy-c2' as any]: to }}>
+    <div data-testid={`chart-${id}`} style={{ ['--yy-c' as any]: from, ['--yy-c2' as any]: to, ['--yy-pmix' as any]: `${pmix}%` }}>
       <div className="yy-legend" aria-hidden>
         <span><i className="yy-sw" style={{ background: `linear-gradient(180deg,${from},${to})` }} />{d.yearCur} · até hoje</span>
         <span><i className="yy-sw yy-sw-prev" />{d.yearPrev} · mês inteiro</span>
@@ -354,7 +457,7 @@ export function ForecastYoY() {
                 <div className="yy-vname"><Tile size={36} grad={`linear-gradient(135deg,${VC[k].from},${VC[k].to})`}>{VC[k].init}</Tile>{VC[k].label}<StatusPill s={r.status} /></div>
                 <Summary s={per[k]} d={data} />
               </div>
-              <DayBars s={per[k]} d={data} from={VC[k].from} to={VC[k].to} id={k} name={VC[k].label} peaks={peaksOf(k)} ampliada={ampliada} />
+              <DayBars s={per[k]} d={data} from={VC[k].bar1} to={VC[k].bar2} pmix={VC[k].prevMix} id={k} name={VC[k].label} peaks={peaksOf(k)} ampliada={ampliada} />
             </div>
           ) })}
         </div>
@@ -425,6 +528,36 @@ const CSS = `
 .yy-picolab{font-size:13px;font-weight:900;color:var(--foreground)}
 .yy-picoline em{font-style:normal;font-size:13px;font-weight:700;padding:4px 10px;border-radius:9px;background:var(--card);border:1px solid color-mix(in srgb,#f59e0b 45%,var(--border));color:var(--foreground);white-space:nowrap}.yy-picoline em b{font-weight:900}
 .yy-picoline small{font-size:12.5px;color:var(--yy-mute);font-weight:600;margin-left:auto}
+.yy-picos{margin:0 0 4px}.yy-picos .yy-picoline{margin-bottom:0}
+.yy-pico{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:700;padding:5px 11px;border-radius:10px;background:var(--card);border:1px solid color-mix(in srgb,#f59e0b 45%,var(--border));color:var(--foreground);white-space:nowrap;cursor:pointer;min-height:34px;transition:background .15s,border-color .15s,transform .15s}.yy-pico b{font-weight:900}
+.yy-pico:hover{background:color-mix(in srgb,#f59e0b 14%,var(--card));border-color:#f59e0b}.yy-pico:focus-visible{outline:3px solid color-mix(in srgb,${ACCENT} 55%,transparent);outline-offset:2px}
+.yy-pico.on{background:linear-gradient(135deg,${BRAND_A},${BRAND_B});border-color:transparent;color:#fff;box-shadow:0 6px 16px -6px rgba(79,70,229,.65)}.yy-pico.on b,.yy-pico.on span{color:#fff}
+.yy-pico u{text-decoration:none;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 10%,transparent);color:var(--yy-mute)}.yy-pico.on u{background:rgba(255,255,255,.2);color:#fff}
+.yy-caret{font-style:normal;font-size:11px;opacity:.7;transition:transform .2s}.yy-pico.on .yy-caret{transform:rotate(180deg);opacity:1}
+.yy-picohint{margin:8px 4px 0;font-size:12.5px;color:var(--yy-mute);font-weight:600}
+.yy-plano{margin-top:12px;padding:20px clamp(12px,2vw,22px) 18px;border-radius:20px;background:linear-gradient(180deg,color-mix(in srgb,${ACCENT} 7%,var(--card)),var(--card));border:1px solid color-mix(in srgb,${ACCENT} 32%,var(--border));box-shadow:0 10px 28px -14px rgba(79,70,229,.45);min-width:0;animation:yy-abre .28s ease both}
+@keyframes yy-abre{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.yy-plhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.yy-pltitle{margin:0;font-size:clamp(17px,1.9vw,21px);font-weight:900;letter-spacing:-.02em}.yy-plsub{margin:3px 0 0;font-size:13.5px;color:var(--yy-mute);font-weight:600}
+.yy-plclose{flex-shrink:0;width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--foreground);font-size:22px;line-height:1;cursor:pointer}.yy-plclose:hover{background:color-mix(in srgb,var(--yy-bad) 12%,var(--card))}.yy-plclose:focus-visible{outline:3px solid color-mix(in srgb,${ACCENT} 55%,transparent);outline-offset:2px}
+.yy-plcards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.yy-plcard{display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:14px;background:var(--card);border:1px solid var(--border);min-width:0}.yy-plcard span{font-size:12px;font-weight:800;color:var(--yy-mute);letter-spacing:.02em}.yy-plcard b{font-size:clamp(20px,2vw,26px);font-weight:900;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1;overflow-wrap:anywhere}.yy-plcard small{font-size:12px;color:var(--yy-mute);font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.yy-plhero{background:linear-gradient(135deg,${BRAND_A},${BRAND_B});border-color:transparent;color:#fff}.yy-plhero span,.yy-plhero small{color:rgba(255,255,255,.85)}.yy-plhero b{color:#fff}
+.yy-plaviso{margin:0 0 12px;padding:10px 14px;border-radius:12px;font-size:13.5px;font-weight:700;background:color-mix(in srgb,var(--yy-warn) 13%,var(--card));border:1px solid color-mix(in srgb,var(--yy-warn) 45%,transparent);color:var(--yy-warn-ink)}
+.yy-plvazio{margin:0;padding:16px;border-radius:12px;background:var(--secondary);border:1px dashed var(--border);font-size:14px;font-weight:600;color:var(--yy-soft)}
+.yy-swline{display:inline-block;width:24px;height:0;border-top:3px solid #f59e0b;border-radius:2px;position:relative}.yy-swline::after{content:'';position:absolute;left:8px;top:-6px;width:8px;height:8px;border-radius:50%;background:#f59e0b}
+.yy-plhint{display:none;margin:0 0 6px;font-size:12.5px;color:var(--yy-mute);font-weight:600}
+.yy-plscroll{overflow-x:auto;overflow-y:hidden;border-radius:12px;-webkit-overflow-scrolling:touch}.yy-plscroll svg{display:block;max-width:none}
+.yy-plbar{opacity:.62;transition:opacity .15s}.yy-plbar.yy-top{opacity:1}.yy-plbar.yy-zero{opacity:0}.yy-plhit:hover,.yy-plhit:focus-visible{fill:color-mix(in srgb,${ACCENT} 14%,transparent);outline:none}
+.yy-plhit:hover~.yy-plbar{opacity:1}
+.yy-plline{stroke:#f59e0b;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.yy-pldot{fill:#f59e0b;stroke:var(--card);stroke-width:1.5;pointer-events:none}
+.yy-agora{fill:color-mix(in srgb,${ACCENT} 14%,transparent);stroke:${ACCENT};stroke-width:1;stroke-dasharray:3 3}
+.yy-axis-r{fill:color-mix(in srgb,#b45309 80%,var(--foreground))}.dark .yy-axis-r{fill:#fbbf24}
+.yy-pltab{margin-top:10px}.yy-pltab summary{cursor:pointer;font-size:13.5px;font-weight:800;color:var(--foreground);padding:8px 0;min-height:36px;display:flex;align-items:center}.yy-pltab summary:focus-visible{outline:3px solid color-mix(in srgb,${ACCENT} 55%,transparent);outline-offset:2px;border-radius:8px}
+.yy-plscroll2{overflow-x:auto;border:1px solid var(--border);border-radius:12px;max-height:420px;overflow-y:auto}
+.yy-pltable{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}.yy-pltable th,.yy-pltable td{padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid color-mix(in srgb,var(--border) 75%,transparent)}
+.yy-pltable thead th{position:sticky;top:0;background:color-mix(in srgb,var(--secondary) 90%,var(--card));font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--yy-mute);z-index:1}.yy-pltable tbody th{text-align:left;font-weight:800}.yy-pltable thead th:first-child{text-align:left}
+.yy-plnota{margin:12px 2px 0;font-size:12.5px;line-height:1.5;color:var(--yy-mute);font-weight:500}.yy-plnota b{color:var(--foreground)}
 @container yyr (max-width:760px){
   .yy-rtable thead{display:none}.yy-rtable,.yy-rtable tbody,.yy-rtable tr{display:block}.yy-rtable tr{margin-bottom:10px;border-radius:16px;border:1px solid color-mix(in srgb,var(--yy-c) 35%,var(--border));border-left:5px solid var(--yy-c);background:linear-gradient(180deg,color-mix(in srgb,var(--yy-c) 9%,var(--card)),var(--card));padding:12px 14px}
   .yy-rtable tbody th,.yy-rtable tbody td{display:flex;align-items:center;justify-content:space-between;gap:10px;background:none;border:0;border-radius:0;padding:6px 0;width:auto;text-align:left}
@@ -468,7 +601,7 @@ const CSS = `
 .yy-legend span{display:inline-flex;align-items:center;gap:8px}
 .yy-sw{display:inline-block;width:14px;height:14px;border-radius:4px;flex-shrink:0}
 .yy-swdash{width:26px;height:0;border-top:3px dashed var(--yy-c);border-radius:0;background:none}
-.yy-sw-prev,.yy-prev{--yy-p:color-mix(in srgb,var(--yy-c) 45%,#94a3b8);background:color-mix(in srgb,var(--yy-p) 34%,transparent);border:2px solid color-mix(in srgb,var(--yy-p) 95%,transparent);box-sizing:border-box}      /* 2025: a cor da vertical deslocada um pouco para o cinza-azulado, para se distinguir do 2026 vivo */
+.yy-sw-prev,.yy-prev{--yy-p:color-mix(in srgb,var(--yy-c) var(--yy-pmix,45%),#94a3b8);background:color-mix(in srgb,var(--yy-p) 34%,transparent);border:2px solid color-mix(in srgb,var(--yy-p) 95%,transparent);box-sizing:border-box}      /* 2025: a cor da vertical deslocada um pouco para o cinza-azulado, para se distinguir do 2026 vivo */
 .yy-starsw{color:#f59e0b;font-style:normal;font-size:15px;line-height:1}
 .yy-chartscroll{overflow-x:auto;overflow-y:hidden;padding:6px 2px 6px}
 .yy-chartin{width:100%}
@@ -518,7 +651,8 @@ const CSS = `
 @container yyt (max-width:960px){.yy-table thead th{padding:9px 2px}.yy-table td{padding:10px 2px}.yy-table tbody th{padding:10px 2px 10px 6px;font-size:12px}.yy-pill{padding:2px 4px;font-size:11px}.yy-area{gap:5px}}
 @media(max-width:1180px){.yy-hint{display:inline}}
 @media(max-width:900px){.yy-hero-grid{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:700px){.yy-panel{padding:18px 14px;border-radius:22px}.yy-hero{padding:20px 16px}.yy-card{padding:16px 12px}.yy-title{font-size:19px}.yy-picoline small{margin-left:0}.yy-plot{height:320px}}
+@media(max-width:900px){.yy-plcards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.yy-plhint{display:block}.yy-plcards{gap:8px}.yy-plcard{padding:10px 12px}.yy-pico{min-height:44px}.yy-panel{padding:18px 14px;border-radius:22px}.yy-hero{padding:20px 16px}.yy-card{padding:16px 12px}.yy-title{font-size:19px}.yy-picoline small{margin-left:0}.yy-plot{height:320px}}
 @media(max-width:560px){.yy-hero-h{font-size:24px}.yy-hero-day b{font-size:34px}.yy-chip{white-space:normal}.yy-rightstack{justify-content:flex-start}.yy-seg button{padding:7px 10px}}
-@media(prefers-reduced-motion:reduce){.yy-bar,.yy-fill,.yy-shimmer{transition:none;animation:none}}
+@media(prefers-reduced-motion:reduce){.yy-bar,.yy-fill,.yy-shimmer,.yy-plano,.yy-plbar,.yy-caret{transition:none;animation:none}}
 `

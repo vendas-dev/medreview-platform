@@ -2,13 +2,19 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronDown, Loader2, Search, X } from 'lucide-react'
-import { teamCor, verticalCor, verticalCurto, verticalLabel } from '@/lib/vendas/format'
+import { Check, ChevronDown, Loader2, Repeat2, Search, Undo2, X } from 'lucide-react'
+import { fmtData, teamCor, verticalCor, verticalCurto, verticalLabel } from '@/lib/vendas/format'
 
 // ══ Design system das telas de Vendas: tudo parte das variáveis do app (claro/escuro) ═════════════════
 /** Estilos compartilhados (hover, foco, animações). Renderize uma vez por tela. */
 export function VendasStyle() {
   return <style>{`
+/* vendas REEMBOLSADAS: a linha fica apagada (volta ao normal no hover, para dar para ler), o valor riscado e a etiqueta vermelha continua nítida */
+.vd tr[data-refunded="1"]>td:not([data-col="data"]){opacity:.5;transition:opacity .15s}
+.vd tr[data-refunded="1"]:hover>td:not([data-col="data"]){opacity:.85}
+.vd tr[data-refunded="1"] .rf-dim{opacity:.5}
+.vd tr[data-refunded="1"]>td[data-col="valor"]{text-decoration:line-through}
+.vd button[data-v="editar-venda"]:disabled{opacity:.4;cursor:not-allowed}
 .vd{font-feature-settings:'tnum' 1,'cv11' 1;-webkit-font-smoothing:antialiased;--vd-radius:18px;--vd-ring:color-mix(in srgb,var(--primary) 20%,transparent)}
 .vd *{box-sizing:border-box}
 .vd-title{letter-spacing:-0.03em}
@@ -71,6 +77,21 @@ const BTN: Record<BtnVar, CSSProperties> = {
 export function Btn({ variant = 'ghost', size = 'md', icon, loading, children, style, ...r }: { variant?: BtnVar; size?: 'sm' | 'md' | 'lg'; icon?: ReactNode; loading?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const h = size === 'sm' ? 34 : size === 'lg' ? 48 : 42
   return <button className="vd-btn" {...r} disabled={r.disabled || loading} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, height: h, padding: size === 'sm' ? '0 13px' : '0 20px', borderRadius: size === 'sm' ? 11 : 13, fontSize: size === 'sm' ? 12.5 : 14, fontWeight: 700, fontFamily: 'inherit', cursor: r.disabled || loading ? 'not-allowed' : 'pointer', opacity: r.disabled && !loading ? 0.55 : 1, whiteSpace: 'nowrap', ...BTN[variant], ...style }}>{loading ? <Loader2 size={16} className="vd-spin" /> : icon}{children}</button>
+}
+
+/** A etiqueta vermelha "Reembolso" das vendas reembolsadas (o resto da linha fica apagado por CSS; a etiqueta NÃO). */
+export function EtiquetaReembolso({ em, motivo }: { em?: string | null; motivo?: string | null }) {
+  const dica = `Venda reembolsada${em ? ' em ' + fmtData(em) : ''}${motivo ? ' · ' + motivo : ''}. Fica fora das somas.`
+  return <span data-v="tag-reembolso" role="note" title={dica} aria-label={dica} className="vd-chip" style={{ display: 'flex', width: 'fit-content', alignItems: 'center', gap: 5, marginTop: 6, padding: '3px 9px', borderRadius: 99, fontSize: 11.5, fontWeight: 800, whiteSpace: 'nowrap', color: 'color-mix(in srgb,#dc2626 66%,var(--foreground))', background: 'color-mix(in srgb,#dc2626 12%,transparent)', border: '1px solid color-mix(in srgb,#dc2626 32%,transparent)' }}><Undo2 size={12} />Reembolso</span>
+}
+
+/** Pagamento RECORRENTE (parcela de assinatura, 2ª em diante): mesmo critério da coluna "Tipo" de Vendas Gerais. */
+export function ehRecorrente(v: { sale_type?: string | null; is_recurring?: boolean | null }) { return v.sale_type === 'recorrente' || v.is_recurring === true }
+/** A etiqueta violeta "Recorrente 2/12" (n = parcela atual, total = nº de parcelas da assinatura; ambos opcionais). */
+export function EtiquetaRecorrente({ n, total }: { n?: number | null; total?: number | null }) {
+  const num = n ? `${n}${total ? '/' + total : ''}` : ''
+  const dica = n ? `Pagamento recorrente (assinatura): parcela ${n}${total ? ' de ' + total : ''}.` : 'Pagamento recorrente (parcela de assinatura).'
+  return <span data-v="tag-recorrente" role="note" title={dica} aria-label={dica} className="vd-chip" style={{ display: 'flex', width: 'fit-content', alignItems: 'center', gap: 5, marginTop: 6, padding: '3px 9px', borderRadius: 99, fontSize: 11.5, fontWeight: 800, whiteSpace: 'nowrap', color: 'color-mix(in srgb,#7c3aed 55%,var(--foreground))', background: 'color-mix(in srgb,#8b5cf6 13%,transparent)', border: '1px solid color-mix(in srgb,#8b5cf6 34%,transparent)' }}><Repeat2 size={12} />Recorrente{num ? ' ' + num : ''}</span>
 }
 
 // ── Estrutura ──

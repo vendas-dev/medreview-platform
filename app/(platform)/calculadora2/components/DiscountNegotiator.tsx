@@ -33,7 +33,7 @@ export function DiscountNegotiator({
   const labelTranslate = thumbPct < 10 ? '0%' : thumbPct > 90 ? '-100%' : '-50%'
 
   return (
-    <div style={{
+    <div className="disc-box" style={{
       background: 'var(--card)',
       border: `1px solid ${isOverLimit ? 'rgba(239,68,68,.35)' : 'var(--border)'}`,
       borderRadius: 12,
@@ -41,12 +41,30 @@ export function DiscountNegotiator({
       transition: 'border-color .2s',
     }}>
       <style>{`
+        /* A faixa visual tem só 6 px de altura; o <input> invisível é bem maior
+           (36 px no mouse, 48 px no toque) para dar pra acertar com o dedo, e
+           9 px (12 no toque) a mais de cada lado para o polegar nativo casar com o visual
+           nas pontas (0% e limite). touch-action: pan-y deixa a página rolar
+           na vertical e entrega o arrasto horizontal para o slider. */
         .disc-slider {
           -webkit-appearance: none; appearance: none;
-          position: absolute; inset: 0;
-          width: 100%; height: 100%;
-          opacity: 0; cursor: pointer; margin: 0; padding: 0;
+          position: absolute; left: -9px; right: -9px; top: -15px;
+          width: calc(100% + 18px); height: 36px;
+          opacity: 0; cursor: pointer; margin: 0; padding: 0; touch-action: pan-y;
         }
+        .disc-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; }
+        .disc-slider::-moz-range-thumb { width: 18px; height: 18px; border: 0; }
+        /* o <input> é invisível: quem navega por teclado vê o foco no polegar */
+        .disc-track:has(.disc-slider:focus-visible) .disc-thumb { box-shadow: 0 0 0 4px rgba(99,102,241,0.45) !important; }
+        @media (pointer: coarse) {
+          .disc-slider { left: -12px; right: -12px; width: calc(100% + 24px); top: -21px; height: 48px; }
+          .disc-slider::-webkit-slider-thumb { width: 24px; height: 24px; }
+          .disc-slider::-moz-range-thumb { width: 24px; height: 24px; }
+          .disc-thumb { width: 24px !important; height: 24px !important; }
+          .disc-manual-toggle { min-height: 44px !important; }
+          .disc-manual-input { height: 48px !important; font-size: 16px !important; }
+        }
+        @media (max-width: 380px) { .disc-box { padding: 12px 12px 14px !important; } }
       `}</style>
 
       {/* Título */}
@@ -75,7 +93,7 @@ export function DiscountNegotiator({
         </div>
 
         {/* Track — 26px abaixo dos ticks */}
-        <div style={{
+        <div className="disc-track" style={{
           position: 'absolute', top: 26, left: 0, right: 0,
           height: 6, borderRadius: 999, background: 'var(--secondary)',
         }}>
@@ -90,7 +108,7 @@ export function DiscountNegotiator({
           }}/>
 
           {/* Thumb visual */}
-          <div style={{
+          <div className="disc-thumb" style={{
             position: 'absolute', top: '50%',
             left: `${thumbPct}%`,
             transform: 'translate(-50%, -50%)',
@@ -107,6 +125,7 @@ export function DiscountNegotiator({
           <input
             className="disc-slider"
             type="range" min={0} max={maxPct} step={0.5}
+            aria-label="Desconto da negociação (%)" aria-valuetext={`${activePct.toFixed(1)}% de desconto`}
             value={activePct}
             onChange={e => {
               setTargetValue('')
@@ -162,11 +181,11 @@ export function DiscountNegotiator({
 
       {/* Toggle "Definir valor manualmente" — sempre no fluxo, sem sobreposição */}
       <button
-        type="button"
+        type="button" className="disc-manual-toggle" aria-expanded={showManual}
         onClick={() => setShowManual(s => !s)}
         style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          marginTop: 18, padding: 0, background: 'none', border: 'none',
+          display: 'flex', alignItems: 'center', gap: 5, minHeight: 32,
+          marginTop: 12, padding: 0, background: 'none', border: 'none',
           cursor: 'pointer', fontFamily: 'inherit',
         }}>
         <ChevronDown
@@ -185,7 +204,7 @@ export function DiscountNegotiator({
       {showManual && (
         <div style={{ marginTop: 8 }}>
           <input
-            type="text"
+            type="text" inputMode="decimal" className="disc-manual-input" aria-label="Valor desejado" autoComplete="off"
             value={targetValue}
             onChange={e => setTargetValue(e.target.value)}
             placeholder={`Ex: ${fmt(pv * 0.9).replace('R$\u00a0', '')}`}

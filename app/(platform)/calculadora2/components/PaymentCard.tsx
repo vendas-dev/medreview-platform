@@ -77,9 +77,9 @@ export function PaymentCard({
         {visibleModes.map(m => {
           const active = paymentMode === m.mode
           return (
-            <button key={m.mode} type="button" onClick={() => setPaymentMode(m.mode)}
+            <button key={m.mode} type="button" onClick={() => setPaymentMode(m.mode)} aria-pressed={active} className="calc2-tap"
               style={{
-                flex: '1 1 auto', minWidth: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                flex: '1 1 auto', minWidth: 92, minHeight: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 padding: '9px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
                 border: `1.5px solid ${active ? '#4f46e5' : 'var(--border)'}`,
                 background: active ? '#4f46e5' : 'var(--background)',
@@ -97,7 +97,7 @@ export function PaymentCard({
       {paymentMode === 'evento' && (
         <div style={{ padding: '0 16px 12px', display: 'flex', gap: 8 }}>
           {(['parcelado', 'avista'] as const).map(sub => (
-            <button key={sub} onClick={() => setEventoSub(sub)}
+            <button key={sub} onClick={() => setEventoSub(sub)} aria-pressed={eventoSub === sub} className="calc2-tap"
               style={{ flex: 1, height: 36, borderRadius: 8, border: `1.5px solid ${eventoSub === sub ? '#4f46e5' : 'var(--border)'}`, background: eventoSub === sub ? 'rgba(99,102,241,0.08)' : 'transparent', color: eventoSub === sub ? '#4f46e5' : 'var(--muted-foreground)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
               {sub === 'parcelado' ? '📅 Parcelado' : '💵 À Vista'}
             </button>
@@ -120,7 +120,7 @@ export function PaymentCard({
   if (!result) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {paymentModeSection}
-      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '48px 28px', textAlign: 'center' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: 'clamp(28px,8vw,48px) clamp(16px,5vw,28px)', textAlign: 'center' }}>
         <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--foreground)', margin: '0 0 6px' }}>Simulação aparecerá aqui</p>
         <p style={{ fontSize: 13, color: 'var(--muted-foreground)', lineHeight: 1.5 }}>Configure vertical e produto ao lado<br />pra ver a oferta completa</p>
       </div>
@@ -154,24 +154,24 @@ export function PaymentCard({
       {negotiatorSection}
 
       {/* ── Oferta especial ─────────────────────────────── */}
-      <div style={{ background: 'linear-gradient(160deg,#0f0524,#1e0b45,#2e1065)', borderRadius: 10, padding: '18px 20px', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ background: 'linear-gradient(160deg,#0f0524,#1e0b45,#2e1065)', borderRadius: 10, padding: 'clamp(14px,4vw,18px) clamp(14px,4vw,20px)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <p style={{ fontSize: 10, fontWeight: 800, color: '#fbbf24', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Zap size={11} style={{ fill: '#fbbf24' }} /> Oferta Especial
           </p>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
-            <div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'clamp(8px,3vw,14px)', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
               <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', margin: '0 0 2px' }}>De</p>
-              <p style={{ fontSize: 18, fontWeight: 900, color: '#f87171', margin: 0, textDecoration: 'line-through', letterSpacing: '-0.02em', fontFamily: "'JetBrains Mono',monospace" }}>{fmt(totalCheio)}</p>
+              <p style={{ fontSize: 'clamp(15px,4.6vw,18px)', overflowWrap: 'anywhere', fontWeight: 900, color: '#f87171', margin: 0, textDecoration: 'line-through', letterSpacing: '-0.02em', fontFamily: "'JetBrains Mono',monospace" }}>{fmt(totalCheio)}</p>
             </div>
             <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.3)', lineHeight: 1 }}>→</div>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <p style={{ fontSize: 10, color: '#4ade80', margin: '0 0 2px', fontWeight: 700 }}>Por apenas</p>
-              <p style={{ fontSize: 30, fontWeight: 900, color: '#4ade80', margin: 0, letterSpacing: '-0.03em', fontFamily: "'JetBrains Mono',monospace" }}>{fmt(totalBase)}</p>
+              <p style={{ fontSize: 'clamp(24px,7.4vw,30px)', overflowWrap: 'anywhere', fontWeight: 900, color: '#4ade80', margin: 0, letterSpacing: '-0.03em', fontFamily: "'JetBrains Mono',monospace" }}>{fmt(totalBase)}</p>
             </div>
           </div>
           {upsellLabel && upsellPrice > 0 && (
-            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', margin: '8px 0 0' }}>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', margin: '8px 0 0', overflowWrap: 'anywhere' }}>
               Bônus incluso: <strong style={{ color: '#a78bfa' }}>{upsellLabel}</strong>
             </p>
           )}
@@ -190,7 +190,7 @@ export function PaymentCard({
 
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb,var(--secondary) 60%,var(--card))' }}>
           <p style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 2px' }}>{modeLabel}</p>
-          <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0 }}>
+          <p style={{ fontSize: 11.5, color: 'var(--muted-foreground)', margin: 0, overflowWrap: 'anywhere' }}>
             {result.mode !== 'avista' && !isSemJuros && `${result.rate}% a.m. — `}
             {isSemJuros && result.mode !== 'avista' && 'Sem juros — '}
             {produtoLabel}
@@ -200,13 +200,13 @@ export function PaymentCard({
         {/* À Vista */}
         {result.aVista !== undefined && (
           <div onMouseEnter={() => onHoverParcela(null)}
-            style={{ padding: '18px 20px' }}>
+            style={{ padding: 'clamp(14px,4vw,18px) clamp(14px,4vw,20px)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '0 0 5px' }}>Valor à vista</p>
-                <p style={{ fontSize: 32, fontWeight: 900, color: '#22c55e', margin: 0, letterSpacing: '-0.03em', lineHeight: 1, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(result.aVista)}</p>
+                <p style={{ fontSize: 'clamp(24px,8vw,32px)', fontWeight: 900, color: '#22c55e', margin: 0, letterSpacing: '-0.03em', lineHeight: 1, fontFamily: "'JetBrains Mono',monospace", overflowWrap: 'anywhere' }}>{fmt(result.aVista)}</p>
               </div>
-              <button onClick={() => copy(buildMessage(null), 'av')}
+              <button onClick={() => copy(buildMessage(null), 'av')} aria-label="Copiar mensagem à vista" className="calc2-copybtn"
                 style={{ width: 40, height: 40, borderRadius: 8, border: `1.5px solid ${copied === 'av' ? '#22c55e' : 'var(--border)'}`, background: copied === 'av' ? 'rgba(34,197,94,0.08)' : 'var(--secondary)', color: copied === 'av' ? '#16a34a' : 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
                 {copied === 'av' ? <Check size={15} /> : <Copy size={15} />}
               </button>

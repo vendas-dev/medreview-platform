@@ -13,11 +13,11 @@ const hub = (v: any) => (v == null ? '' : String(v).trim())
 const normName = (s?: string | null) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
 const aspas = (s: string) => `"${String(s).replace(/["\\]/g, '')}"`
 
-const COLS = 'id, occurred_at, transaction_id, vertical, product, value, coupon_code, lead_name, email, phone, payment_type, payment_installments, total_installments, is_recurring, installment_number, sale_type, subscription_id, ambassador_name, seller_type, is_self_checkout, sold_by_ambassador, closer_id, closer_name, closer_hubspot_id, co_closer_id, co_closer_hubspot_id'
+const COLS = 'id, occurred_at, transaction_id, vertical, product, value, coupon_code, lead_name, email, phone, payment_type, payment_installments, total_installments, is_recurring, installment_number, sale_type, subscription_id, ambassador_name, seller_type, is_self_checkout, sold_by_ambassador, closer_id, closer_name, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, is_refunded, refunded_at, refund_reason'
 export const TAMANHOS_PAGINA = [25, 50, 100]
 const PERIODO_MAX_DIAS = 400, MAX_Q = 120
 
-interface FiltrosG { from: string; to: string; vertical: string | null; team: 'R1' | 'OAO' | null; canal: CanalFiltro; ordem: Ordem; q: string; aba: AbaId; page: number; pageSize: number }
+interface FiltrosG { from: string; to: string; vertical: string | null; team: 'R1' | 'OAO' | null; canal: CanalFiltro; ordem: Ordem; q: string; aba: AbaId; soReembolsadas: boolean; page: number; pageSize: number }
 function parse(sp: URLSearchParams): { ok: true; f: FiltrosG } | { ok: false; error: string } {
   let from = sp.get('from'), to = sp.get('to')
   if (!from && !to) { const m = monthBoundsSaoPaulo(todayInSaoPaulo().slice(0, 7)); from = m.start; to = m.end }
@@ -28,7 +28,7 @@ function parse(sp: URLSearchParams): { ok: true; f: FiltrosG } | { ok: false; er
   const vertical = sp.get('vertical'); if (vertical && vertical !== 'todas' && !(VERTICAIS_ATIVAS as readonly string[]).includes(vertical)) return { ok: false, error: 'Vertical inválida.' }
   const team = (sp.get('team') ?? '').toUpperCase(); if (team && team !== 'TODOS' && team !== 'R1' && team !== 'OAO') return { ok: false, error: 'Time inválido.' }
   const page = Math.max(1, Math.floor(Number(sp.get('page')) || 1)), ps = Number(sp.get('pageSize'))
-  return { ok: true, f: { from: new Date(a).toISOString(), to: new Date(b).toISOString(), vertical: vertical && vertical !== 'todas' ? vertical : null, team: team === 'R1' || team === 'OAO' ? team : null, canal: canalFiltroValido(sp.get('canal')), ordem: ordemValida(sp.get('ordem')), q: (sp.get('q') ?? '').slice(0, MAX_Q), aba: abaValida(sp.get('aba')), page, pageSize: TAMANHOS_PAGINA.includes(ps) ? ps : 25 } }
+  return { ok: true, f: { from: new Date(a).toISOString(), to: new Date(b).toISOString(), vertical: vertical && vertical !== 'todas' ? vertical : null, team: team === 'R1' || team === 'OAO' ? team : null, canal: canalFiltroValido(sp.get('canal')), ordem: ordemValida(sp.get('ordem')), q: (sp.get('q') ?? '').slice(0, MAX_Q), aba: abaValida(sp.get('aba')), soReembolsadas: ['1', 'true', 'so'].includes(sp.get('reembolsadas') ?? ''), page, pageSize: TAMANHOS_PAGINA.includes(ps) ? ps : 25 } }
 }
 
 interface Refs { closers: { id: string; hubspot_id: string | null; name: string; avatar_url: string | null; team: string | null }[]; profiles: any[] }
@@ -41,8 +41,10 @@ async function carregarRefs(ctx: Ctx): Promise<{ refs: Refs } | { error: any }> 
 }
 
 /** Todos os filtros num lugar só: as linhas, os totais e as abas usam EXATAMENTE a mesma regra (por isso as contas fecham). */
-function aplicar(q: any, f: FiltrosG, refs: Refs, aba: AbaId | null, modoBusca: 'regex' | 'simples') {
-  q = q.eq('event_type', 'sale').in('vertical', [...VERTICAIS_ATIVAS]).gte('occurred_at', f.from).lte('occurred_at', f.to)
+function aplicar(q: any, f: FiltrosG, refs: Refs, aba: AbaId | null, modoBusca: 'regex' | 'simples', lista = false) {
+  // Vendas ATIVAS = event_type sale. Na LISTA (lista=true) entram também as REEMBOLSADAS (apagadas, com a etiqueta "Reembolso"); com f.soReembolsadas, só elas. Os totais (resumo) nunca passam lista=true: continuam sem as reembolsadas.
+  q = lista ? (f.soReembolsadas ? q.eq('is_refunded', true).eq('refunded_from', 'sale') : q.or('event_type.eq.sale,and(is_refunded.eq.true,refunded_from.eq.sale)')) : q.eq('event_type', 'sale')
+  q = q.in('vertical', [...VERTICAIS_ATIVAS]).gte('occurred_at', f.from).lte('occurred_at', f.to)
   if (aba && aba !== 'geral') q = q.eq('vertical', aba)
   if (f.vertical) q = q.eq('vertical', f.vertical)
   // Canal: mutuamente exclusivos, com a prioridade Self-Checkout > Embaixador > Closer (a soma dos três = todas, menos as "sem origem").
@@ -77,7 +79,7 @@ function enriquecer(rows: any[], refs: Refs) {
     const vendedor = canal === 'embaixador' ? { nome: hub(v.ambassador_name) || null, avatar_url: null, team: null }
       : canal === 'self' ? { nome: null, avatar_url: null, team: null }
       : { nome: c?.name ?? hub(v.closer_name) ?? null, avatar_url: c?.avatar_url ?? null, team: c?.team ?? null }
-    return { id: v.id, occurred_at: v.occurred_at, transaction_id: v.transaction_id, vertical: v.vertical, product: v.product, value: v.value, coupon_code: v.coupon_code, lead_name: v.lead_name, email: v.email, phone: v.phone, payment_type: v.payment_type, payment_installments: v.payment_installments, total_installments: v.total_installments, is_recurring: v.is_recurring, installment_number: v.installment_number, sale_type: v.sale_type, subscription_id: v.subscription_id, ambassador_name: v.ambassador_name, canal, vendedor: { ...vendedor, nome: vendedor.nome || null }, co: coDe(v) }
+    return { id: v.id, occurred_at: v.occurred_at, transaction_id: v.transaction_id, vertical: v.vertical, product: v.product, value: v.value, coupon_code: v.coupon_code, lead_name: v.lead_name, email: v.email, phone: v.phone, payment_type: v.payment_type, payment_installments: v.payment_installments, total_installments: v.total_installments, is_recurring: v.is_recurring, installment_number: v.installment_number, sale_type: v.sale_type, subscription_id: v.subscription_id, ambassador_name: v.ambassador_name, canal, vendedor: { ...vendedor, nome: vendedor.nome || null }, co: coDe(v), reembolsada: v.is_refunded === true, refunded_at: v.refunded_at ?? null, refund_reason: v.refund_reason ?? null }
   })
 }
 
@@ -87,7 +89,7 @@ export async function hVendasGerais(ctx: Ctx, sp: URLSearchParams): Promise<R> {
   const p = parse(sp); if (!p.ok) return err(400, p.error); const f = p.f
   const r0 = await carregarRefs(ctx); if ('error' in r0) return dbErr(r0.error); const refs = r0.refs
   const consulta = (modo: 'regex' | 'simples') => {
-    let q = aplicar(ctx.admin.from('telao_events').select(COLS, { count: 'exact' }), f, refs, f.aba, modo)
+    let q = aplicar(ctx.admin.from('telao_events').select(COLS, { count: 'exact' }), f, refs, f.aba, modo, true)
     if (f.ordem === 'maior' || f.ordem === 'menor') q = q.order('value', { ascending: f.ordem === 'menor', nullsFirst: f.ordem === 'menor' }).order('occurred_at', { ascending: false })
     else q = q.order('occurred_at', { ascending: f.ordem === 'antigas' })
     return q.order('id').range((f.page - 1) * f.pageSize, f.page * f.pageSize - 1)
@@ -96,7 +98,11 @@ export async function hVendasGerais(ctx: Ctx, sp: URLSearchParams): Promise<R> {
   if (r.error && tokensDaBusca(f.q).length && buscaFalhou(r.error)) { busca = 'simples'; r = await consulta('simples') }
   if (r.error) return dbErr(r.error)
   const total = r.count ?? 0
-  return ok({ vendas: enriquecer(r.data ?? [], refs), total, page: f.page, pageSize: f.pageSize, pages: Math.max(1, Math.ceil(total / f.pageSize)), busca })
+  // quantas dessas linhas são reembolsadas (com os mesmos filtros): a tela mostra "N vendas · M reembolsadas"
+  let reembolsadas: number | null = null
+  if (f.soReembolsadas) reembolsadas = total
+  else { const rc = await aplicar(ctx.admin.from('telao_events').select('id', { count: 'exact', head: true }), { ...f, soReembolsadas: true }, refs, f.aba, busca, true); if (!rc.error) reembolsadas = rc.count ?? 0 }
+  return ok({ vendas: enriquecer(r.data ?? [], refs), total, reembolsadas, page: f.page, pageSize: f.pageSize, pages: Math.max(1, Math.ceil(total / f.pageSize)), busca })
 }
 
 /** GET /api/admin/vendas/gerais/resumo — quantas vendas e quanto R$ em cada aba, com os MESMOS filtros (menos a aba). */

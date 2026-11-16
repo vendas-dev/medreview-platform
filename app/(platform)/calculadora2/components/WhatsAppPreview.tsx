@@ -23,8 +23,8 @@ export function WhatsAppPreview({ message, isHoveringParcela }: { message: strin
   }
 
   return (
-    <div style={{ background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb,var(--secondary) 50%,var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div style={{ background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 12, overflow: 'hidden', minWidth: 0 }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb,var(--secondary) 50%,var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <MessageCircle size={14} style={{ color: '#22c55e' }} />
           <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -40,7 +40,7 @@ export function WhatsAppPreview({ message, isHoveringParcela }: { message: strin
 
       {/* Fundo estilo WhatsApp */}
       <div style={{
-        padding: 16, minHeight: 200,
+        padding: 'clamp(12px,3vw,16px)', minHeight: 200,
         background: 'repeating-linear-gradient(45deg, rgba(37,211,102,0.02) 0, rgba(37,211,102,0.02) 2px, transparent 2px, transparent 12px), #0b141a',
       }}>
         <div style={{
@@ -57,7 +57,7 @@ export function WhatsAppPreview({ message, isHoveringParcela }: { message: strin
       </div>
 
       <div style={{ padding: 12 }}>
-        <button onClick={handleCopy}
+        <button onClick={handleCopy} className="calc2-tap"
           style={{ width: '100%', height: 38, borderRadius: 10, border: `1.5px solid ${copied ? '#22c55e' : 'var(--border)'}`, background: copied ? 'rgba(34,197,94,0.08)' : 'var(--secondary)', color: copied ? '#16a34a' : 'var(--foreground)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, transition: 'all 0.15s' }}>
           {copied ? <><Check size={14} /> Copiado!</> : <><Copy size={14} /> Copiar mensagem</>}
         </button>

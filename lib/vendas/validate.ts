@@ -4,9 +4,11 @@ import { VERTICAIS_ATIVAS, verticaisDoTime } from './format'
 export const isUuid = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 function urlOk(s: string): boolean { try { const u = new URL(s); return u.protocol === 'http:' || u.protocol === 'https:' } catch { return false } }
+/** O mesmo link colado duas vezes (ignora maiúscula e a barra do final). */
+const mesmoLink = (a: string, b: string) => a.replace(/\/+$/, '').toLowerCase() === b.replace(/\/+$/, '').toLowerCase()
 
 // ── Pedido de troca de venda ──────────────────────────────────────────────────────────────────
-export interface TrocaInput { vertical: string; product: string; transaction_id: string; lead_name: string; hubspot_url: string; botmaker_url: string; reason: string }
+export interface TrocaInput { vertical: string; product: string; transaction_id: string; lead_name: string; hubspot_url: string; botmaker_url: string; hubspot_url_2?: string | null; botmaker_url_2?: string | null; reason: string }
 export type Errors = Record<string, string>
 
 export function validarTroca(body: any, team: string | null): { ok: true; value: TrocaInput } | { ok: false; errors: Errors } {
@@ -24,11 +26,15 @@ export function validarTroca(body: any, team: string | null): { ok: true; value:
   else if (!urlOk(hubspot_url) || hubspot_url.length > 600) e.hubspot_url = 'Link inválido (precisa começar com http:// ou https://).'
   if (!botmaker_url) e.botmaker_url = 'Cole o link da conversa no Botmaker.'
   else if (!urlOk(botmaker_url) || botmaker_url.length > 600) e.botmaker_url = 'Link inválido (precisa começar com http:// ou https://).'
+  // 2º link (opcional): um a mais de HubSpot e/ou um a mais de Botmaker, para quando o mesmo pedido tem dois negócios ou duas conversas
+  const hubspot_url_2 = str(b.hubspot_url_2), botmaker_url_2 = str(b.botmaker_url_2)
+  if (hubspot_url_2) { if (!urlOk(hubspot_url_2) || hubspot_url_2.length > 600) e.hubspot_url_2 = 'Link inválido (precisa começar com http:// ou https://).'; else if (hubspot_url && mesmoLink(hubspot_url, hubspot_url_2)) e.hubspot_url_2 = 'Este link é igual ao primeiro. Cole um link diferente.' }
+  if (botmaker_url_2) { if (!urlOk(botmaker_url_2) || botmaker_url_2.length > 600) e.botmaker_url_2 = 'Link inválido (precisa começar com http:// ou https://).'; else if (botmaker_url && mesmoLink(botmaker_url, botmaker_url_2)) e.botmaker_url_2 = 'Este link é igual ao primeiro. Cole um link diferente.' }
   if (!reason) e.reason = 'Explique o motivo da troca.'
   else if (reason.length < 5) e.reason = 'Descreva um pouco mais o motivo.'
   else if (reason.length > 2000) e.reason = 'Máximo de 2000 caracteres.'
   if (Object.keys(e).length) return { ok: false, errors: e }
-  return { ok: true, value: { vertical, product, transaction_id, lead_name, hubspot_url, botmaker_url, reason } }
+  return { ok: true, value: { vertical, product, transaction_id, lead_name, hubspot_url, botmaker_url, hubspot_url_2: hubspot_url_2 || null, botmaker_url_2: botmaker_url_2 || null, reason } }
 }
 
 /** Conceder ou Negar: nos DOIS casos a justificativa (resposta) é obrigatória. */

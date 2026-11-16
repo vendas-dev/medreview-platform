@@ -108,4 +108,5 @@ export interface VendaGeral {
   lead_name: string | null; email: string | null; phone: string | null; payment_type: string | null; payment_installments: number | null; total_installments: number | null
   is_recurring: boolean | null; installment_number: number | null; sale_type: string | null; subscription_id: string | null; ambassador_name: string | null
   canal: CanalId; vendedor: VendedorGeral; co: VendedorGeral | null
+  reembolsada?: boolean; refunded_at?: string | null; refund_reason?: string | null      // reembolsada: aparece apagada com a etiqueta "Reembolso" e fica fora dos totais
 }

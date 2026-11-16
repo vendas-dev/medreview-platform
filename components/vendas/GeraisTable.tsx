@@ -1,7 +1,7 @@
 'use client'
 import { useState, type CSSProperties } from 'react'
 import { Barcode, Check, ChevronLeft, ChevronRight, Copy, CreditCard, FileText, HelpCircle, Megaphone, QrCode, Repeat2, ShoppingCart, Tag, Wallet, Zap } from 'lucide-react'
-import { Avatar, Chip, TeamBadge } from './ui'
+import { Avatar, Chip, EtiquetaRecorrente, EtiquetaReembolso, TeamBadge } from './ui'
 import { CANAL_COR, CANAL_ROTULO, destacar, textoCor, type CanalId, type VendaGeral } from '@/lib/vendas/gerais'
 import { fmtBRL, fmtData, fmtDataHora, formaPagamento, formatPhone, oferta, parcelas, teamCor, verticalCor, verticalLabel } from '@/lib/vendas/format'
 
@@ -73,8 +73,8 @@ export function GeraisTable({ rows, tokens, carregando, total, page, pages, page
               {rows.map(v => {
                 const c = verticalCor(v.vertical), of = oferta(v.coupon_code), rec = v.sale_type === 'recorrente' || v.is_recurring === true
                 return (
-                  <tr key={v.id} data-v="row" data-id={v.id} data-vertical={v.vertical} data-canal={v.canal} className="vd-row">
-                    <td data-col="data" style={{ ...TD, paddingLeft: 22, boxShadow: `inset 5px 0 0 ${c}`, whiteSpace: 'nowrap' }}><span style={{ display: 'block', fontWeight: 700 }}>{fmtData(v.occurred_at)}</span><span style={{ display: 'block', marginTop: 3, fontSize: 12.5, ...muted }}>{fmtDataHora(v.occurred_at).slice(11)}</span></td>
+                  <tr key={v.id} data-v="row" data-id={v.id} data-vertical={v.vertical} data-canal={v.canal} data-refunded={v.reembolsada ? '1' : '0'} className="vd-row">
+                    <td data-col="data" style={{ ...TD, paddingLeft: 22, boxShadow: `inset 5px 0 0 ${c}`, whiteSpace: 'nowrap' }}><span className="rf-dim" style={{ display: 'block', fontWeight: 700 }}>{fmtData(v.occurred_at)}</span><span className="rf-dim" style={{ display: 'block', marginTop: 3, fontSize: 12.5, ...muted }}>{fmtDataHora(v.occurred_at).slice(11)}</span>{rec && <EtiquetaRecorrente n={v.installment_number} total={v.total_installments} />}{v.reembolsada && <EtiquetaReembolso em={v.refunded_at} motivo={v.refund_reason} />}</td>
                     <td data-col="vertical" style={{ ...TD, whiteSpace: 'nowrap' }}><Chip cor={c} icon={<i style={{ width: 7, height: 7, borderRadius: 99, background: c }} />}>{verticalLabel(v.vertical)}</Chip></td>
                     <td data-col="produto" title={v.product ?? ''} style={{ ...TD, fontWeight: 600 }}><span style={ELL}><Hit t={v.product || '—'} tokens={tokens} /></span></td>
                     <td data-col="valor" style={{ ...TD, textAlign: 'right', fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(v.value)}</td>

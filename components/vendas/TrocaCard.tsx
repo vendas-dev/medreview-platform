@@ -1,7 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, CheckCircle2, Clock, Copy, ExternalLink, Hash, Loader2, MessageCircle, Package, Pencil, Quote, Save, ThumbsDown, ThumbsUp, User, XCircle, ChevronDown } from 'lucide-react'
+import { Check, CheckCircle2, Clock, Copy, ExternalLink, Hash, Loader2, MessageCircle, Package, Pencil, Quote, Save, ThumbsDown, ThumbsUp, User, X, XCircle, ChevronDown } from 'lucide-react'
 import type { Decisao, TrocaRow } from '@/lib/vendas/types'
 import { fmtDataHora, teamCor } from '@/lib/vendas/format'
 import { Avatar, Banner, Btn, TeamBadge, TextArea, VerticalChip } from './ui'
@@ -15,6 +16,45 @@ const ROTULO = { pendente: 'Pendente', concedida: 'Concedida', negada: 'Negada',
 
 function Info({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return <div style={{ minWidth: 0 }}><div style={lbl}>{icon}{label}</div><div style={{ marginTop: 7, fontSize: 15, fontWeight: 700, color: 'var(--foreground)', overflowWrap: 'anywhere' }}>{children}</div></div>
+}
+
+/** Botão de link do pedido. UM link: abre direto (como sempre). DOIS links do mesmo tipo: abre um pequeno popup com os dois, cada um com o seu "abrir". */
+const estiloLink = (cor: string, tint: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 9, height: 42, padding: '0 18px', borderRadius: 13, textDecoration: 'none', fontSize: 13.5, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', color: cor, background: `color-mix(in srgb,${tint} 11%,transparent)`, border: `1px solid color-mix(in srgb,${tint} 26%,transparent)` })
+function LinkBotao({ links, rotulo, titulo, itemRotulo, cor, tint, icon, dataV }: { links: string[]; rotulo: string; titulo: string; itemRotulo: string; cor: string; tint: string; icon: React.ReactNode; dataV: string }) {
+  const [aberto, setAberto] = useState(false)
+  const primeiro = useRef<HTMLAnchorElement>(null)
+  useEffect(() => {
+    if (!aberto) return
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false) }
+    document.addEventListener('keydown', k)
+    const f = requestAnimationFrame(() => primeiro.current?.focus())          // o React só aplica autoFocus em campos e botões, não em links
+    return () => { document.removeEventListener('keydown', k); cancelAnimationFrame(f) }
+  }, [aberto])
+  const estilo = estiloLink(cor, tint)
+  if (links.length <= 1) return <a data-v={dataV} href={links[0]} target="_blank" rel="noopener noreferrer" className="vd-btn" style={estilo}>{icon}{rotulo}</a>
+  return (
+    <>
+      <button type="button" data-v={dataV} data-links={links.length} aria-haspopup="dialog" aria-expanded={aberto} onClick={() => setAberto(true)} className="vd-btn" style={estilo}>{icon}{rotulo}<span data-v="troca-link-contador" style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 99, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11.5, fontWeight: 800, color: '#fff', background: cor }}>{links.length}</span></button>
+      {aberto && typeof document !== 'undefined' && createPortal(
+        <div data-v="troca-links-fundo" className="vd" onMouseDown={e => { if (e.target === e.currentTarget) setAberto(false) }} style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(10,8,28,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div role="dialog" aria-modal="true" aria-label={titulo} data-v="troca-links-popup" style={{ width: 'min(420px, 100%)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 20, boxShadow: '0 30px 70px -18px rgba(10,8,40,.5)', padding: '18px 18px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+              <div><div style={{ fontSize: 16, fontWeight: 800, color: 'var(--foreground)' }}>{titulo}</div><div style={{ marginTop: 2, fontSize: 12.5, color: 'var(--muted-foreground)' }}>Este pedido tem {links.length} links. Abra o que precisar.</div></div>
+              <button type="button" data-v="troca-links-fechar" aria-label="Fechar" onClick={() => setAberto(false)} className="vd-btn vd-icon" style={{ width: 40, height: 40, flexShrink: 0, border: 'none', borderRadius: 12, background: 'transparent', color: 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {links.map((u, i) => (
+                <a key={u + i} data-v="troca-link-item" href={u} target="_blank" rel="noopener noreferrer" ref={i === 0 ? primeiro : undefined} className="vd-btn" style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 60, padding: '10px 14px', borderRadius: 14, textDecoration: 'none', color: 'var(--foreground)', border: '1.5px solid var(--border)', background: 'var(--background)' }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: cor, background: `color-mix(in srgb,${tint} 14%,transparent)` }}>{icon}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: 13.5, fontWeight: 800 }}>{itemRotulo} {i + 1}</span><span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'var(--muted-foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.replace(/^https?:\/\//, '')}</span></span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 13, fontWeight: 800, color: cor }}><ExternalLink size={15} />Abrir</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>, document.body)}
+    </>
+  )
 }
 
 /** Um pedido de troca. Pendente = âmbar; Concedida = verde; Negada = vermelho (esmaecidos, mas voltam ao normal no hover).
@@ -77,8 +117,8 @@ export function TrocaCard({ t, admin, onDecide, onEdit, onEditResposta }: { t: T
         <Info icon={<User size={13} />} label="Nome do Lead">{t.lead_name}</Info>
       </div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '22px 0' }}>
-        <a data-v="troca-link-hubspot" href={t.hubspot_url} target="_blank" rel="noopener noreferrer" className="vd-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 9, height: 42, padding: '0 18px', borderRadius: 13, textDecoration: 'none', fontSize: 13.5, fontWeight: 700, color: '#ea580c', background: 'color-mix(in srgb,#f97316 11%,transparent)', border: '1px solid color-mix(in srgb,#f97316 26%,transparent)' }}><ExternalLink size={15} />Negócio no HubSpot</a>
-        <a data-v="troca-link-botmaker" href={t.botmaker_url} target="_blank" rel="noopener noreferrer" className="vd-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 9, height: 42, padding: '0 18px', borderRadius: 13, textDecoration: 'none', fontSize: 13.5, fontWeight: 700, color: '#2563eb', background: 'color-mix(in srgb,#3b82f6 11%,transparent)', border: '1px solid color-mix(in srgb,#3b82f6 26%,transparent)' }}><MessageCircle size={15} />Conversa no Botmaker</a>
+        <LinkBotao dataV="troca-link-hubspot" links={[t.hubspot_url, t.hubspot_url_2].filter((x): x is string => !!x)} rotulo="Negócio no HubSpot" titulo="Negócios no HubSpot" itemRotulo="Negócio" cor="#ea580c" tint="#f97316" icon={<ExternalLink size={15} />} />
+        <LinkBotao dataV="troca-link-botmaker" links={[t.botmaker_url, t.botmaker_url_2].filter((x): x is string => !!x)} rotulo="Conversa no Botmaker" titulo="Conversas no Botmaker" itemRotulo="Conversa" cor="#2563eb" tint="#3b82f6" icon={<MessageCircle size={15} />} />
       </div>
       <div style={{ padding: '18px 20px', borderRadius: 16, background: 'var(--secondary)' }}>
         <div style={lbl}><Quote size={13} />Motivo da troca</div>

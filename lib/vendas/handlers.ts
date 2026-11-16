@@ -14,16 +14,20 @@ const ok = (json: any, status = 200): R => ({ status, json })
 const err = (status: number, error: string, extra: Record<string, any> = {}): R => ({ status, json: { error, ...extra } })
 const isSuper = (c: Ctx) => c.role === 'superadmin'
 const MIGRACAO = 'Falta rodar a migração de Vendas no Supabase (migration-vendas.sql).'
+const MIGRACAO_LINKS = 'Falta rodar o SQL dos links extras da troca no Supabase (trocas-links-extras.sql).'
+/** Os 2ºs links são opcionais: só vão ao banco quando preenchidos — assim o pedido comum continua funcionando mesmo antes do SQL dos links extras ser rodado. */
+const semExtrasVazios = (v: TrocaInput) => { const { hubspot_url_2, botmaker_url_2, ...base } = v; return { ...base, ...(hubspot_url_2 ? { hubspot_url_2 } : {}), ...(botmaker_url_2 ? { botmaker_url_2 } : {}) } }
 
 /** Erro de banco → resposta. Sem vazar detalhe interno; "tabela/coluna não existe" vira o aviso de migração. */
 function dbErr(e: any): R {
   const m = String(e?.message ?? '')
+  if (/hubspot_url_2|botmaker_url_2/i.test(m)) return err(503, MIGRACAO_LINKS, { migracao: true })
   if (/\bobs\b|obs_updated|sale_swap_requests|sales_edit_log|schema cache/i.test(m)) return err(503, MIGRACAO, { migracao: true })
   console.error('[vendas]', m)
   return err(500, 'Erro ao acessar os dados. Tente novamente em instantes.')
 }
 
-const VENDA_COLS = 'id, occurred_at, transaction_id, vertical, product, value, coupon_code, lead_name, email, phone, payment_type, payment_installments, total_installments, is_recurring, installment_number, ambassador_name, seller_type, closer_id, closer_name, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, transferred_at, sale_type, obs, obs_updated_at'
+const VENDA_COLS = 'id, occurred_at, transaction_id, vertical, product, value, coupon_code, lead_name, email, phone, payment_type, payment_installments, total_installments, is_recurring, installment_number, ambassador_name, seller_type, closer_id, closer_name, closer_hubspot_id, co_closer_id, co_closer_hubspot_id, transferred_at, sale_type, obs, obs_updated_at, is_refunded, refunded_at, refund_reason'
 const VERTICAIS_FILTRO = ['medreview', 'anestreview', 'oftreview', 'ortopreview', 'vascreview']
 const normName = (s?: string | null) => (s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
 
@@ -46,8 +50,9 @@ function parseFiltros(sp: URLSearchParams, opts: { periodoObrigatorio: boolean }
   const status = sp.get('status'); if (status && !['todas', 'pendente', 'resolvida', 'concedida', 'negada'].includes(status)) return { ok: false, error: 'Status inválido.' }
   return { ok: true, f: { from: fromIso, to: toIso, vertical: vertical && vertical !== 'todas' ? vertical : null, recorrentes: !['0', 'false'].includes(sp.get('recorrentes') ?? ''), inativos: ['1', 'true'].includes(sp.get('inativos') ?? ''), team: team && team !== 'TODOS' ? team : null, closerId: closerId && closerId !== 'todos' ? closerId : null, status: status && status !== 'todas' ? (status as any) : null } }
 }
-function filtrosVendas(q: any, f: Filtros) {
-  q = q.eq('event_type', 'sale')
+/** comReembolsadas=true (só nas LISTAS): entram também as vendas REEMBOLSADAS (is_refunded + refunded_from = sale), que a tela mostra apagadas com a etiqueta "Reembolso". Os TOTAIS não passam isso, então continuam sem elas. */
+function filtrosVendas(q: any, f: Filtros, comReembolsadas = false) {
+  q = comReembolsadas ? q.or('event_type.eq.sale,and(is_refunded.eq.true,refunded_from.eq.sale)') : q.eq('event_type', 'sale')
   if (f.from) q = q.gte('occurred_at', f.from).lte('occurred_at', f.to)
   if (f.vertical) q = q.eq('vertical', f.vertical)
   if (!f.recorrentes) q = q.or('sale_type.neq.recorrente,sale_type.is.null')     // parcelas de assinatura (2ª em diante): entram por padrão (como no Dados Gerais); recorrentes=0 as tira
@@ -78,14 +83,14 @@ function papelNaVenda(e: any, c: CloserRef): 'principal' | 'co' | null {
 }
 /** Vendas em que algum dos closers é o principal OU o co-closer, sem repetir venda. `cols` precisa ter id e as colunas de atribuição.
  *  Por id: o banco filtra. Por hubspot: busca as vendas com hubspot preenchido e casa com TRIM aqui (um id com espaço sobrando ainda casa, como no Dados Gerais). */
-async function vendasDosClosers(ctx: Ctx, cs: CloserRef[], f: Filtros, cols: string, cap = 20000) {
+async function vendasDosClosers(ctx: Ctx, cs: CloserRef[], f: Filtros, cols: string, cap = 20000, comReembolsadas = false) {
   const ids = cs.map(c => c.id), temHub = cs.some(c => hub(c.hubspot_id))
   const consultas: [string, 'in' | 'notnull', string[]?][] = [['closer_id', 'in', ids], ['co_closer_id', 'in', ids]]
   if (temHub) consultas.push(['closer_hubspot_id', 'notnull'], ['co_closer_hubspot_id', 'notnull'])
   const porId = new Map<string, any>(); let truncated = false
   for (const [col, tipo, lista] of consultas) {
     if (tipo === 'in' && !lista!.length) continue
-    const r = await fetchAll((a, b) => { const q = filtrosVendas(ctx.admin.from('telao_events').select(cols), f); return (tipo === 'in' ? q.in(col, lista!) : q.not(col, 'is', null)).order('id').range(a, b) }, cap)
+    const r = await fetchAll((a, b) => { const q = filtrosVendas(ctx.admin.from('telao_events').select(cols), f, comReembolsadas); return (tipo === 'in' ? q.in(col, lista!) : q.not(col, 'is', null)).order('id').range(a, b) }, cap)
     if (r.error) return { data: null as any[] | null, error: r.error, truncated }
     truncated = truncated || r.truncated
     for (const x of r.data!) if (!porId.has(x.id) && cs.some(c => papelNaVenda(x, c))) porId.set(x.id, x)
@@ -138,10 +143,10 @@ export async function hMinhasVendas(ctx: Ctx, sp: URLSearchParams): Promise<R> {
   const p = parseFiltros(sp, { periodoObrigatorio: true }); if (!p.ok) return err(400, p.error)
   const closer = await resolveCloser(ctx)
   if (!closer) return ok({ vinculado: false, vendas: [], resumo: { vendas: 0, valor: 0 }, truncated: false })
-  const r = await vendasDosClosers(ctx, [closer], p.f, VENDA_COLS)
+  const r = await vendasDosClosers(ctx, [closer], p.f, VENDA_COLS, 20000, true)
   if (r.error) return dbErr(r.error)
-  const vendas = (await anotaPapel(ctx, r.data!, closer)).sort(porDataDesc)
-  return ok({ vinculado: true, closer: { id: closer.id, name: closer.name, avatar_url: closer.avatar_url }, team: ctx.team, vendas, resumo: { vendas: vendas.length, valor: soma(vendas) }, truncated: r.truncated })
+  const vendas = (await anotaPapel(ctx, r.data!, closer)).sort(porDataDesc), ativas = vendas.filter((v: any) => !v.is_refunded)      // a lista traz as reembolsadas; a SOMA não
+  return ok({ vinculado: true, closer: { id: closer.id, name: closer.name, avatar_url: closer.avatar_url }, team: ctx.team, vendas, resumo: { vendas: ativas.length, valor: soma(ativas), reembolsadas: vendas.length - ativas.length }, truncated: r.truncated })
 }
 
 /** PATCH /api/vendas/:id/obs — o closer só mexe no Obs das PRÓPRIAS vendas; o superadmin, em qualquer uma. */
@@ -166,7 +171,7 @@ export async function hCriarTroca(ctx: Ctx, body: any): Promise<R> {
   const v = validarTroca(body, ctx.team); if (!v.ok) return err(400, 'Corrija os campos destacados.', { errors: v.errors })
   const closer = await resolveCloser(ctx)
   const { data, error } = await ctx.admin.from('sale_swap_requests').insert({
-    requester_id: ctx.userId, requester_name: ctx.name || 'Closer', requester_team: ctx.team, closer_id: closer?.id ?? null, ...v.value,
+    requester_id: ctx.userId, requester_name: ctx.name || 'Closer', requester_team: ctx.team, closer_id: closer?.id ?? null, ...semExtrasVazios(v.value),
   }).select('*').single()
   if (error) {
     if (error.code === '23505') return err(409, 'Você já tem um pedido PENDENTE para esta transação.', { errors: { transaction_id: 'Já existe um pedido pendente para este ID.' } })
@@ -267,10 +272,10 @@ export async function hVendasDoCloser(ctx: Ctx, closerId: string, sp: URLSearchP
   const p = parseFiltros(sp, { periodoObrigatorio: true }); if (!p.ok) return err(400, p.error)
   const { data: cl1 } = await ctx.admin.from('closers').select('id, hubspot_id').eq('id', closerId).maybeSingle()
   const ref: CloserRef = { id: closerId, hubspot_id: cl1?.hubspot_id ?? null }
-  const r = await vendasDosClosers(ctx, [ref], p.f, VENDA_COLS)
+  const r = await vendasDosClosers(ctx, [ref], p.f, VENDA_COLS, 20000, true)
   if (r.error) return dbErr(r.error)
-  const vendas = (await anotaPapel(ctx, r.data!, ref)).sort(porDataDesc)
-  return ok({ vendas, resumo: { vendas: vendas.length, valor: soma(vendas) }, truncated: r.truncated })
+  const vendas = (await anotaPapel(ctx, r.data!, ref)).sort(porDataDesc), ativas = vendas.filter((v: any) => !v.is_refunded)      // a lista traz as reembolsadas; a SOMA não
+  return ok({ vendas, resumo: { vendas: ativas.length, valor: soma(ativas), reembolsadas: vendas.length - ativas.length }, truncated: r.truncated })
 }
 
 const sameVal = (campo: string, a: any, b: any) => {
@@ -348,7 +353,7 @@ export async function hResolverTroca(ctx: Ctx, id: string, body: any): Promise<R
   return ok({ troca: (await comFotos(ctx, [troca]))[0], notificado })
 }
 
-const ROTULO_CAMPO: Record<string, string> = { vertical: 'Vertical', product: 'Produto', transaction_id: 'ID da transação', lead_name: 'Nome do lead', hubspot_url: 'Link do HubSpot', botmaker_url: 'Link do Botmaker', reason: 'Motivo' }
+const ROTULO_CAMPO: Record<string, string> = { vertical: 'Vertical', product: 'Produto', transaction_id: 'ID da transação', lead_name: 'Nome do lead', hubspot_url: 'Link do HubSpot', botmaker_url: 'Link do Botmaker', hubspot_url_2: 'Segundo link do HubSpot', botmaker_url_2: 'Segundo link do Botmaker', reason: 'Motivo' }
 const CAMPOS_TROCA = Object.keys(ROTULO_CAMPO) as (keyof TrocaInput)[]
 const ROTULO_DECISAO = { concedida: 'CONCEDIDA', negada: 'NEGADA' } as const
 
@@ -363,9 +368,9 @@ export async function hEditarTroca(ctx: Ctx, id: string, body: any): Promise<R> 
   if (!ex || (!sup && ex.requester_id !== ctx.userId)) return err(404, 'Pedido não encontrado.')          // closer não descobre pedido dos outros
   if (!sup && ex.status !== 'pendente') return err(409, 'Este pedido já foi respondido, então a solicitação não pode mais ser editada.')
   const v = validarTroca(body, ex.requester_team); if (!v.ok) return err(400, 'Corrija os campos destacados.', { errors: v.errors })     // a vertical vale para o time de QUEM pediu
-  const mudou = CAMPOS_TROCA.filter(k => String(ex[k] ?? '') !== v.value[k])
+  const mudou = CAMPOS_TROCA.filter(k => String(ex[k] ?? '') !== String(v.value[k] ?? ''))
   if (!mudou.length) return ok({ troca: (await comFotos(ctx, [ex]))[0], alterado: false })
-  let q = ctx.admin.from('sale_swap_requests').update({ ...v.value, edited_at: new Date().toISOString(), edited_by: ctx.userId, edited_by_name: ctx.name || (sup ? 'Superadmin' : 'Closer') }).eq('id', id)
+  let q = ctx.admin.from('sale_swap_requests').update({ ...semExtrasVazios(v.value), ...(ex.hubspot_url_2 && !v.value.hubspot_url_2 ? { hubspot_url_2: null } : {}), ...(ex.botmaker_url_2 && !v.value.botmaker_url_2 ? { botmaker_url_2: null } : {}), edited_at: new Date().toISOString(), edited_by: ctx.userId, edited_by_name: ctx.name || (sup ? 'Superadmin' : 'Closer') }).eq('id', id)
   if (!sup) q = q.eq('status', 'pendente')            // se responderam enquanto você editava, nada é gravado
   const { data, error } = await q.select('*')
   if (error) {

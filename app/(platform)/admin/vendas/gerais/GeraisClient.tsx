@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDownUp, BarChart3, Layers, SearchX, ShoppingBag, Store, Table2, TrendingUp, UsersRound, Wallet } from 'lucide-react'
+import { ArrowDownUp, BarChart3, Layers, SearchX, ShoppingBag, Store, Table2, TrendingUp, Undo2, UsersRound, Wallet } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
 import { BuscaVendas } from '@/components/vendas/BuscaVendas'
 import { CanalTag, GeraisTable } from '@/components/vendas/GeraisTable'
@@ -12,7 +12,7 @@ import { ORDENS } from '@/lib/vendas/ordem'
 import { periodoPadrao, periodoRotulo, periodoToRange, type Periodo } from '@/lib/vendas/periodo'
 
 type Resumo = { abas: Record<string, { vendas: number; valor: number }>; truncated: boolean }
-type Pagina = { vendas: VendaGeral[]; total: number; page: number; pages: number; pageSize: number; busca: 'regex' | 'simples' }
+type Pagina = { vendas: VendaGeral[]; total: number; reembolsadas: number | null; page: number; pages: number; pageSize: number; busca: 'regex' | 'simples' }
 const useDebounced = <T,>(v: T, ms: number) => { const [d, setD] = useState(v); useEffect(() => { const t = setTimeout(() => setD(v), ms); return () => clearTimeout(t) }, [v, ms]); return d }
 const rotuloAba = (a: AbaId) => (a === 'geral' ? 'Todas as verticais' : verticalLabel(a))
 const corAba = (a: AbaId) => (a === 'geral' ? 'var(--primary)' : verticalCor(a))
@@ -20,7 +20,7 @@ const corAba = (a: AbaId) => (a === 'geral' ? 'var(--primary)' : verticalCor(a))
 /** Superadmin: a tabela geral de TODAS as vendas (Self-Checkout, Imparáveis e Embaixadores), mais uma tabela por vertical. Filtros: período, vertical, time, canal e ordem; busca em qualquer dado. */
 export function GeraisClient() {
   const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [canal, setCanal] = useState('todos'); const [ordem, setOrdem] = useState('recentes')
-  const [busca, setBusca] = useState(''); const buscaDeb = useDebounced(busca, 300)
+  const [busca, setBusca] = useState(''); const buscaDeb = useDebounced(busca, 300); const [soReemb, setSoReemb] = useState(false)
   const [aba, setAba] = useState<AbaId>('geral'); const [pageSize, setPageSize] = useState(25); const [pg, setPg] = useState<{ chave: string; n: number }>({ chave: '', n: 1 })
   const [dados, setDados] = useState<Pagina | null>(null); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<string | null>(null)
   const [resumo, setResumo] = useState<Resumo | null>(null); const [carregandoResumo, setCarregandoResumo] = useState(true)
@@ -28,11 +28,11 @@ export function GeraisClient() {
 
   const range = useMemo(() => (periodo ? periodoToRange(periodo) : {}), [periodo])
   const base = useMemo(() => ({ ...range, vertical: vertical === 'todas' ? '' : vertical, team: team === 'todos' ? '' : team, canal: canal === 'todos' ? '' : canal, q: buscaDeb.trim() }), [range, vertical, team, canal, buscaDeb])
-  const chave = `${JSON.stringify(base)}|${aba}|${ordem}|${pageSize}`
+  const chave = `${JSON.stringify(base)}|${aba}|${ordem}|${pageSize}|${soReemb}`
   const pagina = pg.chave === chave ? pg.n : 1                                      // qualquer filtro novo volta para a página 1 sem uma segunda consulta
   const tokens = useMemo(() => tokensDaBusca(buscaDeb), [buscaDeb])
-  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || team !== 'todos' || canal !== 'todos' || ordem !== 'recentes' || !!busca || aba !== 'geral'
-  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCanal('todos'); setOrdem('recentes'); setBusca(''); setAba('geral') }
+  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || team !== 'todos' || canal !== 'todos' || ordem !== 'recentes' || !!busca || aba !== 'geral' || soReemb
+  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCanal('todos'); setOrdem('recentes'); setBusca(''); setAba('geral'); setSoReemb(false) }
 
   useEffect(() => {                                                                  // totais das abas: não dependem da aba, da ordem nem da página
     const my = ++reqResumo.current; setCarregandoResumo(true)
@@ -40,12 +40,12 @@ export function GeraisClient() {
   }, [base])
   const carregar = useCallback(async () => {
     const my = ++reqLinhas.current; setCarregando(true); setErro(null)
-    const r = await api<Pagina>('/api/admin/vendas/gerais' + qs({ ...base, aba: aba === 'geral' ? '' : aba, ordem: ordem === 'recentes' ? '' : ordem, page: pagina > 1 ? pagina : '', pageSize: pageSize === 25 ? '' : pageSize }))
+    const r = await api<Pagina>('/api/admin/vendas/gerais' + qs({ ...base, aba: aba === 'geral' ? '' : aba, ordem: ordem === 'recentes' ? '' : ordem, page: pagina > 1 ? pagina : '', pageSize: pageSize === 25 ? '' : pageSize, reembolsadas: soReemb ? '1' : '' }))      // o filtro "Só reembolsadas" vale só para a TABELA; os totais (resumo) seguem sem as reembolsadas
     if (my !== reqLinhas.current) return                                              // chegou depois de uma consulta mais nova: descarta
     setCarregando(false)
     if (!r.ok) { setErro(r.error ?? 'Erro ao carregar as vendas.'); return }
     setDados(r.data)
-  }, [base, aba, ordem, pagina, pageSize])
+  }, [base, aba, ordem, pagina, pageSize, soReemb])
   useEffect(() => { carregar() }, [carregar])
 
   const mudarVertical = (v: string) => { setVertical(v); if (v !== 'todas' && aba !== 'geral' && aba !== v) setAba('geral') }
@@ -65,6 +65,7 @@ export function GeraisClient() {
         <Select name="time" caption="Time" icon={<UsersRound size={18} />} value={team} onChange={setTeam} defaultValue="todos" options={[{ value: 'todos', label: 'Todos os times' }, { value: 'R1', label: 'Time R1', cor: teamCor('R1') }, { value: 'OAO', label: 'Time OAO', cor: teamCor('OAO') }]} />
         <Select name="canal" caption="Canal" icon={<Store size={18} />} value={canal} onChange={setCanal} defaultValue="todos" minWidth={230} options={CANAIS.map(c => ({ value: c.value, label: c.label }))} />
         <Select name="ordem" caption="Ordenar por" icon={<ArrowDownUp size={18} />} value={ordem} onChange={setOrdem} defaultValue="recentes" options={ORDENS.map(o => ({ value: o.value, label: o.label }))} />
+        <Select name="situacao" caption="Situação" icon={<Undo2 size={18} />} value={soReemb ? 'reembolsadas' : 'todas'} onChange={v => setSoReemb(v === 'reembolsadas')} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as vendas' }, { value: 'reembolsadas', label: 'Só reembolsadas', cor: '#dc2626' }]} />
       </FilterBar>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
         <Kpi dataV="kpi-total" label="Total vendido" value={<span data-v="total-geral">{atual ? fmtBRL(atual.valor) : '…'}</span>} icon={<Wallet size={22} />} cor="#16a34a" hint={`${rotuloAba(aba)} · ${periodo ? periodoRotulo(periodo) : 'todo o período'}`} />
@@ -91,6 +92,7 @@ export function GeraisClient() {
         <Legenda />
         <div data-v="legenda-canais" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted-foreground)' }}>Canais<CanalTag canal="closer" /><CanalTag canal="embaixador" /><CanalTag canal="self" /></div>
       </div>
+      {!!dados?.reembolsadas && !soReemb && <div data-v="aviso-reembolso" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: -14, fontSize: 12.5, color: 'var(--muted-foreground)' }}><Undo2 size={14} />{dados.reembolsadas} venda{dados.reembolsadas === 1 ? '' : 's'} reembolsada{dados.reembolsadas === 1 ? '' : 's'} aparece{dados.reembolsadas === 1 ? '' : 'm'} apagada{dados.reembolsadas === 1 ? '' : 's'} na tabela, com a etiqueta Reembolso, e NÃO entra{dados.reembolsadas === 1 ? '' : 'm'} nos totais acima.</div>}
       {erro && <Banner tipo="erro">{erro}</Banner>}
       {resumo?.truncated && <Banner tipo="aviso">O período tem muitas vendas e os totais das abas podem estar incompletos. Reduza o período.</Banner>}
       {dados?.busca === 'simples' && tokens.length > 0 && <Banner tipo="aviso">A busca avançada não está disponível neste banco: usando a busca simples (diferencia acentos).</Banner>}
@@ -99,7 +101,7 @@ export function GeraisClient() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border)', background: `color-mix(in srgb, ${corAba(aba)} 5%, transparent)` }}>
             {aba === 'geral' ? <Layers size={18} style={{ color: 'var(--primary)' }} /> : <i style={{ width: 10, height: 10, borderRadius: 99, background: corAba(aba) }} />}
             <h2 data-v="tabela-titulo" className="vd-title" style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{rotuloAba(aba)}</h2>
-            <span data-v="tabela-subtitulo" style={{ fontSize: 13.5, color: 'var(--muted-foreground)' }}>{dados ? `${dados.total} venda${dados.total === 1 ? '' : 's'}` : ''}{canal !== 'todos' ? ` · ${CANAIS.find(c => c.value === canal)?.label}` : ''}{team !== 'todos' ? ` · Time ${team}` : ''}{buscaDeb.trim() ? ` · busca “${buscaDeb.trim()}”` : ''}</span>
+            <span data-v="tabela-subtitulo" style={{ fontSize: 13.5, color: 'var(--muted-foreground)' }}>{dados ? (soReemb ? `${dados.total} reembolsada${dados.total === 1 ? '' : 's'}` : `${dados.total - (dados.reembolsadas ?? 0)} venda${dados.total - (dados.reembolsadas ?? 0) === 1 ? '' : 's'}${dados.reembolsadas ? ` · ${dados.reembolsadas} reembolsada${dados.reembolsadas === 1 ? '' : 's'}` : ''}`) : ''}{canal !== 'todos' ? ` · ${CANAIS.find(c => c.value === canal)?.label}` : ''}{team !== 'todos' ? ` · Time ${team}` : ''}{buscaDeb.trim() ? ` · busca “${buscaDeb.trim()}”` : ''}</span>
           </div>
           <GeraisTable rows={dados?.vendas ?? []} tokens={tokens} carregando={busy} total={dados?.total ?? 0} page={dados?.page ?? 1} pages={dados?.pages ?? 1} pageSize={pageSize} onPage={irParaPagina} onPageSize={n => setPageSize(n)} cor={aba === 'geral' ? undefined : corAba(aba)}
             vazio={<div data-v="tabela-vazia" style={{ padding: '56px 20px', textAlign: 'center' }}>

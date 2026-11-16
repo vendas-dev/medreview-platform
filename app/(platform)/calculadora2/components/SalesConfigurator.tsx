@@ -16,10 +16,10 @@ const card: React.CSSProperties = {
 }
 
 const sectionHeader = (emoji: string, title: string, subtitle?: string, action?: React.ReactNode) => (
-  <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb,var(--secondary) 50%,var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+  <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb,var(--secondary) 50%,var(--card))', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
       <span style={{ fontSize: 15 }}>{emoji}</span>
-      <div>
+      <div style={{ minWidth: 0 }}>
         <p style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.01em' }}>{title}</p>
         {subtitle && <p style={{ fontSize: 10.5, color: 'var(--muted-foreground)', margin: '1px 0 0' }}>{subtitle}</p>}
       </div>
@@ -51,7 +51,7 @@ function CopyFieldButton({ value }: { value: string }) {
 
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
-      <button type="button" onClick={handleClick} title={value ? 'Copiar' : 'Nada pra copiar ainda'}
+      <button type="button" onClick={handleClick} title={value ? 'Copiar' : 'Nada pra copiar ainda'} aria-label={value ? 'Copiar' : 'Nada pra copiar ainda'} className="calc2-copybtn"
         style={{ width: 38, height: 38, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--secondary)', color: 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', fontFamily: 'inherit' }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--border)'; e.currentTarget.style.color = 'var(--foreground)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'var(--secondary)'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
@@ -59,7 +59,7 @@ function CopyFieldButton({ value }: { value: string }) {
       </button>
       {toast === 'empty' && (
         <div style={{
-          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 7,
+          position: 'absolute', bottom: '100%', right: 0, marginBottom: 7,
           padding: '5px 10px', borderRadius: 6, background: 'var(--foreground)', color: 'var(--background)',
           fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 30,
           animation: 'calc2CopyToastFade 1.4s ease forwards',
@@ -137,8 +137,8 @@ export function SalesConfigurator(props: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <style>{`
         @keyframes calc2CopyToastFade {
-          0%   { opacity: 0; transform: translateX(-50%) translateY(4px); }
-          15%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          0%   { opacity: 0; transform: translateY(4px); }
+          15%  { opacity: 1; transform: translateY(0); }
           78%  { opacity: 1; }
           100% { opacity: 0; }
         }
@@ -148,7 +148,7 @@ export function SalesConfigurator(props: Props) {
       <div style={card}>
         {sectionHeader('🔍', 'Configurar venda', 'Selecione o produto e condições',
           vertical && (
-            <button onClick={onClearAll}
+            <button onClick={onClearAll} className="calc2-tap"
               style={{ display: 'flex', alignItems: 'center', gap: 5, height: 26, padding: '0 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--muted-foreground)', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, transition: 'all 0.12s' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted-foreground)' }}>
@@ -187,9 +187,9 @@ export function SalesConfigurator(props: Props) {
         {selectedRow && (
           <div style={{ margin: '0 18px 14px', padding: '12px 14px', borderRadius: 8, background: 'color-mix(in srgb,rgba(99,102,241,0.08) 100%,var(--card))', border: '1px solid rgba(99,102,241,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <div>
+              <div style={{ minWidth: 0, flex: '1 1 160px' }}>
                 <p style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>✅ Selecionado</p>
-                <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>{selectedRow.produto}</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)', margin: 0, overflowWrap: 'anywhere' }}>{selectedRow.produto}</p>
                 <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>{selectedRow.tempoAcesso} · {selectedRow.tipoAluno}</p>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -204,10 +204,11 @@ export function SalesConfigurator(props: Props) {
       {/* ── Upsell ───────────────────────────────────────── */}
       {selectedRow && upsellOptions.length > 0 && (
         <div style={{ ...card, border: upsellOn ? '1.5px solid rgba(34,197,94,0.35)' : '1px solid var(--border)' }}>
-          <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: upsellOn ? 'rgba(34,197,94,0.05)' : 'transparent' }}
-            onClick={() => { setUpsellOn(!upsellOn); if (upsellOn) setUpsellProduto('') }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 7, background: upsellOn ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'var(--secondary)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+          <div role="button" tabIndex={0} aria-expanded={upsellOn} aria-label="Adicionar produto ao investimento" className="calc2-tap" style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, cursor: 'pointer', background: upsellOn ? 'rgba(34,197,94,0.05)' : 'transparent' }}
+            onClick={() => { setUpsellOn(!upsellOn); if (upsellOn) setUpsellProduto('') }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setUpsellOn(!upsellOn); if (upsellOn) setUpsellProduto('') } }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 7, background: upsellOn ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'var(--secondary)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
                 {upsellOn ? <X size={14} style={{ color: '#fff' }} /> : <Plus size={14} style={{ color: 'var(--muted-foreground)' }} />}
               </div>
               <div>
@@ -216,7 +217,7 @@ export function SalesConfigurator(props: Props) {
               </div>
             </div>
             {upsellRow && (
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#22c55e', fontFamily: "'JetBrains Mono',monospace" }}>+{fmt(upsellRow.precoEspecial)}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#22c55e', fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>+{fmt(upsellRow.precoEspecial)}</span>
             )}
           </div>
 
@@ -225,9 +226,9 @@ export function SalesConfigurator(props: Props) {
               <CustomSelect label="Produto adicional" value={upsellProduto}
                 onChange={setUpsellProduto} options={upsellOptions} placeholder="Selecionar produto adicional..." />
               {upsellRow && (
-                <div style={{ marginTop: 9, padding: '9px 12px', borderRadius: 7, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ fontSize: 11.5, fontWeight: 700, color: '#16a34a', margin: 0 }}>{upsellRow.produto}</p>
+                <div style={{ marginTop: 9, padding: '9px 12px', borderRadius: 7, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <div style={{ minWidth: 0, flex: '1 1 140px' }}>
+                    <p style={{ fontSize: 11.5, fontWeight: 700, color: '#16a34a', margin: 0, overflowWrap: 'anywhere' }}>{upsellRow.produto}</p>
                     <p style={{ fontSize: 10.5, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>{upsellRow.tempoAcesso}</p>
                   </div>
                   <p style={{ fontSize: 15, fontWeight: 800, color: '#16a34a', margin: 0, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(upsellRow.precoEspecial)}</p>
@@ -240,7 +241,7 @@ export function SalesConfigurator(props: Props) {
 
       {/* ── Uso Interno ──────────────────────────────────── */}
       <div style={{ ...card, padding: '12px 18px' }}>
-        <label onClick={() => setUsoInterno(!usoInterno)} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+        <label role="switch" aria-checked={usoInterno} tabIndex={0} className="calc2-tap" onClick={() => setUsoInterno(!usoInterno)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setUsoInterno(!usoInterno) } }} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
           <div style={{ width: 40, height: 22, borderRadius: 999, background: usoInterno ? '#4f46e5' : 'var(--border)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
             <div style={{ position: 'absolute', top: 3, left: usoInterno ? 21 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
           </div>

@@ -19,6 +19,8 @@ export interface YoYData {
   today: string; month: string; dayOfMonth: number; yearCur: number; yearPrev: number
   daysInMonth: { cur: number; prev: number }
   cur: Record<VKey, number[]>; prev: Record<VKey, number[]>          // receita por dia (índice 0 = dia 1); cur só tem valor até hoje
+  /** SÓ do ano passado: a receita (prevH) e o nº de vendas (prevHN) de cada HORA de Brasília, por dia (índice 0 = dia 1) → 24 valores. Alimenta o gráfico "hora a hora" dos dias fortes. Ausente = sem detalhe por hora. */
+  prevH?: Record<VKey, number[][]>; prevHN?: Record<VKey, number[][]>
 }
 export interface TableRow {
   key: 'total' | VKey; label: string
@@ -53,11 +55,15 @@ export function buildTable(d: YoYData): TableRow[] {
 export type Status = 'batido' | 'ok' | 'atencao' | 'acelerar' | 'semBase'      // semBase: o ano passado não vendeu nada neste mês (não há o que igualar nem com o que comparar)
 export const LIMITE_ATENCAO = 100, LIMITE_ACELERAR = 115
 export interface Pico { day: number; valor: number; share: number; wd: string }
+/** Os dias de MAIOR receita do mês inteiro do ano passado, com a % FIXA (dia ÷ receita do mês inteiro: nunca muda com o passar dos dias). quando = em relação a hoje. */
+export type Quando = 'passou' | 'hoje' | 'vem'
+export interface PicoMes extends Pico { quando: Quando }
 export interface Route {
   key: 'total' | VKey; label: string; status: Status
   accPrev: number; accCur: number; fechPrev: number; falta: number; restoPrev: number; diasRestantes: number
   precisaDia: number | null; ritmoDia: number; restoPrevDia: number | null; exigencia: number | null
   pctFech: number; pctPrevHoje: number; projecao: number; picos: Pico[]
+  picosMes: PicoMes[]; picosMesShare: number          // dias fortes do MÊS INTEIRO de A-1 (% fixa) e a soma deles
 }
 export function statusOf(falta: number, restoPrev: number): { status: Status; exigencia: number | null } {
   if (falta <= 0) return { status: 'batido', exigencia: 0 }
@@ -76,8 +82,18 @@ export function buildRoute(d: YoYData, key: 'total' | VKey): Route {
   return {
     key, label: key === 'total' ? 'Operação' : VLABEL[key], status, accPrev, accCur, fechPrev, falta, restoPrev, diasRestantes: dias, precisaDia: dias > 0 ? falta / dias : null,
     ritmoDia: accCur / D, restoPrevDia: dias > 0 ? restoPrev / dias : null, exigencia, pctFech: fechPrev > 0 ? accCur / fechPrev * 100 : 0, pctPrevHoje: fechPrev > 0 ? accPrev / fechPrev * 100 : 0,
-    projecao: accCur + restoPrev, picos: picos.slice(0, 3),
+    projecao: accCur + restoPrev, picos: picos.slice(0, 3), ...picosDoMes(d, keys, fechPrev),
   }
+}
+/** Top dias da receita de TODO o mês do ano passado. A % de cada dia é dia ÷ mês inteiro: é FIXA (não muda com o dia de hoje). Só dias que existem também neste mês. */
+function picosDoMes(d: YoYData, keys: VKey[], fechPrev: number, n = 3): { picosMes: PicoMes[]; picosMesShare: number } {
+  const m1 = +d.month.slice(5), D = d.dayOfMonth, lista: PicoMes[] = []
+  for (let day = 1; day <= Math.min(d.daysInMonth.cur, d.daysInMonth.prev); day++) {
+    const valor = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0)
+    if (valor > 0 && fechPrev > 0) lista.push({ day, valor, share: valor / fechPrev * 100, wd: wd(d.yearCur, m1, day), quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem' })
+  }
+  lista.sort((a, b) => b.valor - a.valor || a.day - b.day)
+  const top = lista.slice(0, n); return { picosMes: top, picosMesShare: top.reduce((s, p) => s + p.share, 0) }
 }
 export const buildRoutes = (d: YoYData): Route[] => (['total', 'anest', 'oft', 'ortop', 'r1'] as const).map(k => buildRoute(d, k))
 export const STATUS_LABEL: Record<Status, string> = { batido: 'Já igualou o ano passado', ok: 'No caminho', atencao: 'Atenção', acelerar: 'Precisa acelerar', semBase: 'Sem base de comparação' }
@@ -91,6 +107,41 @@ export function routeMessage(r: Route, yearPrev: number): string {
   if (r.exigencia === null) return `Em ${yearPrev} não houve venda no resto do mês: é preciso ${fmtMi(r.precisaDia ?? 0)} por dia para igualar.`
   return `Para igualar ${yearPrev} é preciso vender ${pct(r.exigencia)} do que ${yearPrev} vendeu no resto do mês: ${fmtMi(r.precisaDia ?? 0)} por dia, contra a média de ${fmtMi(r.ritmoDia)} até agora.`
 }
+// ══ O PLANO HORA A HORA DE UM DIA FORTE ═════════════════════════════════════════════════════════════════════════════
+// Um dia forte de A-1 (ex.: 29/11 = 22% da receita do mês) vira, em A, uma META DO DIA = esse mesmo % × a META do mês (cadastro). Essa meta do dia é
+// repartida pelas 24 horas de Brasília NA MESMA PROPORÇÃO em que A-1 vendeu naquele dia. Em centavos: a soma das horas fecha EXATAMENTE a meta do dia.
+export interface HoraPlano { h: number; prev: number; prevN: number; shareDia: number; alvo: number; alvoAcum: number }
+export interface PlanoDia {
+  key: 'total' | VKey; label: string; day: number; wdCur: string; wdPrev: string; quando: Quando
+  share: number                                                   // % FIXA do dia sobre a receita do mês inteiro de A-1
+  valorPrev: number; vendasPrev: number; fechPrev: number
+  meta: number; temMeta: boolean; alvoDia: number                  // meta do mês cadastrada · meta deste dia = share × meta
+  temHoras: boolean; horas: HoraPlano[]; horaForte: number | null
+}
+/** Reparte `total` (centavos, inteiro) em partes proporcionais aos `pesos`, sem perder nem criar centavo (maiores restos). */
+export function reparte(total: number, pesos: number[]): number[] {
+  const soma = pesos.reduce((a, b) => a + b, 0)
+  if (!(soma > 0) || !(total > 0)) return pesos.map(() => 0)
+  const exatos = pesos.map(p => total * p / soma), base = exatos.map(Math.floor); let resto = total - base.reduce((a, b) => a + b, 0)
+  const ordem = exatos.map((e, i) => ({ i, f: e - base[i] })).sort((a, b) => b.f - a.f || a.i - b.i)
+  for (let k = 0; resto > 0 && k < ordem.length; k++, resto--) base[ordem[k].i]++
+  return base
+}
+export function buildPlanoDia(d: YoYData, key: 'total' | VKey, day: number): PlanoDia | null {
+  const keys = key === 'total' ? VKEYS : [key], m1 = +d.month.slice(5), D = d.dayOfMonth
+  if (!(day >= 1 && day <= Math.min(d.daysInMonth.cur, d.daysInMonth.prev))) return null
+  const valorPrev = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0), fechPrev = keys.reduce((s, k) => s + sum(d.prev[k]), 0)
+  if (!(valorPrev > 0) || !(fechPrev > 0)) return null
+  const meta = (key === 'total' ? d.metas.geral : d.metas[key]) || 0, temMeta = meta > 0, alvoDia = temMeta ? Math.round(meta * valorPrev / fechPrev * 100) / 100 : 0
+  const hv = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevH?.[k]?.[day - 1]?.[h] || 0), 0)), hn = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevHN?.[k]?.[day - 1]?.[h] || 0), 0))
+  const somaH = hv.reduce((a, b) => a + b, 0), temHoras = somaH > 0
+  const alvos = temMeta && temHoras ? reparte(Math.round(alvoDia * 100), hv).map(c => c / 100) : hv.map(() => 0)
+  let acum = 0; const horas: HoraPlano[] = temHoras ? hv.map((v, h) => { acum = Math.round((acum + alvos[h]) * 100) / 100; return { h, prev: v, prevN: hn[h], shareDia: v / somaH * 100, alvo: alvos[h], alvoAcum: acum } }) : []
+  const ref = (x: HoraPlano) => (temMeta ? x.alvo : x.prev), forte = horas.reduce<HoraPlano | null>((b, x) => (b === null || ref(x) > ref(b) ? x : b), null)
+  return { key, label: key === 'total' ? 'Operação' : VLABEL[key], day, wdCur: wd(d.yearCur, m1, day), wdPrev: wd(d.yearPrev, m1, day), quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem',
+    share: valorPrev / fechPrev * 100, valorPrev, vendasPrev: hn.reduce((a, b) => a + b, 0), fechPrev, meta, temMeta, alvoDia, temHoras, horas, horaForte: forte ? forte.h : null }
+}
+
 export interface DayPoint { day: number; wdCur: string; wdPrev: string; cur: number | null; prev: number | null }
 export interface Series { days: DayPoint[]; toDateCur: number; toDatePrev: number; growthR: number; growthPct: number | null; fechPrev: number; max: number }
 const WD = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
@@ -143,6 +194,8 @@ export function fmtMi(v: number, signed = false): string {
 }
 /** Igual ao fmtMi, sem o "R$" (para a tabela, onde o cabeçalho já diz "valores em R$"): 944 mil · 9,43 mi · −388 mil. */
 export const fmtNum = (v: number, signed = false): string => fmtMi(v, signed).replace('R$ ', '')
+/** A % FIXA de um dia sobre o mês: sempre com uma casa (19,3%). */
+export const fmtShare = (p: number) => `${dec(p, 1)}%`
 export const fmtPct = (p: number | null, signed = true) => p === null ? '—' : `${p < 0 ? MINUS : (signed && p > 0 ? '+' : '')}${dec(Math.abs(p), 1)}%`
 export const fmtReais = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 export const fmtAxis = (v: number) => v >= 1_000_000 ? `${dec(v / 1_000_000, v % 1_000_000 === 0 ? 0 : 1)} mi` : v >= 1000 ? `${dec(v / 1000, 0)} mil` : dec(v, 0)

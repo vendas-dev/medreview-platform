@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { BarChart3, Receipt, Repeat2, ShoppingBag, TrendingUp, Wallet } from 'lucide-react'
+import { BarChart3, Receipt, Repeat2, ShoppingBag, TrendingUp, Undo2, Wallet } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
 import { ArrowDownUp } from 'lucide-react'
 import { ORDENS, ordemValida } from '@/lib/vendas/ordem'
@@ -15,12 +15,12 @@ import type { VendaRow } from '@/lib/vendas/types'
 
 export function MinhasVendasClient({ team }: { team: string | null }) {
   const [ordem, setOrdem] = useState('recentes')
-  const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [recorrentes, setRecorrentes] = useState(true); const [busca, setBusca] = useState('')
+  const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [recorrentes, setRecorrentes] = useState(true); const [busca, setBusca] = useState(''); const [situacao, setSituacao] = useState('todas')
   const [rows, setRows] = useState<VendaRow[]>([]); const [vinculado, setVinculado] = useState(true); const [truncado, setTruncado] = useState(false); const [closer, setCloser] = useState<{ name: string; avatar_url: string | null } | null>(null)
   const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<{ msg: string; migracao: boolean } | null>(null); const [modal, setModal] = useState(false)
   const opcoes = verticaisDoTime(team)
-  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || !recorrentes || !!busca || ordem !== 'recentes'
-  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setRecorrentes(true); setBusca(''); setOrdem('recentes') }
+  const filtroAtivo = periodo?.key !== 'mes' || vertical !== 'todas' || !recorrentes || !!busca || ordem !== 'recentes' || situacao !== 'todas'
+  const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setRecorrentes(true); setBusca(''); setOrdem('recentes'); setSituacao('todas') }
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null)
@@ -36,8 +36,11 @@ export function MinhasVendasClient({ team }: { team: string | null }) {
     const t = busca.trim().toLowerCase(); if (!t) return rows
     return rows.filter(v => [v.lead_name, v.email, v.transaction_id, v.coupon_code, v.product].some(x => (x ?? '').toLowerCase().includes(t)))
   }, [rows, busca])
-  const total = useMemo(() => Math.round(filtradas.reduce((s, v) => s + (v.value ?? 0), 0) * 100) / 100, [filtradas])
-  const porVertical = useMemo(() => opcoes.map(v => { const l = filtradas.filter(x => x.vertical === v); return { v, vendas: l.length, valor: Math.round(l.reduce((s, x) => s + (x.value ?? 0), 0) * 100) / 100 } }), [filtradas, opcoes])
+  // Só as vendas ATIVAS entram nas somas, nos cartões e no "vendido por vertical". As REEMBOLSADAS aparecem na tabela (apagadas, com a etiqueta "Reembolso") e no filtro "Só reembolsadas".
+  const ativas = useMemo(() => filtradas.filter(v => !v.is_refunded), [filtradas]); const reembolsadas = useMemo(() => filtradas.filter(v => v.is_refunded), [filtradas])
+  const tabela = situacao === 'reembolsadas' ? reembolsadas : filtradas
+  const total = useMemo(() => Math.round(ativas.reduce((s, v) => s + (v.value ?? 0), 0) * 100) / 100, [ativas])
+  const porVertical = useMemo(() => opcoes.map(v => { const l = ativas.filter(x => x.vertical === v); return { v, vendas: l.length, valor: Math.round(l.reduce((s, x) => s + (x.value ?? 0), 0) * 100) / 100 } }), [ativas, opcoes])
 
   async function salvarObs(row: VendaRow, texto: string | null) {
     const r = await api<{ venda: { obs: string | null; obs_updated_at: string } }>(`/api/vendas/${row.id}/obs`, { method: 'PATCH', body: { obs: texto } })
@@ -59,6 +62,7 @@ export function MinhasVendasClient({ team }: { team: string | null }) {
         <PeriodoFilter value={periodo} onChange={p => setPeriodo(p ?? periodoPadrao())} padrao={periodoPadrao()} />
         {opcoes.length > 1 && <Select name="vertical" caption="Vertical" icon={<BarChart3 size={18} />} value={vertical} onChange={setVertical} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as verticais' }, ...opcoes.map(v => ({ value: v, label: verticalLabel(v), cor: verticalCor(v) }))]} />}
         <Select name="ordem" caption="Ordenar por" icon={<ArrowDownUp size={18} />} value={ordem} onChange={setOrdem} defaultValue="recentes" options={ORDENS.map(o => ({ value: o.value, label: o.label }))} />
+        <Select name="situacao" caption="Situação" icon={<Undo2 size={18} />} value={situacao} onChange={setSituacao} defaultValue="todas" options={[{ value: 'todas', label: 'Todas as vendas' }, { value: 'reembolsadas', label: 'Só reembolsadas', cor: '#dc2626' }]} />
         <Switch dataV="filtro-recorrentes" checked={recorrentes} onChange={setRecorrentes} label="Parcelas recorrentes" />
         <SearchBox value={busca} onChange={setBusca} placeholder="Buscar nome, e-mail, ID, cupom…" />
       </FilterBar>
@@ -69,9 +73,9 @@ export function MinhasVendasClient({ team }: { team: string | null }) {
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
-            <Kpi dataV="kpi-vendas" label="Vendas" value={filtradas.length} icon={<ShoppingBag size={22} />} cor="#6366f1" />
+            <Kpi dataV="kpi-vendas" label="Vendas" value={ativas.length} icon={<ShoppingBag size={22} />} cor="#6366f1" hint={reembolsadas.length ? <span data-v="kpi-reembolsadas">{reembolsadas.length} reembolsada{reembolsadas.length === 1 ? '' : 's'} (fora da soma)</span> : undefined} />
             <Kpi dataV="kpi-valor" label="Valor total" value={fmtBRL(total)} icon={<Wallet size={22} />} cor="#16a34a" />
-            <Kpi dataV="kpi-ticket" label="Ticket médio" value={filtradas.length ? fmtBRL(Math.round((total / filtradas.length) * 100) / 100) : '—'} icon={<TrendingUp size={22} />} cor="#f59e0b" />
+            <Kpi dataV="kpi-ticket" label="Ticket médio" value={ativas.length ? fmtBRL(Math.round((total / ativas.length) * 100) / 100) : '—'} icon={<TrendingUp size={22} />} cor="#f59e0b" />
           </div>
           <div data-v="por-vertical" className="vd-card vd-up" style={{ padding: '22px 26px' }}>
             <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted-foreground)', marginBottom: 16 }}>Vendido por vertical</div>
@@ -88,7 +92,7 @@ export function MinhasVendasClient({ team }: { team: string | null }) {
           </div>
           <div className="vd-card vd-up" style={{ overflow: 'hidden' }}>
             {carregando ? <div style={{ padding: 20 }}><Skeleton linhas={6} /></div>
-              : <VendasTable rows={filtradas} mode="closer" ordem={ordemValida(ordem)} onSaveObs={salvarObs} empty={busca ? 'Nenhuma venda encontrada para esta busca.' : 'Você não tem vendas neste período.'} />}
+              : <VendasTable rows={tabela} mode="closer" ordem={ordemValida(ordem)} onSaveObs={salvarObs} empty={busca ? 'Nenhuma venda encontrada para esta busca.' : situacao === 'reembolsadas' ? 'Você não tem vendas reembolsadas neste período.' : 'Você não tem vendas neste período.'} />}
           </div>
         </>
       )}

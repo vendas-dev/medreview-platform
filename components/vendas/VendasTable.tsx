@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Barcode, Check, ChevronLeft, ChevronRight, Copy, CreditCard, FileText, Loader2, Pencil, Plus, QrCode, Tag, Users, Wallet, X } from 'lucide-react'
 import type { VendaRow } from '@/lib/vendas/types'
 import { afiliado, fmtBRL, fmtDataHora, formaPagamento, formatPhone, oferta, parcelas, verticalCor, verticalLabel } from '@/lib/vendas/format'
-import { Chip } from './ui'
+import { Chip, EtiquetaRecorrente, EtiquetaReembolso, ehRecorrente } from './ui'
 import { ordenarVendas, type Ordem } from '@/lib/vendas/ordem'
 
 type SaveObs = (row: VendaRow, texto: string | null) => Promise<{ ok: boolean; error?: string }>
@@ -80,9 +80,9 @@ export function VendasTable({ rows, mode, onSaveObs, onEdit, pageSize = 25, orde
             {slice.map(v => {
               const of = oferta(v.coupon_code); const cor = verticalCor(v.vertical); const af = afiliado(v)
               return (
-                <tr key={v.id} data-v="row" data-id={v.id} className="vd-row">
-                  {mode === 'admin' && <td style={{ ...TD, padding: '10px 8px 10px 14px' }}><button type="button" data-v="editar-venda" title="Editar venda" aria-label="Editar venda" onClick={() => onEdit?.(v)} className="vd-icon vd-btn" style={{ width: 36, height: 36, padding: 0, border: '1px solid var(--border)', borderRadius: 11, background: 'var(--card)', color: 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={15} /></button></td>}
-                  <td data-col="data" style={{ ...TD, whiteSpace: 'nowrap', fontWeight: 600 }}>{fmtDataHora(v.occurred_at)}</td>
+                <tr key={v.id} data-v="row" data-id={v.id} data-refunded={v.is_refunded ? '1' : '0'} className="vd-row">
+                  {mode === 'admin' && <td style={{ ...TD, padding: '10px 8px 10px 14px' }}><button type="button" data-v="editar-venda" title={v.is_refunded ? 'Venda reembolsada: não pode ser editada' : 'Editar venda'} aria-label="Editar venda" disabled={!!v.is_refunded} onClick={() => onEdit?.(v)} className="vd-icon vd-btn" style={{ width: 36, height: 36, padding: 0, border: '1px solid var(--border)', borderRadius: 11, background: 'var(--card)', color: 'var(--muted-foreground)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={15} /></button></td>}
+                  <td data-col="data" style={{ ...TD, whiteSpace: 'nowrap', fontWeight: 600 }}><span className={v.is_refunded ? 'rf-dim' : undefined}>{fmtDataHora(v.occurred_at)}</span>{ehRecorrente(v) && <EtiquetaRecorrente n={v.installment_number} total={v.total_installments} />}{v.is_refunded && <EtiquetaReembolso em={v.refunded_at} motivo={v.refund_reason} />}</td>
                   <td data-col="transaction_id" style={{ ...TD, whiteSpace: 'nowrap' }}><CopyId id={v.transaction_id} /></td>
                   <td data-col="vertical" style={{ ...TD, whiteSpace: 'nowrap' }}><Chip cor={cor} icon={<i style={{ width: 7, height: 7, borderRadius: 99, background: cor }} />}>{verticalLabel(v.vertical)}</Chip></td>
                   <td data-col="produto" title={v.product ?? ''} style={{ ...TD, ...ELLIPSIS(220), fontWeight: 600 }}>{v.product || '—'}</td>
@@ -95,7 +95,7 @@ export function VendasTable({ rows, mode, onSaveObs, onEdit, pageSize = 25, orde
                   <td data-col="pagamento" style={{ ...TD, whiteSpace: 'nowrap' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span style={{ width: 28, height: 28, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--secondary)', color: 'var(--muted-foreground)' }}><PagIcon t={v.payment_type} /></span>{formaPagamento(v.payment_type)}</span></td>
                   <td data-col="parcelas" style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap', fontWeight: 700 }}>{parcelas(v)}</td>
                   <td data-col="afiliado" style={{ ...TD, whiteSpace: 'nowrap' }}>{af === 'Não' ? <span style={muted}>Não</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontWeight: 700 }}><Users size={14} style={{ color: '#0ea5e9' }} />{af}</span>}</td>
-                  <td data-col="obs" style={{ ...TD, minWidth: 220 }}><ObsCell row={v} onSave={onSaveObs} /></td>
+                  <td data-col="obs" style={{ ...TD, minWidth: 220 }}>{v.is_refunded ? <span data-v="obs-somente-leitura" style={{ ...ELLIPSIS(230), display: 'block', color: 'var(--muted-foreground)' }}>{v.obs || '—'}</span> : <ObsCell row={v} onSave={onSaveObs} />}</td>
                 </tr>
               )
             })}
