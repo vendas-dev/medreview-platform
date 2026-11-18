@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CommercialAnalysis } from './CommercialAnalysis'
-import { EventsSection } from './EventsSection'
+import { EventsHub } from './EventsHub'
 import { ForecastSection } from './ForecastSection'
 import {
   Users, X, Sparkles, Stethoscope, HeartPulse, ClipboardList, ChevronDown
@@ -803,7 +803,7 @@ export function SuperDashboard({ userName, stats, users, progressByDay, commerci
       {view === 'forecast' && <ForecastSection commercial={commercial} />}
 
       {/* ── EVENTOS ── */}
-      {view === 'eventos' && <EventsSection initialData={eventsAnalysisInitial} />}
+      {view === 'eventos' && <EventsHub initialData={eventsAnalysisInitial} />}
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }

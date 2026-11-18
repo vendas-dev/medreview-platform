@@ -149,7 +149,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
       }
       const sy = j?.sync, rs = j?.reset
       const extra = [sy?.updated ? `${sy.updated} aviso${sy.updated > 1 ? 's' : ''} atualizado${sy.updated > 1 ? 's' : ''}` : '', rs?.winners || rs?.notifications ? 'resultado refeito' : ''].filter(Boolean).join(' · ')
-      onSaved(publish ? (d.notify ? 'Campanha publicada e equipe avisada! 🚀' : 'Campanha publicada! 🚀') : editingId ? `Campanha atualizada ✅${extra ? ` · ${extra}` : ''}` : 'Rascunho salvo.')
+      onSaved(publish ? (d.notify ? 'Campanha publicada e equipe avisada! 🚀' : d.notify_result ? 'Campanha publicada! O resultado será avisado ao final. 🚀' : 'Campanha publicada! 🚀') : editingId ? `Campanha atualizada ✅${extra ? ` · ${extra}` : ''}` : 'Rascunho salvo.')
     } catch { setServerErr('Sem conexão. Tente de novo.') } finally { setSaving(null) }
   }
 
@@ -237,7 +237,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
               <div data-offer-block style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <label className="cb-check">
                   <input data-f="offer-on" type="checkbox" checked={offersOn} onChange={e => { setOfferText(''); setOfferMsg(null); patch({ offer_codes: e.target.checked ? [] : null }) }} />
-                  <span><strong>🏷️ Só vendas de ofertas específicas</strong><span>Cada produto da Hotmart tem várias ofertas, e cada oferta tem um código. Ligando isto, só entram na conta as vendas das ofertas que você informar — vale para o critério escolhido acima (receita, quantidade, primeiro a bater…).</span></span>
+                  <span><strong>🏷️ Só vendas de ofertas específicas</strong><span>Cada produto da Hotmart tem várias ofertas, e cada oferta tem um código. Ligando isto, só entram na conta as vendas das ofertas que você informar — vale para o critério escolhido acima (receita, quantidade, primeiro a bater…). A venda entra se o campo <em>contiver</em> um dos códigos — também quando vier mais de um código no mesmo campo, separados por ponto e vírgula (ex.: dyghjalk;yagbthgk).</span></span>
                 </label>
                 {offersOn && (
                   <Field label="Códigos das ofertas" hint={`${(d.offer_codes ?? []).length}/${MAX_OFFER_CODES}`}>
@@ -262,7 +262,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
               <div data-product-block style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <label className="cb-check">
                   <input data-f="product-on" type="checkbox" checked={productsOn} onChange={e => { setProductText(''); setProductMsg(null); patch({ product_ids: e.target.checked ? [] : null }) }} />
-                  <span><strong>🧩 Só vendas de produtos específicos (ID do produto)</strong><span>Cada produto da Hotmart tem um ID numérico (ex.: 2366290). Ligando isto, só entram na conta as vendas dos produtos que você informar. Se ligar também as ofertas, você escolhe se vale produto E oferta ou produto OU oferta.</span></span>
+                  <span><strong>🧩 Só vendas de produtos específicos (ID do produto)</strong><span>Cada produto da Hotmart tem um ID numérico (ex.: 2366290). Ligando isto, só entram na conta as vendas dos produtos que você informar. A venda entra se o campo <em>contiver</em> um dos IDs — também quando vier mais de um ID no mesmo campo, separados por ponto e vírgula (ex.: 1234;5678). Se ligar também as ofertas, você escolhe se vale produto E oferta ou produto OU oferta.</span></span>
                 </label>
                 {productsOn && (
                   <Field label="IDs dos produtos" hint={`${(d.product_ids ?? []).length}/${MAX_PRODUCT_IDS}`}>
@@ -409,7 +409,11 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                   </Field>
                   <label className="cb-check">
                     <input data-f="notify" type="checkbox" checked={d.notify} onChange={e => patch({ notify: e.target.checked })} />
-                    <span><strong>Avisar os participantes</strong><span>Notificação no lançamento, no 1º dia, quando alguém bate a meta e no resultado.</span></span>
+                    <span><strong>🔔 Notificar criação</strong><span>Quando a campanha é publicada, todo o time já recebe o aviso de que tem campanha rolando, com a premiação e as regras (e de novo no 1º dia, se ela começar depois).</span></span>
+                  </label>
+                  <label className="cb-check">
+                    <input data-f="notify_result" type="checkbox" checked={d.notify_result} onChange={e => patch({ notify_result: e.target.checked })} />
+                    <span><strong>🏆 Notificar resultado</strong><span>Cada closer é avisado do resultado: nas corridas e faixas, na hora em que alguém bate a meta; nas demais, quando a campanha finaliza. Pode marcar as duas caixinhas — ou só uma.</span></span>
                   </label>
                 </div>
               )}
@@ -448,7 +452,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
           <div className="cb-foot-actions">
             <Btn variant="ghost" className="cb-cancel" onClick={onClose}>Cancelar</Btn>
             <Btn data-save-draft onClick={() => submit(false)} disabled={saving !== null || saveErrors.length > 0}><Save size={15} />{saving === 'draft' ? <span>Salvando…</span> : editingId ? (editingLive && notified.notifications > 0 ? <span>Salvar<span className="cb-long"> e atualizar avisos</span></span> : <span>Salvar alterações</span>) : <span>Salvar rascunho</span>}</Btn>
-            {status === 'draft' && <Btn variant="primary" data-publish onClick={() => submit(true)} disabled={saving !== null || errors.length > 0}><Rocket size={15} /><span>{saving === 'publish' ? 'Publicando…' : <>Publicar<span className="cb-long"> e avisar a equipe</span></>}</span></Btn>}
+            {status === 'draft' && <Btn variant="primary" data-publish onClick={() => submit(true)} disabled={saving !== null || errors.length > 0}><Rocket size={15} /><span>{saving === 'publish' ? 'Publicando…' : <>Publicar{d.notify && <span className="cb-long"> e avisar a equipe</span>}</>}</span></Btn>}
           </div>
         </footer>
       </motion.div>

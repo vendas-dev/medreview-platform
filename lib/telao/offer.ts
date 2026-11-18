@@ -60,11 +60,26 @@ export function offersLabel(codes: string[], max = 5): string {
   return `${list.slice(0, max).join(', ')} e mais ${list.length - max}`
 }
 
-/** A venda (código gravado nela) entra numa campanha com ESTES códigos? Sem códigos na campanha = entra qualquer venda. */
+/**
+ * O campo da venda pode vir com MAIS DE UM valor concatenado ("1234;5678" ou "dyghjalk;yagbthgk").
+ * Devolve cada valor separado (separadores: ponto e vírgula, vírgula, barra vertical, espaço), em minúsculas e sem repetição.
+ * Um código/ID válido nunca contém esses separadores, então a divisão é segura.
+ */
+export function saleValues(v: unknown): string[] {
+  const s = typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : ''
+  const out: string[] = []
+  for (const part of s.split(/[\s,;|]+/)) { const k = offerKey(part); if (k && !out.includes(k)) out.push(k) }
+  return out
+}
+
+/**
+ * A venda entra numa campanha com ESTES códigos? Critério "CONTÉM": basta UM dos valores do campo da venda ser um dos códigos
+ * da campanha. Sem códigos na campanha = entra qualquer venda. Vale valor inteiro (não pedaço): campanha "123" NÃO pega o ID "12345".
+ */
 export function offerMatches(campaignCodes: string[] | null | undefined, saleCode: unknown): boolean {
   if (!campaignCodes || campaignCodes.length === 0) return true
-  const k = offerKey(saleCode)
-  return k !== '' && campaignCodes.some(c => offerKey(c) === k)
+  const keys = new Set(campaignCodes.map(offerKey))
+  return saleValues(saleCode).some(v => keys.has(v))
 }
 
 // ── ID do PRODUTO (Hotmart): mesmas regras do código da oferta (uma linha, até 100 caracteres, comparação sem diferenciar maiúscula) ──
@@ -83,7 +98,7 @@ export interface SaleFilter { offer_codes?: string[] | null; product_ids?: strin
  *  • só ofertas → o código da oferta da venda precisa ser um dos informados
  *  • só produtos → o ID do produto da venda precisa ser um dos informados
  *  • os dois → 'and': precisa casar com os dois · 'or': basta casar com um
- * Venda sem código/sem ID nunca casa com aquele filtro. Se a condição estiver ausente (não deveria: a validação exige), vale 'and', o mais restritivo.
+ * Venda sem código/sem ID nunca casa com aquele filtro. "Casar" = CONTÉM: o campo da venda pode ter 2 valores separados por ponto e vírgula ("1234;5678") e basta um deles estar na lista. Se a condição estiver ausente (não deveria: a validação exige), vale 'and', o mais restritivo.
  */
 export function saleMatchesFilter(f: SaleFilter, sale: { offer?: unknown; product?: unknown }): boolean {
   const o = !!(f.offer_codes && f.offer_codes.length > 0), p = !!(f.product_ids && f.product_ids.length > 0)

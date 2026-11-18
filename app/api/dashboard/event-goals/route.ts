@@ -1,0 +1,29 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSuperadmin } from '@/lib/dashboard/requireSuperadmin'
+import { listEditions } from '@/lib/dashboard/eventGoals'
+import { parseConfig, rangesOverlap } from '@/lib/dashboard/eventGoalsCore'
+
+export const dynamic = 'force-dynamic'
+
+export async function GET() {
+  const auth = await requireSuperadmin(); if ('error' in auth) return auth.error
+  try { return NextResponse.json(await listEditions(auth.admin)) }
+  catch (e: any) { return NextResponse.json({ error: e.message ?? 'Erro ao listar eventos' }, { status: 500 }) }
+}
+
+export async function POST(req: NextRequest) {
+  const auth = await requireSuperadmin(); if ('error' in auth) return auth.error
+  const parsed = parseConfig(await req.json().catch(() => null))
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const v = parsed.value
+  const { data: all } = await auth.admin.from('event_editions').select('name, start_date, end_date')
+  const clash = (all ?? []).find((e: any) => rangesOverlap(e, v))
+  if (clash) return NextResponse.json({ error: `Já existe o evento "${clash.name}" nessas datas (não pode haver dois eventos no mesmo dia).` }, { status: 409 })
+  const { data: ed, error } = await auth.admin.from('event_editions')
+    .insert({ name: v.name, event_name: v.event_name, vertical: v.vertical, start_date: v.start_date, end_date: v.end_date, notes: v.notes, created_by: auth.userId })
+    .select('id').single()
+  if (error || !ed) return NextResponse.json({ error: error?.message ?? 'Erro ao criar' }, { status: 500 })
+  const { error: e2 } = await auth.admin.rpc('event_save_config', { p_edition: ed.id, p_closers: v.closers, p_goals: v.goals })
+  if (e2) { await auth.admin.from('event_editions').delete().eq('id', ed.id); return NextResponse.json({ error: e2.message }, { status: 500 }) }
+  return NextResponse.json({ id: ed.id })
+}

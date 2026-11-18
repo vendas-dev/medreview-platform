@@ -1,0 +1,126 @@
+// Metas de evento — camada de banco (service role). Lógica de contagem em eventGoalsCore.ts.
+import { addDaysToDateStr, dayBoundsSaoPaulo, todayInSaoPaulo } from '@/lib/timezone'
+import {
+  aggregate, buildGoals, editionStatus, eventDays, normName,
+  type EditionRow, type GoalRow, type RosterCloser, type SaleRow,
+} from './eventGoalsCore'
+
+type Admin = any
+const PAGE = 1000
+
+async function paged<T>(build: (from: number, to: number) => any): Promise<T[]> {
+  const out: T[] = []
+  for (let from = 0; from < 200000; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    out.push(...((data ?? []) as T[]))
+    if (!data || data.length < PAGE) break
+  }
+  return out
+}
+
+const SALE_COLS = 'id, value, event_name, closer_id, closer_hubspot_id, is_self_checkout, occurred_at, is_refunded, product'
+
+/** Vendas com nome de evento preenchido na janela (dia -1 … +2 em torno do evento, horário de SP). */
+async function fetchSales(admin: Admin, from: string, to: string): Promise<SaleRow[]> {
+  const start = dayBoundsSaoPaulo(addDaysToDateStr(from, -1)).start
+  const end = dayBoundsSaoPaulo(addDaysToDateStr(to, 2)).end
+  return paged<SaleRow>((a, b) =>
+    admin.from('telao_events').select(SALE_COLS)
+      .eq('event_type', 'sale').not('event_name', 'is', null)
+      .gte('occurred_at', start).lte('occurred_at', end)
+      .order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(a, b))
+}
+
+async function rosterOf(admin: Admin, editionIds: string[]): Promise<Record<string, RosterCloser[]>> {
+  const out: Record<string, RosterCloser[]> = Object.fromEntries(editionIds.map(i => [i, []]))
+  if (!editionIds.length) return out
+  const { data: links, error } = await admin.from('event_edition_closers').select('edition_id, profile_id, position').in('edition_id', editionIds)
+  if (error) throw new Error(error.message)
+  const pids = [...new Set((links ?? []).map((l: any) => l.profile_id))]
+  const { data: profs } = pids.length
+    ? await admin.from('profiles').select('id, name, avatar_url, team, hubspot_id').in('id', pids) : { data: [] }
+  const byId = new Map<string, RosterCloser>((profs ?? []).map((p: any) => [p.id, {
+    id: p.id, name: p.name ?? 'Closer', avatar_url: p.avatar_url ?? null, team: p.team ?? null, hubspot_id: p.hubspot_id ?? null }]))
+  for (const l of (links ?? []).sort((a: any, b: any) => a.position - b.position)) {
+    const p = byId.get(l.profile_id)
+    out[l.edition_id].push(p ?? { id: l.profile_id, name: 'Closer removido', avatar_url: null, team: null, hubspot_id: null })
+  }
+  return out
+}
+
+async function goalsOf(admin: Admin, editionIds: string[]): Promise<Record<string, GoalRow[]>> {
+  const out: Record<string, GoalRow[]> = Object.fromEntries(editionIds.map(i => [i, []]))
+  if (!editionIds.length) return out
+  const { data, error } = await admin.from('event_goals').select('edition_id, scope, day, profile_id, amount').in('edition_id', editionIds)
+  if (error) throw new Error(error.message)
+  for (const g of data ?? []) out[g.edition_id].push({ scope: g.scope, day: g.day, profile_id: g.profile_id, amount: Number(g.amount) })
+  return out
+}
+
+export async function listEditions(admin: Admin) {
+  const { data, error } = await admin.from('event_editions')
+    .select('id, name, event_name, start_date, end_date, notes').order('start_date', { ascending: false }).limit(60)
+  if (error) throw new Error(error.message)
+  const editions = (data ?? []) as EditionRow[]
+  const today = todayInSaoPaulo()
+  if (!editions.length) return { today, editions: [] }
+  const ids = editions.map(e => e.id)
+  const [rosters, goals] = await Promise.all([rosterOf(admin, ids), goalsOf(admin, ids)])
+  const minD = editions.reduce((m, e) => (e.start_date < m ? e.start_date : m), editions[0].start_date)
+  const maxD = editions.reduce((m, e) => (e.end_date > m ? e.end_date : m), editions[0].end_date)
+  const sales = await fetchSales(admin, minD, maxD)
+  return {
+    today,
+    editions: editions.map(e => {
+      const act = aggregate(sales, e, rosters[e.id])
+      const g = buildGoals(goals[e.id])
+      return { ...e, status: editionStatus(e, today), closersCount: rosters[e.id].length,
+        goalTotal: g.total, realized: act.total.value, salesCount: act.total.count }
+    }),
+  }
+}
+
+export async function loadEdition(admin: Admin, id: string) {
+  const { data, error } = await admin.from('event_editions').select('id, name, event_name, start_date, end_date, notes').eq('id', id).maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return null
+  const [r, g] = await Promise.all([rosterOf(admin, [id]), goalsOf(admin, [id])])
+  return { edition: data as EditionRow, closers: r[id], goalRows: g[id] }
+}
+
+export async function computeLive(admin: Admin, id: string) {
+  const full = await loadEdition(admin, id)
+  if (!full) return null
+  const { edition, closers, goalRows } = full
+  const sales = await fetchSales(admin, edition.start_date, edition.end_date)
+  const today = todayInSaoPaulo()
+  return {
+    serverTime: new Date().toISOString(), today,
+    status: editionStatus(edition, today),
+    edition, days: eventDays(edition.start_date, edition.end_date), closers,
+    goals: buildGoals(goalRows), actual: aggregate(sales, edition, closers),
+  }
+}
+
+/** Closers que podem ser escalados + nomes de evento já vistos nas vendas (sugestão ao cadastrar). */
+export async function editorOptions(admin: Admin) {
+  const { data: profs } = await admin.from('profiles')
+    .select('id, name, avatar_url, team, hubspot_id, job_role, role, is_active').order('name', { ascending: true }).limit(1000)
+  const candidates = (profs ?? [])
+    .filter((p: any) => p.is_active !== false)
+    .map((p: any) => ({ id: p.id, name: p.name ?? 'Sem nome', avatar_url: p.avatar_url ?? null, team: p.team ?? null,
+      hubspot_id: p.hubspot_id ?? null, isCloser: p.job_role === 'closer' }))
+  const since = dayBoundsSaoPaulo(addDaysToDateStr(todayInSaoPaulo(), -420)).start
+  const rows = await paged<{ event_name: string; occurred_at: string }>((a, b) =>
+    admin.from('telao_events').select('event_name, occurred_at').eq('event_type', 'sale')
+      .not('event_name', 'is', null).gte('occurred_at', since)
+      .order('occurred_at', { ascending: false }).order('id', { ascending: true }).range(a, b))
+  const names = new Map<string, { name: string; count: number; last: string }>()
+  for (const r of rows) {
+    const k = normName(r.event_name); if (!k) continue
+    const cur = names.get(k)
+    if (cur) cur.count++; else names.set(k, { name: r.event_name.trim(), count: 1, last: r.occurred_at })
+  }
+  return { candidates, eventNames: [...names.values()].sort((a, b) => (a.last < b.last ? 1 : -1)).slice(0, 40) }
+}

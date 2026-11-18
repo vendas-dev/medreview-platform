@@ -1,5 +1,5 @@
 import { fmtBRL, normalizeName } from '@/lib/telao/format'
-import { MAX_OFFER_CODES, MAX_PRODUCT_IDS, isValidOfferCode, offerKey, offersLabel, saleMatchesFilter } from '@/lib/telao/offer'
+import { MAX_OFFER_CODES, MAX_PRODUCT_IDS, isValidOfferCode, offerKey, offerMatches, offersLabel, saleMatchesFilter } from '@/lib/telao/offer'
 import { finishMessagesTiers, howToWinTiers, tierStanding, tierTargetsKey, tiersText, TierStanding, validateTiers } from './tiers'
 import { CampaignDraft, Criterion, CRITERIA, criterionInfo, Phase, Team, TEAMS, TeamRule } from './types'
 
@@ -214,14 +214,14 @@ export interface Evaluation { phase: Phase; teams: TeamEval[]; raceComplete: boo
 export function evaluate(d: CampaignDraft, participants: Participant[], credits: Credit[], today: string): Evaluation {
   const info = criterionInfo(d.criterion)
   const phase = phaseOf(d, today)
-  const offerKeys = d.offer_codes && d.offer_codes.length ? new Set(d.offer_codes.map(offerKey)) : null
+  const hasOfferFilter = !!(d.offer_codes && d.offer_codes.length)
   const hasProductFilter = !!(d.product_ids && d.product_ids.length)
   const inScope = credits.filter(c => {
     const day = spDay(c.at)
     if (day < d.starts_on || day > d.ends_on) return false
     if (c.recurring && !d.count_recurring) return false
     if (d.verticals && d.verticals.length && !d.verticals.includes(c.vertical)) return false
-    if (!hasProductFilter && offerKeys && !(c.offer && offerKeys.has(offerKey(c.offer)))) return false      // só ofertas: venda sem código ou de outra oferta não conta
+    if (!hasProductFilter && hasOfferFilter && !offerMatches(d.offer_codes, c.offer)) return false      // só ofertas: critério CONTÉM (campo da venda pode ter 2 códigos separados por ;). Sem código ou de outra oferta não conta
     if (hasProductFilter && !saleMatchesFilter(d, { offer: c.offer, product: c.product })) return false      // com produto: só produto, ou produto + oferta pela condição E/OU
     return true
   })

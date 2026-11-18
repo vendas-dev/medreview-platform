@@ -1,0 +1,267 @@
+'use client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Maximize2, Minimize2, Pencil, Trophy, Sparkles, WifiOff, Crown, Users } from 'lucide-react'
+import {
+  Avatar, EV_CSS, GOLD, GREEN, PINK, PURPLE, Money, Ring, StatusChip, brl, brlCompact, btnGhost, cardStyle,
+  firstName, fmtDay, fmtRange, pctOf, timeSP, weekday, type Closer, type LiveData,
+} from './shared'
+
+const POLL_MS = 8000
+type Scope = 'all' | string  // 'all' ou 'YYYY-MM-DD'
+
+export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: () => void }) {
+  const [data, setData] = useState<LiveData | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [offline, setOffline] = useState(false)
+  const [scope, setScope] = useState<Scope>('all')
+  const [toast, setToast] = useState<{ k: number; text: string } | null>(null)
+  const [confetti, setConfetti] = useState(0)
+  const [full, setFull] = useState(false)
+  const rid = useRef(0)
+  const prev = useRef<{ total: number; lastKey: string; pct: number | null } | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const scopeSet = useRef(false)
+
+  const load = useCallback(async () => {
+    const my = ++rid.current
+    try {
+      const res = await fetch(`/api/dashboard/event-goals/${editionId}`, { cache: 'no-store' })
+      const j = await res.json().catch(() => ({}))
+      if (my !== rid.current) return
+      if (!res.ok) { setErr(j.error ?? 'Não foi possível carregar o evento.'); setOffline(true); return }
+      const d = j as LiveData
+      setErr(null); setOffline(false); setData(d)
+      // 1ª carga: se o evento está rolando, abre direto no dia de hoje
+      if (!scopeSet.current) { scopeSet.current = true; if (d.status === 'andamento' && d.days.includes(d.today) && d.days.length > 1) setScope(d.today) }
+      // celebrações: só depois da 1ª carga
+      const lastKey = d.actual.recent[0] ? d.actual.recent[0].occurred_at + d.actual.recent[0].value : ''
+      const pct = pctOf(d.actual.total.value, d.goals.total)
+      const p = prev.current
+      if (p) {
+        if (lastKey && lastKey !== p.lastKey && d.actual.total.value > p.total) {
+          const s = d.actual.recent[0]; const who = d.closers.find(c => c.id === s.closer_id)
+          setToast({ k: Date.now(), text: `${who ? firstName(who.name) : 'Nova venda'} • ${brl(s.value)}` })
+        }
+        if (pct !== null && pct >= 100 && (p.pct ?? 0) < 100) setConfetti(Date.now())
+      }
+      prev.current = { total: d.actual.total.value, lastKey, pct }
+    } catch { if (my === rid.current) setOffline(true) }
+  }, [editionId])
+
+  useEffect(() => { load()
+    const t = setInterval(load, POLL_MS); const vis = () => { if (!document.hidden) load() }
+    document.addEventListener('visibilitychange', vis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis); rid.current += 1 } }, [load])
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4200); return () => clearTimeout(t) }, [toast])
+  useEffect(() => { if (!confetti) return; const t = setTimeout(() => setConfetti(0), 6000); return () => clearTimeout(t) }, [confetti])
+  useEffect(() => { const f = () => setFull(!!document.fullscreenElement); document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f) }, [])
+
+  const toggleFull = () => { if (document.fullscreenElement) document.exitFullscreen?.(); else boxRef.current?.requestFullscreen?.().catch(() => {}) }
+
+  const view = useMemo(() => {
+    if (!data) return null
+    const day = scope === 'all' ? null : scope
+    const value = day ? data.actual.byDay[day]?.value ?? 0 : data.actual.total.value
+    const count = day ? data.actual.byDay[day]?.count ?? 0 : data.actual.total.count
+    const goal = day ? data.goals.days[day] ?? null : data.goals.total
+    const rows = data.closers.map(c => {
+      const a = data.actual.byCloser[c.id]
+      const v = day ? a?.byDay[day]?.value ?? 0 : a?.value ?? 0
+      const n = day ? a?.byDay[day]?.count ?? 0 : a?.count ?? 0
+      const g = day ? data.goals.cells[c.id]?.[day] ?? null : data.goals.closers[c.id] ?? null
+      return { c, v, n, g, pct: pctOf(v, g) }
+    }).sort((a, b) => b.v - a.v || a.c.name.localeCompare(b.c.name))
+    return { day, value, count, goal, pct: pctOf(value, goal), rows }
+  }, [data, scope])
+
+  if (!data && !err) return <LiveSkeleton />
+  if (!data || !view) return <div style={{ ...cardStyle, padding: 32, textAlign: 'center', color: 'var(--muted-foreground)' }}>{err}</div>
+  const { edition } = data
+  const hit = view.pct !== null && view.pct >= 100
+  const remaining = view.goal !== null ? Math.max(0, view.goal - view.value) : null
+  const ticket = view.count ? view.value / view.count : 0
+  const maxV = Math.max(1, ...view.rows.map(r => r.v))
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative', background: full ? 'var(--background)' : undefined, padding: full ? 24 : 0, overflow: full ? 'auto' : undefined, minHeight: full ? '100vh' : undefined }}>
+      <style>{EV_CSS}</style>
+      {/* cabeçalho */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--foreground)', letterSpacing: '-0.02em' }}>{edition.name}</h2>
+            <StatusChip status={data.status} />
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 4 }}>{fmtRange(edition.start_date, edition.end_date)} · horário de Brasília</div>
+        </div>
+        {offline && <span title={err ?? ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: GOLD, fontWeight: 600 }}><WifiOff size={14} /> reconectando…</span>}
+        <button onClick={toggleFull} style={{ ...btnGhost, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}{full ? 'Sair' : 'Tela cheia'}</button>
+        {!full && <button onClick={onEdit} style={{ ...btnGhost, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Editar metas</button>}
+      </div>
+
+      {/* abas de dia */}
+      <div role="tablist" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, marginBottom: 12 }}>
+        <ScopeTab active={scope === 'all'} onClick={() => setScope('all')} top="Evento todo" sub={brlCompact(data.actual.total.value)} />
+        {data.days.map(d => <ScopeTab key={d} active={scope === d} onClick={() => setScope(d)} live={d === data.today && data.status === 'andamento'}
+          top={`${weekday(d)} ${fmtDay(d)}`} sub={brlCompact(data.actual.byDay[d]?.value ?? 0)} />)}
+      </div>
+
+      {/* destaque */}
+      <div className="ev-rise" style={{ borderRadius: 24, padding: 'clamp(20px,3vw,34px)', color: '#fff', position: 'relative', overflow: 'hidden',
+        background: hit ? 'linear-gradient(135deg,#78350f,#b45309 45%,#ec4899)' : 'linear-gradient(135deg,#2e1065 0%,#5b21b6 55%,#be185d 130%)', boxShadow: 'var(--shadow-lg)' }}>
+        <div aria-hidden style={{ position: 'absolute', right: -80, top: -80, width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,255,255,.16),transparent 70%)' }} />
+        <div style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'clamp(20px,4vw,48px)' }}>
+          <Ring pct={view.pct} size={190} stroke={16} color={hit ? GOLD : PINK}>
+            {view.pct === null ? <div style={{ fontSize: 13, opacity: .8, textAlign: 'center', padding: 14 }}>defina a<br />meta</div> : <>
+              <div style={{ fontSize: 40, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1 }}>{Math.floor(view.pct)}<span style={{ fontSize: 20 }}>%</span></div>
+              <div style={{ fontSize: 11, opacity: .8, marginTop: 4 }}>{hit ? 'META BATIDA' : 'da meta'}</div></>}
+          </Ring>
+          <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.12em', opacity: .75 }}>{view.day ? `VENDIDO · ${weekday(view.day).toUpperCase()} ${fmtDay(view.day)}` : 'VENDIDO NO EVENTO'}</div>
+            <div style={{ fontSize: 'clamp(38px,7vw,68px)', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}><Money value={view.value} /></div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 22px', marginTop: 10, fontSize: 14 }}>
+              {view.goal !== null && <span style={{ opacity: .9 }}>Meta <b>{brl(view.goal)}</b></span>}
+              {remaining !== null && !hit && <span style={{ opacity: .9 }}>Faltam <b style={{ color: '#fde68a' }}>{brl(remaining)}</b></span>}
+              {hit && view.goal !== null && <span style={{ color: '#fde68a', fontWeight: 700 }}><Trophy size={14} style={{ verticalAlign: -2 }} /> +{brl(view.value - view.goal)} acima da meta</span>}
+              <span style={{ opacity: .9 }}><b>{view.count}</b> {view.count === 1 ? 'venda' : 'vendas'}</span>
+              {view.count > 0 && <span style={{ opacity: .9 }}>Ticket médio <b>{brl(ticket)}</b></span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* dias (só na visão do evento todo) */}
+      {scope === 'all' && data.days.length > 1 && (
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', marginTop: 14 }}>
+          {data.days.map((d, i) => {
+            const v = data.actual.byDay[d]?.value ?? 0, g = data.goals.days[d] ?? null, p = pctOf(v, g)
+            return (
+              <button key={d} onClick={() => setScope(d)} className="ev-card ev-rise" style={{ ...cardStyle, padding: 16, textAlign: 'left', cursor: 'pointer', animationDelay: `${i * 60}ms`,
+                outline: d === data.today && data.status === 'andamento' ? `2px solid ${PINK}55` : undefined }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted-foreground)', fontWeight: 600 }}>
+                  <span>{weekday(d)} {fmtDay(d)}{d === data.today && data.status === 'andamento' ? ' · hoje' : ''}</span>
+                  <span style={{ color: p !== null && p >= 100 ? GREEN : 'var(--foreground)' }}>{p === null ? 'sem meta' : Math.floor(p) + '%'}</span>
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--foreground)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{brl(v)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{g !== null ? `meta ${brl(g)}` : '—'}</div>
+                <Bar pct={p} />
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* closers + feed */}
+      <div className="ev-split" style={{ display: 'grid', gap: 16, marginTop: 18, alignItems: 'start' }}>
+        <div style={{ minWidth: 0 }}>
+          <SectionTitle icon={<Users size={16} />} title="Closers" sub={view.day ? `meta de ${weekday(view.day)} ${fmtDay(view.day)}` : 'meta total do evento'} />
+          {view.rows.length === 0
+            ? <div style={{ ...cardStyle, padding: 28, textAlign: 'center', color: 'var(--muted-foreground)' }}>Nenhum closer escalado. Use “Editar metas” para escolher quem vai.</div>
+            : <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))' }}>
+              {view.rows.map((r, i) => <CloserCard key={r.c.id} rank={i + 1} r={r} maxV={maxV} />)}
+            </div>}
+          {(data.actual.others.count > 0 || data.actual.outside.count > 0) && (
+            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 12, lineHeight: 1.5 }}>
+              {data.actual.others.count > 0 && <>Self-checkout e vendas de quem não está na escalação: <b>{brl(data.actual.others.value)}</b> ({data.actual.others.count}) — contam na meta geral. </>}
+              {data.actual.outside.count > 0 && <>Vendas do evento fora dos dias cadastrados: <b>{brl(data.actual.outside.value)}</b> ({data.actual.outside.count}) — contam só no total.</>}
+            </p>)}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <SectionTitle icon={<Sparkles size={16} />} title="Últimas vendas" sub="ao vivo" />
+          <div style={{ ...cardStyle, padding: 6 }}>
+            {data.actual.recent.length === 0 && <div style={{ padding: 22, textAlign: 'center', fontSize: 13, color: 'var(--muted-foreground)' }}>Aguardando a primeira venda do evento…</div>}
+            {data.actual.recent.slice(0, 8).map((s, i) => {
+              const who = data.closers.find(c => c.id === s.closer_id)
+              return (
+                <div key={s.occurred_at + i} className="ev-rise" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: i < Math.min(7, data.actual.recent.length - 1) ? '1px solid var(--border)' : undefined }}>
+                  {who ? <Avatar c={who} size={32} /> : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--secondary)', flex: 'none' }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{who ? firstName(who.name) : 'Self-checkout'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{timeSP(s.occurred_at)}{s.product ? ` · ${s.product}` : ''}</div>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: GREEN, fontVariantNumeric: 'tabular-nums' }}>{brl(s.value)}</div>
+                </div>)
+            })}
+          </div>
+        </div>
+      </div>
+      <style>{`.ev-split{grid-template-columns:minmax(0,1fr) 340px}@media (max-width: 1000px){.ev-split{grid-template-columns:minmax(0,1fr)}}`}</style>
+
+      {toast && <div key={toast.k} role="status" style={{ position: 'fixed', top: 18, right: 18, zIndex: 80, padding: '12px 18px', borderRadius: 14, color: '#fff', fontWeight: 800, fontSize: 15,
+        background: `linear-gradient(135deg,${PURPLE},${PINK})`, boxShadow: '0 12px 32px rgba(236,72,153,.4)', animation: 'evToast 4.2s ease both' }}>🎉 {toast.text}</div>}
+      {confetti > 0 && <Confetti key={confetti} />}
+    </div>
+  )
+}
+
+function ScopeTab({ active, onClick, top, sub, live }: { active: boolean; onClick: () => void; top: string; sub: string; live?: boolean }) {
+  return (
+    <button role="tab" aria-selected={active} onClick={onClick} style={{ flex: 'none', padding: '9px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left', minWidth: 104,
+      border: active ? '1px solid transparent' : '1px solid var(--border)', color: active ? '#fff' : 'var(--foreground)',
+      background: active ? `linear-gradient(135deg,${PURPLE},${PINK})` : 'var(--card)', boxShadow: active ? '0 6px 18px rgba(236,72,153,.28)' : 'var(--shadow-xs)' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{top}{live && <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? '#fff' : GREEN, animation: 'evPulse 1.6s infinite' }} />}</div>
+      <div style={{ fontSize: 11, opacity: active ? .85 : .65, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{sub}</div>
+    </button>
+  )
+}
+
+function Bar({ pct, height = 8 }: { pct: number | null; height?: number }) {
+  const p = Math.max(0, Math.min(100, pct ?? 0)); const hit = (pct ?? 0) >= 100
+  return <div style={{ height, borderRadius: 99, background: 'var(--secondary)', overflow: 'hidden', marginTop: 10 }}>
+    <div style={{ width: `${p}%`, height: '100%', borderRadius: 99, transition: 'width 1s cubic-bezier(.22,1,.36,1)',
+      background: hit ? `linear-gradient(90deg,${GREEN},${GOLD})` : `linear-gradient(90deg,${PURPLE},${PINK})` }} /></div>
+}
+
+function SectionTitle({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) {
+  return <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '0 2px 10px', color: 'var(--foreground)' }}>
+    <span style={{ color: PINK, alignSelf: 'center', display: 'flex' }}>{icon}</span><h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{title}</h3>
+    {sub && <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{sub}</span>}</div>
+}
+
+function CloserCard({ r, rank, maxV }: { r: { c: Closer; v: number; n: number; g: number | null; pct: number | null }; rank: number; maxV: number }) {
+  const hit = r.pct !== null && r.pct >= 100
+  const lead = rank === 1 && r.v > 0
+  return (
+    <div className="ev-card ev-rise" style={{ ...cardStyle, padding: 16, position: 'relative', animationDelay: `${Math.min(rank, 10) * 40}ms`,
+      border: hit ? `1px solid ${GREEN}66` : lead ? `1px solid ${GOLD}66` : cardStyle.border }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ position: 'relative' }}>
+          <Avatar c={r.c} size={52} ring={hit ? GREEN : lead ? GOLD : undefined} />
+          {lead && <Crown size={16} color={GOLD} fill={GOLD} style={{ position: 'absolute', top: -12, left: 18 }} aria-label="líder" />}
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.c.name}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{r.n} {r.n === 1 ? 'venda' : 'vendas'}{r.c.team ? ` · ${r.c.team}` : ''}</div>
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: hit ? GREEN : 'var(--muted-foreground)' }}>#{rank}</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 12 }}>
+        <span style={{ fontSize: 22, fontWeight: 900, color: 'var(--foreground)', fontVariantNumeric: 'tabular-nums' }}><Money value={r.v} /></span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: hit ? GREEN : 'var(--muted-foreground)' }}>{r.pct === null ? 'sem meta' : hit ? '✓ bateu' : Math.floor(r.pct) + '%'}</span>
+      </div>
+      {r.g !== null ? <>
+        <Bar pct={r.pct} />
+        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 6 }}>{hit ? `meta ${brl(r.g)} · +${brl(r.v - r.g)}` : `meta ${brl(r.g)} · faltam ${brl(r.g - r.v)}`}</div>
+      </> : <div style={{ height: 8, borderRadius: 99, background: 'var(--secondary)', overflow: 'hidden', marginTop: 10 }}>
+        <div style={{ width: `${(r.v / maxV) * 100}%`, height: '100%', background: `linear-gradient(90deg,${PURPLE},${PINK})`, transition: 'width 1s' }} /></div>}
+    </div>
+  )
+}
+
+function Confetti() {
+  const rnd = (i: number, k: number) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x) }
+  const pieces = Array.from({ length: 60 }, (_, i) => ({
+    i, left: rnd(i, 1) * 100, dx: (rnd(i, 2) - 0.5) * 240, delay: rnd(i, 3) * 1.2, dur: 3 + rnd(i, 4) * 2.5,
+    c: [PINK, PURPLE, GOLD, GREEN, '#38bdf8'][i % 5], w: 6 + rnd(i, 5) * 6 }))
+  return <div aria-hidden style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 90, overflow: 'hidden' }}>
+    {pieces.map(p => <span key={p.i} style={{ position: 'absolute', top: 0, left: `${p.left}%`, width: p.w, height: p.w * 1.6, background: p.c, borderRadius: 2,
+      animation: `evConf ${p.dur}s ${p.delay}s ease-in forwards`, ['--dx' as any]: `${p.dx}px`, opacity: 0 }} />)}</div>
+}
+
+function LiveSkeleton() {
+  return <div><style>{EV_CSS}</style>
+    <div className="ev-skel" style={{ height: 34, width: 280, marginBottom: 16 }} />
+    <div className="ev-skel" style={{ height: 230, borderRadius: 24 }} />
+    <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', marginTop: 16 }}>
+      {[0, 1, 2].map(i => <div key={i} className="ev-skel" style={{ height: 150 }} />)}</div></div>
+}

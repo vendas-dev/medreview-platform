@@ -151,7 +151,7 @@ function FilterDropdown({ value, onChange, options, placeholder, minW = 150 }: {
 
 function KpiMiniEvt({ icon: Icon, label, rawValue, format = fmtBRL, grad, color, flashKey }: any) {
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px', position: 'relative', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+    <div className="ev-hov" style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px', position: 'relative', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: grad }} />
       {/* Anel de destaque — pisca sozinho a cada atualização real de dado
           (flashKey), sem remontar o card nem interromper a contagem suave
@@ -259,7 +259,7 @@ function RankedList({ items, format, color, emptyLabel, flashKey }: {
       {items.map((it, i) => {
         const top3 = i < 3
         return (
-          <motion.div key={`${i}-${it.label}-${it.sub ?? ''}`} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: i * 0.03 }}
+          <motion.div key={`${i}-${it.label}-${it.sub ?? ''}`} layout="position" whileHover={{ x: 3 }} initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 340, damping: 30, delay: i * 0.03 }}
             style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 9px', borderRadius: 11, background: top3 ? `${color}0d` : 'transparent', border: top3 ? `1px solid ${color}22` : '1px solid transparent' }}>
             <span style={{ width: 20, textAlign: 'center', fontSize: top3 ? 13 : 10.5, fontWeight: 900, color: top3 ? medal[i] : 'var(--muted-foreground)', flexShrink: 0 }}>
               {top3 ? ['🥇', '🥈', '🥉'][i] : `#${i + 1}`}
@@ -454,22 +454,22 @@ export function EventsSection({ initialData }: { initialData: EventsData }) {
       {/* Gráficos — donut (proporção), colunas verticais (comparação),
           ranking (produtos, com contexto de vertical+evento), donut (canal) */}
       <div className="evt-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, opacity: loading ? 0.5 : 1, transition: 'opacity .2s' }}>
-        <div style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
+        <div className="ev-hov" style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
           <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 12px' }}>💰 Receita por evento</p>
           <DonutChart flashKey={flashKey} format={fmtBRL} emptyLabel="Sem vendas de evento no período."
             data={data.byEvent.map((e, i) => ({ label: e.eventName, value: e.revenue, color: colorAt(i) }))} />
         </div>
-        <div style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
+        <div className="ev-hov" style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
           <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 12px' }}>🎟️ Vendas por evento</p>
           <VerticalBarChart flashKey={flashKey} format={fmtInt} emptyLabel="Sem vendas de evento no período."
             items={data.byEvent.map((e, i) => ({ label: e.eventName, value: e.count, color: colorAt(i) }))} />
         </div>
-        <div style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
+        <div className="ev-hov" style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
           <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 12px' }}>🏆 Produtos mais vendidos (qtd)</p>
           <RankedList flashKey={flashKey} format={fmtInt} color="#eab308" emptyLabel="Sem vendas de evento no período."
             items={data.productRanking.map(p => ({ label: p.product, sub: `${p.vertical} · ${p.eventName}`, value: p.count }))} />
         </div>
-        <div style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
+        <div className="ev-hov" style={{ background: 'var(--secondary)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
           <p style={{ fontSize: 12, fontWeight: 800, color: 'var(--foreground)', margin: '0 0 12px' }}>📡 Vendas por canal</p>
           <DonutChart flashKey={flashKey} format={fmtBRL} emptyLabel="Sem vendas de evento no período."
             data={data.channelRanking.map((c, i) => ({ label: c.label, value: c.revenue, color: colorAt(i) }))} />

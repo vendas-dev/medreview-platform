@@ -1,0 +1,13 @@
+// Empacota (esbuild via npx) e roda os testes unitários da lógica de metas de evento.
+// Uso, na raiz do projeto:  node tests/unit/rodar.mjs
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const out = join(mkdtempSync(join(tmpdir(), 'ut-')), 't.mjs')
+const sh = process.platform === 'win32'
+execFileSync('npx', ['--yes', 'esbuild', join(raiz, 'tests/unit/event_goals.test.ts'), '--bundle', '--platform=node', '--format=esm',
+  `--outfile=${out}`, `--alias:@=${raiz}`, '--log-level=error'], { stdio: 'inherit', shell: sh })
+execFileSync('node', [out], { stdio: 'inherit' })

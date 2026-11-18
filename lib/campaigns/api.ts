@@ -25,6 +25,7 @@ export function parseDraft(b: any): CampaignDraft | null {
     product_ids: b.product_ids == null ? null : (Array.isArray(b.product_ids) || typeof b.product_ids === 'string') ? (() => { const c = parseOfferCodes(b.product_ids).codes.slice(0, 200); return c.length || Array.isArray(b.product_ids) ? c : null })() : null,      // lista vazia = filtro ligado sem IDs (a validação barra ao publicar)
     filter_logic: b.filter_logic === 'and' || b.filter_logic === 'or' ? b.filter_logic : null,
     notify: b.notify !== false,
+    notify_result: b.notify_result !== false,
   }
 }
 export const toRow = (r: any): CampaignRow => ({ ...rowToDraft(r), id: r.id, status: r.status, created_at: r.created_at, created_by: r.created_by, launched_at: r.launched_at, finalized_at: r.finalized_at, start_notified_at: r.start_notified_at })

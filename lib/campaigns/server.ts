@@ -13,18 +13,25 @@ export const rowToDraft = (r: any): CampaignDraft => ({
   name: r.name, subtitle: r.subtitle ?? '', prize: r.prize ?? '', prize_mode: r.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: r.prizes && typeof r.prizes === 'object' ? r.prizes : {}, emoji: r.emoji ?? '🏁', theme: r.theme ?? 'roxo', criterion: r.criterion,
   teams: r.teams ?? {}, starts_on: String(r.starts_on).slice(0, 10), ends_on: String(r.ends_on).slice(0, 10),
   count_recurring: r.count_recurring === true, verticals: r.verticals && r.verticals.length ? r.verticals : null, offer_codes: Array.isArray(r.offer_codes) && r.offer_codes.length ? r.offer_codes : null, product_ids: Array.isArray(r.product_ids) && r.product_ids.length ? r.product_ids : null, filter_logic: r.filter_logic === 'and' || r.filter_logic === 'or' ? r.filter_logic : null, notify: r.notify !== false,
+  notify_result: r.notify_result === undefined || r.notify_result === null ? r.notify !== false : r.notify_result !== false,      // banco sem a coluna (SQL ainda não rodou) ou linha antiga: segue o 'notify' de antes
 })
+
+/** Qual caixinha manda neste aviso: 'launch' | 'start' | 'cancel' = CRIAÇÃO · win:* | tier:* | finish:* = RESULTADO. */
+export const eventGroup = (eventKey: string): 'creation' | 'result' => /^(launch|start|cancel)$/.test(eventKey) ? 'creation' : 'result'
+export const mayNotify = (d: Pick<CampaignDraft, 'notify' | 'notify_result'>, eventKey: string): boolean => (eventGroup(eventKey) === 'creation' ? d.notify : d.notify_result)
 /** Só guarda prêmio das posições que existem (se diminuiu o nº de premiados, o resto sai) e tira espaços. */
 export function cleanPrizes(d: CampaignDraft): CampaignDraft['prizes'] {
   const out: CampaignDraft['prizes'] = {}
   for (const t of TEAMS) if (d.teams[t]) out[t] = Array.from({ length: Math.max(0, Math.min(50, d.teams[t]!.winners || 0)) }, (_, i) => (d.prizes?.[t]?.[i] ?? '').trim().slice(0, 120))
   return out
 }
-export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; products?: boolean; logic?: boolean } = false, hadOffers = typeof had === 'object' ? !!had.offers : !!had) => ({
+export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; products?: boolean; logic?: boolean; notifyResult?: boolean } = false, hadOffers = typeof had === 'object' ? !!had.offers : !!had) => ({
   name: d.name.trim(), subtitle: d.subtitle.trim(), prize: d.prize_mode === 'tiered' ? '' : d.prize.trim(), prize_mode: d.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: d.prize_mode === 'tiered' ? cleanPrizes(d) : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams,
   starts_on: d.starts_on, ends_on: d.ends_on, count_recurring: d.count_recurring, verticals: d.verticals && d.verticals.length ? d.verticals : null, notify: d.notify,
   // só mexe na coluna quando há ofertas (ou havia, para poder LIMPAR): antes da migração, campanha sem oferta salva igual a sempre
   ...(d.offer_codes?.length || hadOffers ? { offer_codes: d.offer_codes?.length ? d.offer_codes : null } : {}),
+  // só grava a coluna quando é preciso (desligado, ou estava desligado e vai ligar): antes do SQL rodar, salvar com 'ligado' continua funcionando
+  ...(!d.notify_result || (typeof had === 'object' && had.notifyResult) ? { notify_result: d.notify_result } : {}),
   ...(d.product_ids?.length || (typeof had === 'object' && had.products) ? { product_ids: d.product_ids?.length ? d.product_ids : null } : {}),
   // a condição E/OU só existe quando há produtos E ofertas; senão fica nula (e é limpa se antes existia)
   ...(d.filter_logic || (typeof had === 'object' && had.logic) ? { filter_logic: d.offer_codes?.length && d.product_ids?.length ? d.filter_logic ?? null : null } : {}),
@@ -98,7 +105,7 @@ export async function tickCampaign(admin: any, c: CampaignRow, now: Date, sum: T
   const everyone = participants.map(p => p.userId)
   // link null de propósito: clicar no aviso de campanha abre o popup dos vencedores (não leva pra outra página)
   const send = async (title: string, body: string, kind: 'campanha' | 'vitoria', to: string[], event_key: string) => {
-    if (!d.notify || to.length === 0) return
+    if (!mayNotify(d, event_key) || to.length === 0) return
     const r = await sendNotification(admin, { title, body, kind, link: null, campaign_id: c.id, created_by: c.created_by, recipients: to, event_key })
     if (r) sum.notifications++
   }
@@ -181,7 +188,7 @@ export async function publishCampaign(admin: any, id: string, now: Date = new Da
   const d = rowToDraft(c), errors = validateDraft(d)
   if (errors.length) return { ok: false, errors }
   if (c.status !== 'published') await admin.from('campaigns').update({ status: 'published', launched_at: now.toISOString(), updated_at: now.toISOString() }).eq('id', id)
-  if (d.notify && (await claimEvent(admin, id, 'launch'))) {
+  if (mayNotify(d, 'launch') && (await claimEvent(admin, id, 'launch'))) {
     const participants = await loadParticipants(admin, (Object.keys(d.teams) as Team[]))
     const m = launchMessage(d)
     await sendNotification(admin, { title: m.title, body: m.body, kind: 'campanha', link: null, campaign_id: id, created_by: c.created_by, recipients: participants.map(p => p.userId), event_key: 'launch' })
