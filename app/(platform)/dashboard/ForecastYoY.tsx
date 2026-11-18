@@ -253,7 +253,6 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
               <tbody>{p.horas.map((x, i) => <tr key={x.h} data-h={x.h}><th scope="row">{hh(x.h)} às {hh((x.h + 1) % 24)}</th><td>{fmtReais(val(x))}</td><td>{fmtReais(acum[i])}</td><td>{fmtShare(totalRef > 0 ? val(x) / totalRef * 100 : 0)}</td>{meta && <td>{fmtReais(x.prev)}</td>}<td>{x.prevN}</td></tr>)}</tbody>
             </table></div>
           </details>
-          <p className="yy-plnota"><b>Como é calculado:</b> o dia {dd2(p.day)}/{mm} pesou {fmtShare(p.share)} da receita de {mes} de {d.yearPrev}. Aplicando o mesmo peso à nossa meta de {mes} de {d.yearCur}, o dia precisa render {meta ? fmtReais(p.alvoDia) : '—'}. Esse valor é repartido pelas 24 horas (horário de Brasília) na mesma proporção em que {d.yearPrev} vendeu naquele dia. A soma das horas fecha exatamente a meta do dia.</p>
         </>
       )}
       <Tip anchor={hover?.a ?? null}>{hv && (
@@ -435,7 +434,6 @@ export function ForecastYoY() {
         <RouteHero r={hero} d={data} />
         <RouteList routes={vroutes} d={data} foco={foco} />
         <Picos r={hero} d={data} />
-        <p className="yy-foot" data-testid="route-foot"><b>Como ler:</b> a barra mostra quanto do fechamento de {data.yearPrev} já foi vendido e o traço marca onde {data.yearPrev} estava neste dia. <b>No caminho</b>: repetir o resto de {data.yearPrev} já iguala. <b>Atenção</b>: precisa superar {data.yearPrev} em até 15%. <b>Acelerar</b>: mais de 15%.</p>
       </Panel>
 
       <Panel testid="yoy-tabela" icon={CalendarRange} title={`${mes[0].toUpperCase()}${mes.slice(1)} de ${data.yearCur} × ${mes} de ${data.yearPrev}`}
