@@ -1,0 +1,37 @@
+// Validador de Tipo de Aluno — lógica pura (sem rede): valida o e-mail e traduz a resposta da integração (n8n) em algo que a tela mostra.
+export type TipoAluno = 'Novo aluno' | 'Ex-aluno' | 'Aluno'
+export interface ResultadoAluno { tipo: TipoAluno; inicio: string | null; fim: string | null; ativas: number; expiradas: number }
+
+/** Mesmo valor fixo que a integração espera para seguir o ramo do validador. */
+export const DEAL_ID_VALIDADOR = 'validador'
+export const URL_PADRAO = 'https://primary-production-7f0e.up.railway.app/webhook/Tipo_de_aluno_laravel'
+
+export function normalizarEmail(s: unknown): string { return typeof s === 'string' ? s.trim().toLowerCase() : '' }
+export function emailValido(s: string): boolean { return s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s) }
+
+const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 }
+const txt = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
+/** A integração devolve um ARRAY com 1 objeto (ou o objeto direto). Reconhece os 3 tipos; qualquer outra coisa → null (a tela mostra erro, não chuta). */
+export function lerResposta(bruto: unknown): ResultadoAluno | null {
+  const x = Array.isArray(bruto) ? bruto[0] : bruto
+  if (!x || typeof x !== 'object') return null
+  const o = x as Record<string, unknown>
+  const t = typeof o.tipo_cliente === 'string' ? o.tipo_cliente.trim().toLowerCase() : ''
+  const tipo: TipoAluno | null = t === 'novo aluno' ? 'Novo aluno' : t === 'ex-aluno' || t === 'ex aluno' ? 'Ex-aluno' : t === 'aluno' ? 'Aluno' : null
+  if (!tipo) return null
+  const aluno = tipo === 'Aluno'
+  return { tipo, inicio: aluno ? txt(o.data_matricula_recente_ativa_inicio) : null, fim: aluno ? txt(o.data_matricula_recente_ativa_fim) : null, ativas: num(o.matriculas_ativas), expiradas: num(o.matriculas_expiradas) }
+}
+
+/** "2026-11-22 23:59:59" → "22/11/2026" (sem passar por Date: não sofre com fuso). */
+export function dataBR(s: string | null): string {
+  const m = s && /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '—'
+}
+/** Dias inteiros de `hoje` (YYYY-MM-DD) até a data fim; negativo = já terminou. */
+export function diasAte(fim: string | null, hoje: string): number | null {
+  const m = fim && /^(\d{4})-(\d{2})-(\d{2})/.exec(fim)
+  if (!m) return null
+  return Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.parse(hoje + 'T00:00:00Z')) / 86400000)
+}

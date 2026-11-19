@@ -1,0 +1,15 @@
+{
+ "criados": [
+  "lib/aluno/tipo.ts",
+  "app/api/validador-aluno/route.ts",
+  "app/(platform)/validador-aluno/page.tsx",
+  "app/(platform)/validador-aluno/ValidadorAlunoClient.tsx",
+  "tests/unit/validador_aluno.test.ts"
+ ],
+ "salvos": [
+  "components/shell/Sidebar.tsx",
+  "lib/aluno/tipo.ts",
+  "app/(platform)/validador-aluno/ValidadorAlunoClient.tsx",
+  "tests/unit/validador_aluno.test.ts"
+ ]
+}

@@ -1,0 +1,93 @@
+'use client'
+import { useState } from 'react'
+import { UserCheck, Search, Loader2, AlertCircle, CheckCircle2, UserPlus, History, CalendarRange } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { dataBR, diasAte, emailValido, normalizarEmail, type TipoAluno } from '@/lib/aluno/tipo'
+
+interface Resp { email: string; tipo: TipoAluno; inicio: string | null; fim: string | null; ativas: number; expiradas: number }
+const COR: Record<TipoAluno, { c: string; icone: LucideIcon; frase: string }> = {
+  'Aluno':      { c: '#16a34a', icone: CheckCircle2, frase: 'Já é aluno com matrícula ativa.' },
+  'Ex-aluno':   { c: '#d97706', icone: History,      frase: 'Já foi aluno, mas não tem matrícula ativa agora.' },
+  'Novo aluno': { c: '#2563eb', icone: UserPlus,     frase: 'Nunca teve matrícula: é um novo aluno.' },
+}
+const hojeSP = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+
+export function ValidadorAlunoClient() {
+  const [email, setEmail] = useState('')
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [res, setRes] = useState<Resp | null>(null)
+
+  async function validar(e?: React.FormEvent) {
+    e?.preventDefault()
+    if (carregando) return
+    const em = normalizarEmail(email)
+    setRes(null)
+    if (!emailValido(em)) { setErro('Digite um e-mail válido.'); return }
+    setErro(null); setCarregando(true)
+    try {
+      const r = await fetch('/api/validador-aluno', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: em }) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) setErro(j?.error ?? 'Não foi possível validar agora.')
+      else setRes(j as Resp)
+    } catch { setErro('Sem conexão. Tente de novo.') }
+    finally { setCarregando(false) }
+  }
+
+  const cor = res ? COR[res.tipo] : null
+  const dias = res?.tipo === 'Aluno' ? diasAte(res.fim, hojeSP()) : null
+
+  return (
+    <div style={{ maxWidth: 640, margin: '0 auto', padding: '8px 0 40px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, display: 'grid', placeItems: 'center', background: 'color-mix(in srgb,var(--primary) 14%,transparent)', color: 'var(--primary)' }}><UserCheck size={20} /></div>
+        <div>
+          <h1 style={{ fontSize: 19, fontWeight: 800, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.02em' }}>Validador de Tipo de Aluno</h1>
+          <p style={{ fontSize: 12.5, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>Digite o e-mail do lead e veja se é novo aluno, ex-aluno ou aluno.</p>
+        </div>
+      </div>
+
+      <form onSubmit={validar} style={{ display: 'flex', gap: 8, padding: 14, borderRadius: 16, background: 'var(--card)', border: '1px solid var(--border)' }}>
+        <input data-v="validador-email" type="email" inputMode="email" autoComplete="off" autoFocus value={email} onChange={e => setEmail(e.target.value)} placeholder="email@do-lead.com" aria-label="E-mail do lead"
+          style={{ flex: 1, minWidth: 0, height: 44, padding: '0 14px', borderRadius: 11, border: '1.5px solid var(--border)', background: 'var(--secondary)', color: 'var(--foreground)', fontSize: 14, outline: 'none' }} />
+        <button data-v="validador-enviar" type="submit" disabled={carregando || !email.trim()}
+          style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, height: 44, padding: '0 18px', borderRadius: 11, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: carregando || !email.trim() ? 'not-allowed' : 'pointer', opacity: carregando || !email.trim() ? 0.6 : 1 }}>
+          {carregando ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}{carregando ? 'Validando…' : 'Validar'}
+        </button>
+      </form>
+
+      {erro && (
+        <div role="alert" data-v="validador-erro" style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, padding: '12px 14px', borderRadius: 12, background: 'color-mix(in srgb,#ef4444 10%,transparent)', border: '1px solid color-mix(in srgb,#ef4444 35%,transparent)', color: 'var(--foreground)', fontSize: 13 }}>
+          <AlertCircle size={17} style={{ color: '#ef4444', flex: 'none' }} />{erro}
+        </div>
+      )}
+
+      {res && cor && (() => { const Icone = cor.icone; return (
+        <div data-v="validador-resultado" data-tipo={res.tipo} style={{ marginTop: 14, padding: 20, borderRadius: 18, background: 'var(--card)', border: `1.5px solid color-mix(in srgb,${cor.c} 45%,var(--border))`, boxShadow: `0 12px 30px -20px ${cor.c}` }}>
+          <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis' }}>{res.email}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 46, height: 46, borderRadius: 14, display: 'grid', placeItems: 'center', background: `color-mix(in srgb,${cor.c} 15%,transparent)`, color: cor.c, flex: 'none' }}><Icone size={24} /></div>
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em', color: cor.c, lineHeight: 1.1 }}>{res.tipo}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted-foreground)', marginTop: 3 }}>{cor.frase}</div>
+            </div>
+          </div>
+          {res.tipo === 'Aluno' && (
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted-foreground)', marginBottom: 8 }}><CalendarRange size={13} />Matrícula ativa mais recente</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {([['Início', dataBR(res.inicio)], ['Fim', dataBR(res.fim)]] as const).map(([r, v]) => (
+                  <div key={r} style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--secondary)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{r}</div>
+                    <div data-v={`validador-${r === 'Início' ? 'inicio' : 'fim'}`} style={{ fontSize: 18, fontWeight: 800, color: 'var(--foreground)', letterSpacing: '-0.02em' }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              {dias !== null && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted-foreground)' }}>{dias > 1 ? `Termina em ${dias} dias.` : dias === 1 ? 'Termina amanhã.' : dias === 0 ? 'Termina hoje.' : `Terminou há ${-dias} dia(s).`}</div>}
+            </div>
+          )}
+        </div>
+      ) })()}
+    </div>
+  )
+}

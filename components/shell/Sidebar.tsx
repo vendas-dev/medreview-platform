@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Monitor, Calculator, Zap, Settings, LogOut,
   ChevronLeft, ChevronRight, Sun, Moon, GraduationCap, ChevronDown,
   Bot, Video, BarChart2, List, TrendingUp, Home, Users, Package, FileText, CalendarDays, Send, Link2, FlaskConical,
-  Target, Image as ImageIcon, PartyPopper, MonitorPlay, Trophy, Megaphone, Receipt, Repeat2
+  Target, Image as ImageIcon, PartyPopper, MonitorPlay, Trophy, Megaphone, Receipt, Repeat2, UserCheck
 } from 'lucide-react'
 import { SalesOpsAiIcon } from '@/components/shell/SalesOpsAiIcon'
 import { logout } from '@/app/(auth)/login/actions'
@@ -93,6 +93,8 @@ const buildNav = (isAdmin: boolean, trocasPendentes = 0): NavItem[] => [
       { key: 'disparos',     label: 'Links',          icon: Link2,        href: '/disparos/links', staticLabel: true },
       { key: 'templates',    label: 'Templates',      icon: FileText,     href: '/templates',  always: true },
       { key: 'medmidia',     label: 'MedMídia',       icon: ImageIcon,    href: '/medmidia',   always: true },
+      // Closer e superadmin: digita o e-mail do lead e vê se é novo aluno, ex-aluno ou aluno (sempre liberado, não depende de módulo).
+      { key: 'validador-aluno', label: 'Validador de Tipo de Aluno', icon: UserCheck, href: '/validador-aluno', always: true, staticLabel: true },
     ],
   },
   // ── Administração — unifica o que antes era "Inteligência Comercial"
