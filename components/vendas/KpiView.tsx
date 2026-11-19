@@ -124,7 +124,7 @@ export function KpiView({ periodo }: { periodo: Periodo | null }) {
           linhas={dados.outros.map(o => ({ key: o.id, nome: o.label, bruto: { realizado: o.realizado, vendas: o.vendas, meta: null } }))} />
       )}
       <p data-v="kpi-nota" style={{ margin: '-6px 2px 0', fontSize: 12.5, lineHeight: 1.55, color: 'var(--muted-foreground)' }}>
-        A cor vem da projeção: <b style={{ color: TOM.bom }}>verde</b> bate a meta (100% ou mais), <b style={{ color: TOM.atencao }}>âmbar</b> 80 a 99%, <b style={{ color: TOM.ruim }}>vermelho</b> abaixo de 80%. Operação, times e outros canais somam o total.
+        A cor vem da projeção: <b style={{ color: TOM.bom }}>verde</b> bate a meta (100% ou mais), <b style={{ color: TOM.atencao }}>âmbar</b> 80 a 99%, <b style={{ color: TOM.ruim }}>vermelho</b> abaixo de 80%. Operação e outros canais somam o total. Como em Vendas Individuais e no Dados Gerais, o closer principal e o co-closer (troca/transferência) recebem a venda cheia; por isso a soma das linhas dos closers pode passar do total do time, que conta cada venda uma vez.
       </p>
     </div>
   )

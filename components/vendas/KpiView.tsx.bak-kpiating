@@ -1,0 +1,157 @@
+'use client'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Gauge, Layers, ShoppingBag, Target, TrendingUp, UsersRound, Wallet } from 'lucide-react'
+import { Avatar, Banner, Kpi, Skeleton } from './ui'
+import { api, qs } from '@/lib/vendas/client'
+import { fmtBRLInt, teamCor, verticalCor } from '@/lib/vendas/format'
+import { kpiLinha, kpiTom, type KpiBruto, type KpiForecast, type KpiPeriodo, type KpiResposta, type KpiTom } from '@/lib/vendas/kpi'
+import { periodoPadrao, periodoToRange, type Periodo } from '@/lib/vendas/periodo'
+
+// ══ Vendas Gerais → "KPI": o placar estilo planilha — realizado, meta, gap, % da meta, ticket médio, projeção e vendas ══════════════════
+// Operação (total e por vertical) · Time OAO · Time R1 · Outros canais. A cor de cada linha vem da PROJEÇÃO (lib/vendas/kpi.ts).
+const TOM: Record<KpiTom, string> = { bom: '#16a34a', atencao: '#d97706', ruim: '#dc2626', neutro: '#94a3b8' }
+const dm = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`
+const pctTxt = (v: number | null) => (v === null ? '—' : `${Math.round(v).toLocaleString('pt-BR')}%`)
+const brl = (v: number | null) => (v === null ? '—' : fmtBRLInt(v))
+const exato = (v: number | null) => (v === null ? undefined : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
+const COLS: { k: string; label: string; tip: string; left?: boolean }[] = [
+  { k: 'real', label: 'Realizado', tip: 'Receita das vendas do período (reembolsadas ficam de fora).' },
+  { k: 'meta', label: 'Meta', tip: 'Meta do mês cadastrada. Só aparece quando o período é um mês (do dia 1 em diante).' },
+  { k: 'gap', label: 'Gap', tip: 'Meta − Realizado. Positivo = falta para a meta; negativo (verde) = já passou da meta.' },
+  { k: 'pct', label: '% Meta', tip: 'Realizado ÷ Meta.' },
+  { k: 'tkt', label: 'Ticket médio', tip: 'Realizado ÷ número de vendas.' },
+  { k: 'proj', label: 'Projeção', tip: 'Mês corrente: a mesma projeção de fechamento da seção Forecast (o Total mostra o número dela; verticais e closers usam o mesmo fator sobre o que cada um já vendeu). Meses fechados: o realizado.' },
+  { k: 'pproj', label: 'Proj. %', tip: 'Projeção ÷ Meta. A cor da linha vem daqui: verde = bate a meta (100% ou mais), âmbar = 80 a 99%, vermelho = abaixo de 80%.' },
+  { k: 'vend', label: 'Vendas', tip: 'Quantidade de vendas.' },
+]
+interface Linha { key: string; nome: string; bruto: KpiBruto; avatar?: { src: string | null } | null; cor?: string }
+
+function Celulas({ b, p, f, ehTotal, cor, forte }: { b: KpiBruto; p: KpiPeriodo; f: KpiForecast | null; ehTotal?: boolean; cor: string; forte?: boolean }) {
+  const l = kpiLinha(b, p, f, ehTotal), tom = kpiTom(l), c = TOM[tom], semMeta = l.meta === null
+  return (
+    <>
+      <td data-c="real" title={exato(l.realizado)} className="kv-n kv-b">{brl(l.realizado)}</td>
+      <td data-c="meta" title={exato(l.meta)} className="kv-n">{brl(l.meta)}</td>
+      <td data-c="gap" title={exato(l.gap)} className="kv-n" style={{ color: l.gap !== null && l.gap < 0 ? TOM.bom : undefined, fontWeight: l.gap !== null && l.gap < 0 ? 800 : undefined }}>{l.gap === null ? '—' : l.gap < 0 ? `−${fmtBRLInt(-l.gap)}` : fmtBRLInt(l.gap)}</td>
+      <td data-c="pct" className="kv-n">{semMeta ? '—' : (
+        <span className="kv-pct"><span className="kv-bar" aria-hidden><i style={{ width: `${Math.min(l.pctMeta ?? 0, 100)}%`, background: c }} /></span><b style={{ color: forte ? undefined : c }}>{pctTxt(l.pctMeta)}</b></span>
+      )}</td>
+      <td data-c="tkt" title={exato(l.ticket)} className="kv-n">{brl(l.ticket)}</td>
+      <td data-c="proj" title={exato(l.projecao)} className="kv-n">{brl(l.projecao)}</td>
+      <td data-c="pproj" className="kv-n">{l.pctProjecao === null ? '—' : <span className="kv-pill" style={{ ['--kv-c' as any]: c }}>{pctTxt(l.pctProjecao)}</span>}</td>
+      <td data-c="vend" className="kv-n">{l.vendas.toLocaleString('pt-BR')}</td>
+    </>
+  )
+}
+function Tabela({ id, titulo, icone, cor, linhas, total, p, f, geral, vazio }: { id: string; titulo: string; icone: ReactNode; cor: string; linhas: Linha[]; total?: { nome: string; bruto: KpiBruto }; p: KpiPeriodo; f: KpiForecast | null; geral?: boolean; vazio?: string }) {
+  return (
+    <section className="vd-card vd-up kv-card" data-v="kpi-tabela" data-id={id} style={{ ['--kv-cor' as any]: cor }}>
+      <div className="kv-scroll vd-scroll">
+        <table className="kv-table">
+          <colgroup><col style={{ width: 230 }} />{[130, 130, 130, 180, 125, 140, 100, 90].map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
+          <thead>
+            <tr>
+              <th scope="col" className="kv-l kv-first"><span className="kv-tit">{icone}{titulo}</span></th>
+              {COLS.map(c => <th key={c.k} scope="col" title={c.tip} className="kv-n">{c.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.length === 0 && <tr><td colSpan={COLS.length + 1} className="kv-vazio">{vazio ?? 'Nenhuma venda neste período.'}</td></tr>}
+            {linhas.map(l => (
+              <tr key={l.key} data-row={l.key} className="vd-row">
+                <th scope="row" className="kv-l kv-first">
+                  <span className="kv-nome">{l.avatar ? <Avatar name={l.nome} src={l.avatar.src} size={30} /> : l.cor ? <i style={{ width: 9, height: 9, borderRadius: 99, background: l.cor, flexShrink: 0 }} /> : null}<span>{l.nome}</span></span>
+                </th>
+                <Celulas b={l.bruto} p={p} f={f} cor={cor} />
+              </tr>
+            ))}
+          </tbody>
+          {total && linhas.length > 0 && (
+            <tfoot>
+              <tr data-row="total" className="kv-total"><th scope="row" className="kv-l kv-first">{total.nome}</th><Celulas b={total.bruto} p={p} f={f} ehTotal={geral} cor={cor} forte /></tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </section>
+  )
+}
+
+export function KpiView({ periodo }: { periodo: Periodo | null }) {
+  const per = periodo ?? periodoPadrao()
+  const range = useMemo(() => periodoToRange(per), [per])
+  const [dados, setDados] = useState<KpiResposta | null>(null); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<string | null>(null)
+  const req = useRef(0)
+  useEffect(() => {
+    let vivo = true
+    const carregar = async (silencioso: boolean) => {
+      const my = ++req.current; if (!silencioso) { setCarregando(true); setErro(null) }
+      const r = await api<KpiResposta>('/api/admin/vendas/gerais/kpi' + qs(range))
+      if (!vivo || my !== req.current) return
+      setCarregando(false)
+      if (!r.ok) { if (!silencioso) setErro(r.error ?? 'Erro ao carregar o KPI.'); return }
+      setDados(r.data); setErro(null)
+    }
+    carregar(false)
+    const id = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState === 'visible') carregar(true) }, 60_000)      // venda nova entra sozinha
+    return () => { vivo = false; clearInterval(id) }
+  }, [range])
+
+  if (erro) return <Banner tipo="erro">{erro}</Banner>
+  if (!dados) return carregando ? <Skeleton linhas={7} /> : null
+  const p = dados.periodo, f = dados.forecast ?? null, tot = kpiLinha(dados.total, p, f, true), tom = kpiTom(tot)
+  return (
+    <div data-v="kpi-view" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      <style>{CSS}</style>
+      {dados.truncated && <Banner tipo="aviso">O período tem muitas vendas e os totais podem estar incompletos. Reduza o período.</Banner>}
+      {!p.comMeta && <Banner tipo="aviso">Meta, gap e projeção aparecem quando o período é um mês (começando no dia 1), porque as metas são mensais. Escolha “Este mês” ou “Mês passado”.</Banner>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
+        <Kpi dataV="kpi-realizado" label="Realizado" value={brl(tot.realizado)} icon={<Wallet size={22} />} cor="#16a34a" hint={`${tot.vendas.toLocaleString('pt-BR')} venda${tot.vendas === 1 ? '' : 's'} · ${dm(p.de)} a ${dm(p.ate)}`} />
+        <Kpi dataV="kpi-meta" label="Meta" value={brl(tot.meta)} icon={<Target size={22} />} cor="#6366f1" hint={tot.gap === null ? 'sem meta para este período' : tot.gap < 0 ? <>já passou <b style={{ color: TOM.bom }}>{fmtBRLInt(-tot.gap)}</b> · {pctTxt(tot.pctMeta)}</> : <>faltam <b>{fmtBRLInt(tot.gap)}</b> · {pctTxt(tot.pctMeta)} da meta</>} />
+        <Kpi dataV="kpi-projecao" label="Projeção" value={brl(tot.projecao)} icon={<Gauge size={22} />} cor={TOM[tom]} hint={tot.pctProjecao === null ? (p.comMeta ? 'sem projeção ainda' : '—') : <><b style={{ color: TOM[tom] }}>{pctTxt(tot.pctProjecao)}</b> da meta · {f ? 'mesma projeção do Forecast' : `${p.diasUteisDecorridos} de ${p.diasUteisTotal} dias úteis`}</>} />
+        <Kpi dataV="kpi-ticket" label="Ticket médio" value={brl(tot.ticket)} icon={<TrendingUp size={22} />} cor="#f59e0b" />
+      </div>
+
+      <Tabela id="operacao" titulo="Operação" icone={<Layers size={16} />} cor="var(--primary)" p={p} f={f} geral total={{ nome: 'Total', bruto: dados.total }}
+        linhas={dados.verticais.map(v => ({ key: v.id, nome: v.label, bruto: v, cor: verticalCor(v.id) }))} />
+      {dados.times.map(t => (
+        <Tabela key={t.team} id={t.team} titulo={t.label} icone={<UsersRound size={16} />} cor={teamCor(t.team)} p={p} f={f} total={{ nome: 'Total', bruto: t.total }}
+          vazio="Nenhum closer deste time com meta ou venda neste período."
+          linhas={t.closers.map(c => ({ key: c.id, nome: c.nome, bruto: c, avatar: { src: c.avatar_url } }))} />
+      ))}
+      {dados.outros.length > 0 && (
+        <Tabela id="outros" titulo="Outros canais" icone={<ShoppingBag size={16} />} cor="#94a3b8" p={p} f={f}
+          linhas={dados.outros.map(o => ({ key: o.id, nome: o.label, bruto: { realizado: o.realizado, vendas: o.vendas, meta: null } }))} />
+      )}
+      <p data-v="kpi-nota" style={{ margin: '-6px 2px 0', fontSize: 12.5, lineHeight: 1.55, color: 'var(--muted-foreground)' }}>
+        A cor vem da projeção: <b style={{ color: TOM.bom }}>verde</b> bate a meta (100% ou mais), <b style={{ color: TOM.atencao }}>âmbar</b> 80 a 99%, <b style={{ color: TOM.ruim }}>vermelho</b> abaixo de 80%. Operação, times e outros canais somam o total.
+      </p>
+    </div>
+  )
+}
+
+const CSS = `
+.kv-card{overflow:hidden;border-top:3px solid var(--kv-cor)}
+.kv-scroll{overflow-x:auto}
+.kv-table{width:100%;min-width:1225px;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:13.5px;font-variant-numeric:tabular-nums}
+.kv-table th,.kv-table td{padding:11px 14px;white-space:nowrap}
+.kv-table thead th{background:var(--kv-cor);color:#fff;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;text-align:right;cursor:help}
+.kv-table thead th.kv-l{text-align:left;cursor:default}
+.kv-table tbody td,.kv-table tbody th,.kv-table tfoot td,.kv-table tfoot th{border-bottom:1px solid var(--border)}
+.kv-table tbody tr:last-child td,.kv-table tbody tr:last-child th{border-bottom:0}
+.kv-n{text-align:right}.kv-l{text-align:left}.kv-b{font-weight:800}
+.kv-first{position:sticky;left:0;z-index:1;background:var(--card)}
+.kv-table thead .kv-first{background:var(--kv-cor);z-index:2}
+.kv-table tbody th{font-weight:700}
+.kv-tit{display:inline-flex;align-items:center;gap:8px;font-size:13px;letter-spacing:.06em}
+.kv-nome{display:inline-flex;align-items:center;gap:10px}
+.kv-total th,.kv-total td{background:color-mix(in srgb,var(--kv-cor) 14%,var(--card));font-weight:800;border-top:2px solid color-mix(in srgb,var(--kv-cor) 45%,var(--border));border-bottom:0!important}
+.kv-total .kv-first{background:color-mix(in srgb,var(--kv-cor) 14%,var(--card))}
+.kv-pct{display:inline-flex;align-items:center;gap:9px;justify-content:flex-end}
+.kv-bar{width:64px;height:7px;border-radius:99px;background:var(--secondary);overflow:hidden;display:inline-block}
+.kv-bar i{display:block;height:100%;border-radius:99px;transition:width .6s cubic-bezier(.2,.7,.2,1)}
+.kv-pct b{min-width:44px;text-align:right}
+.kv-pill{display:inline-block;min-width:54px;padding:3px 10px;border-radius:99px;font-weight:800;text-align:center;color:var(--kv-c);background:color-mix(in srgb,var(--kv-c) 13%,transparent)}
+.kv-vazio{text-align:center;padding:26px 14px!important;color:var(--muted-foreground)}
+@media (prefers-reduced-motion:reduce){.kv-bar i{transition:none}}
+`
