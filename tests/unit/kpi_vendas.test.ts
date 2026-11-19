@@ -1,0 +1,51 @@
+// Vendas Gerais → KPI estilo planilha. Rodar: node tests/unit/rodar.mjs
+import assert from 'node:assert/strict'
+import { diasUteis, kpiLinha, kpiTom, periodoKpi, somar, ultimoDiaDoMes } from '../../lib/vendas/kpi'
+
+let n = 0; const t = (nome: string, f: () => void) => { f(); n++; console.log('ok  ' + nome) }
+const perto = (a: number | null, b: number, eps = 0.01) => assert.ok(a !== null && Math.abs(a - b) < eps, `${a} ≠ ${b}`)
+
+t('dias úteis de novembro/2026: 21 no mês, 13 até 18/11 (a conta da planilha: 21 ÷ 13)', () => { assert.equal(diasUteis('2026-11-01', '2026-11-30'), 21); assert.equal(diasUteis('2026-11-01', '2026-11-18'), 13) })
+t('fim de semana não conta; data invertida = 0', () => { assert.equal(diasUteis('2026-11-14', '2026-11-15'), 0); assert.equal(diasUteis('2026-11-18', '2026-11-01'), 0) })
+t('último dia do mês', () => { assert.equal(ultimoDiaDoMes('2026-11'), '2026-11-30'); assert.equal(ultimoDiaDoMes('2028-02'), '2028-02-29') })
+t('período = mês inteiro ou "este mês" até hoje: tem meta; decorridos contam até hoje', () => {
+  const p = periodoKpi('2026-11-01', '2026-11-18', '2026-11-18'); assert.deepEqual([p.comMeta, p.mes, p.diasUteisTotal, p.diasUteisDecorridos], [true, '2026-11', 21, 13])
+  const q = periodoKpi('2026-11-01', '2026-11-30', '2026-11-18'); assert.deepEqual([q.comMeta, q.diasUteisDecorridos], [true, 13])
+})
+t('mês passado inteiro: decorridos = total (projeção = realizado)', () => { const p = periodoKpi('2026-10-01', '2026-10-31', '2026-11-18'); assert.equal(p.diasUteisDecorridos, p.diasUteisTotal); assert.equal(kpiLinha({ realizado: 500, vendas: 2, meta: 400 }, p).projecao, 500) })
+t('período que não começa no dia 1, ou passa de um mês: sem meta nem projeção', () => {
+  for (const [a, b] of [['2026-11-05', '2026-11-18'], ['2026-10-01', '2026-11-18'], ['2026-11-18', '2026-11-18']]) { const p = periodoKpi(a, b, '2026-11-18'); assert.equal(p.comMeta, false); const l = kpiLinha({ realizado: 100, vendas: 1, meta: 50 }, p); assert.deepEqual([l.meta, l.gap, l.pctMeta, l.projecao, l.pctProjecao], [null, null, null, null, null]); assert.equal(l.ticket, 100) }
+})
+t('bate com a planilha (Bruna Romie): 25.792,68 em 4 vendas, meta 728.000, 13 de 21 dias úteis', () => {
+  const l = kpiLinha({ realizado: 25792.68, vendas: 4, meta: 728000 }, periodoKpi('2026-11-01', '2026-11-30', '2026-11-18'))
+  perto(l.gap, 702207.32); perto(l.pctMeta, 3.54, 0.01); perto(l.ticket, 6448.17); perto(l.projecao, 41665.1, 0.5); perto(l.pctProjecao, 5.72, 0.01)
+})
+t('bate com a planilha (Rayane): passou da meta → gap negativo; 110%; projeção 178%', () => {
+  const l = kpiLinha({ realizado: 800554.15, vendas: 91, meta: 728000 }, periodoKpi('2026-11-01', '2026-11-30', '2026-11-18'))
+  perto(l.gap, -72554.15); perto(l.pctMeta, 109.97, 0.01); perto(l.pctProjecao, 177.7, 0.2)
+})
+t('sem meta cadastrada (0 ou null): só realizado, ticket e projeção em R$', () => {
+  for (const meta of [0, null]) { const l = kpiLinha({ realizado: 1000, vendas: 4, meta }, periodoKpi('2026-11-01', '2026-11-30', '2026-11-18')); assert.equal(l.meta, null); assert.equal(l.gap, null); assert.equal(l.pctProjecao, null); assert.ok(l.projecao! > 1000) }
+})
+t('sem vendas: ticket vazio; no dia 1 antes de qualquer dia útil decorrido a projeção não existe (nada de dividir por zero)', () => {
+  assert.equal(kpiLinha({ realizado: 0, vendas: 0, meta: 10 }, periodoKpi('2026-11-01', '2026-11-30', '2026-11-18')).ticket, null)
+  const p = periodoKpi('2026-11-01', '2026-11-30', '2026-11-01'); assert.equal(p.diasUteisDecorridos, 0); assert.equal(kpiLinha({ realizado: 0, vendas: 0, meta: 10 }, p).projecao, null)
+})
+t('somar: soma realizado, vendas e metas (meta null se ninguém tem)', () => {
+  const s = somar([{ realizado: 10.1, vendas: 1, meta: 100 }, { realizado: 20.2, vendas: 2, meta: null }, { realizado: 0, vendas: 0, meta: 50 }]); assert.deepEqual(s, { realizado: 30.3, vendas: 3, meta: 150 })
+  assert.equal(somar([{ realizado: 1, vendas: 1, meta: null }]).meta, null)
+})
+t('tom da linha: projeção ≥100 bom, 80–99 atenção, <80 ruim; sem projeção usa o % da meta', () => {
+  assert.equal(kpiTom({ pctMeta: 10, pctProjecao: 100 }), 'bom'); assert.equal(kpiTom({ pctMeta: 10, pctProjecao: 85 }), 'atencao'); assert.equal(kpiTom({ pctMeta: 90, pctProjecao: 79.9 }), 'ruim')
+  assert.equal(kpiTom({ pctMeta: 120, pctProjecao: null }), 'bom'); assert.equal(kpiTom({ pctMeta: null, pctProjecao: null }), 'neutro')
+})
+t('projeção do Forecast: o total mostra o número dela; vertical/closer usam o mesmo fator sobre o próprio realizado; sem meta não projeta', () => {
+  const p = periodoKpi('2026-11-01', '2026-11-30', '2026-11-18'), f = { projecao: 10085224, realizado: 5900557 }
+  assert.equal(kpiLinha({ realizado: 5900000, vendas: 10, meta: 11400000 }, p, f, true).projecao, 10085224)
+  perto(kpiLinha({ realizado: 1180000, vendas: 4, meta: 4000000 }, p, f).projecao, 1180000 * (10085224 / 5900557), 0.01)
+  perto(kpiLinha({ realizado: 5900000, vendas: 10, meta: 11400000 }, p, f, true).pctProjecao, 88.46, 0.01)       // = 100 − 11,5% do Forecast
+  assert.equal(kpiLinha({ realizado: 100, vendas: 1, meta: 50 }, p, { projecao: 1, realizado: 0 }).projecao, null)    // Forecast sem realizado: não divide por zero
+  const sem = periodoKpi('2026-11-05', '2026-11-18', '2026-11-18'); assert.equal(kpiLinha({ realizado: 100, vendas: 1, meta: 50 }, sem, f, true).projecao, null)   // período sem meta: nada
+  const antes = kpiLinha({ realizado: 25792.68, vendas: 4, meta: 728000 }, p); perto(antes.projecao, 41665.1, 0.5)   // sem Forecast: continua o ritmo por dias úteis
+})
+console.log(`\n${n} testes passaram`)

@@ -1,0 +1,118 @@
+'use client'
+import { useEffect, useMemo, useState } from 'react'
+import { buildMetaAno } from '@/lib/dashboard/metaAno'
+import { fmtMi } from '@/lib/dashboard/yoy'
+
+// ══ Meta do ano: uma régua só, de R$ 0 até o DESAFIO (72 mi), com a meta ESSENCIAL (60 mi) marcada a 83% do caminho ═══════════════════════
+// Até 60 mi o preenchimento é índigo→violeta (a marca); do 60 mi em diante ele continua dourado, na faixa mais clara que leva ao desafio.
+// Serve ao Forecast (tema do app, variáveis --foreground etc.) e ao Telão Completo (tema próprio: passe `vars`).
+const dec = (v: number, n: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: n, maximumFractionDigits: n })
+const pct = (v: number) => `${dec(v, v >= 100 ? 0 : 1)}%`
+/** "R$ 38,42 mi" quebrado em partes para o "R$" e a unidade ficarem menores que os dígitos. */
+function partes(v: number): { num: string; unit: string } {
+  const a = Math.abs(v)
+  if (a >= 1_000_000) return { num: dec(a / 1_000_000, 2), unit: 'mi' }
+  if (a >= 1000) return { num: dec(a / 1000, 1), unit: 'mil' }
+  return { num: dec(a, 0), unit: '' }
+}
+/** Marcos da régua: "R$ 60 mi" quando é número redondo (e não "R$ 60,00 mi"). */
+const marco = (v: number) => (v >= 1_000_000 && v % 1_000_000 === 0 ? `R$ ${v / 1_000_000} mi` : fmtMi(v))
+const dm = (today: string) => `${today.slice(8, 10)}/${today.slice(5, 7)}`
+
+export function MetaAnoCard({ realizado, today, erro, vars }: { realizado: number | null; today: string | null; erro?: boolean; vars?: React.CSSProperties }) {
+  const m = useMemo(() => (realizado === null || !today ? null : buildMetaAno(realizado, today)), [realizado, today])
+  const [pronto, setPronto] = useState(false)                                  // as barras nascem vazias e crescem até o valor (uma vez)
+  useEffect(() => { if (!m) return; const id = requestAnimationFrame(() => setPronto(true)); return () => cancelAnimationFrame(id) }, [m === null])        // eslint-disable-line react-hooks/exhaustive-deps
+  if (!m) {
+    return (
+      <section className="ma" data-testid="meta-ano" data-estado={erro ? 'erro' : 'carregando'} style={vars} aria-busy={!erro}>
+        <style>{CSS}</style>
+        <p className="ma-eyebrow">Meta do ano</p>
+        {erro ? <p className="ma-erro" role="alert">Não consegui carregar a receita do ano agora. Tentando de novo em instantes.</p> : <div className="ma-skel" />}
+      </section>
+    )
+  }
+  const v = partes(m.realizado), fill1 = Math.min(m.fillPct, m.markPct), fill2 = Math.max(m.fillPct - m.markPct, 0)
+  const bateuE = m.fase !== 'caminho', bateuD = m.fase === 'desafio'
+  return (
+    <section className="ma" data-testid="meta-ano" data-fase={m.fase} style={vars}>
+      <style>{CSS}</style>
+      <header className="ma-head">
+        <div className="ma-main">
+          <p className="ma-eyebrow">Meta do ano · {m.ano}</p>
+          <p className="ma-valor" data-k="realizado" title={m.realizado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}><small>R$</small> {v.num}{v.unit && <> <small>{v.unit}</small></>}</p>
+          <p className="ma-sub">vendido de 1º de janeiro até hoje</p>
+        </div>
+        <div className="ma-pcts">
+          <div className={`ma-pct${bateuE ? ' ok' : ''}`} data-k="pct-essencial"><b>{pct(m.pctEssencial)}</b><span>da meta essencial</span></div>
+          <div className={`ma-pct ma-pct2${bateuD ? ' ok' : ''}`} data-k="pct-desafio"><b>{pct(m.pctDesafio)}</b><span>do desafio</span></div>
+        </div>
+      </header>
+
+      <div className="ma-bar">
+        <span className={`ma-flag${bateuE ? ' ok' : ''}`} style={{ left: `${m.markPct}%` }} data-k="flag-essencial">{bateuE ? '✓ ' : ''}Essencial · {marco(m.essencial)}</span>
+        <div className="ma-track" role="progressbar" aria-valuemin={0} aria-valuemax={m.desafio} aria-valuenow={Math.round(Math.min(m.realizado, m.desafio))}
+          aria-valuetext={`${fmtMi(m.realizado)} vendidos: ${pct(m.pctEssencial)} da meta essencial de ${marco(m.essencial)} e ${pct(m.pctDesafio)} do desafio de ${marco(m.desafio)}`}>
+          <div className="ma-zone" style={{ left: `${m.markPct}%` }} aria-hidden />
+          <div className="ma-fill ma-f1" data-testid="meta-ano-fill" style={{ width: pronto ? `${fill1}%` : 0 }} />
+          {fill2 > 0 && <div className="ma-fill ma-f2" data-testid="meta-ano-fill2" style={{ left: `${m.markPct}%`, width: pronto ? `${fill2}%` : 0 }} />}
+          <i className="ma-mark" style={{ left: `${m.markPct}%` }} aria-hidden />
+          {m.fillPct > 0 && m.fillPct < 100 && <i className="ma-dot" style={{ left: pronto ? `${m.fillPct}%` : 0 }} aria-hidden />}
+        </div>
+        <div className="ma-scale"><span>R$ 0</span><span className={bateuD ? 'ok' : ''} data-k="rotulo-desafio">{bateuD ? '✓ ' : ''}Desafio · {marco(m.desafio)}</span></div>
+      </div>
+
+      <footer className="ma-foot">
+        {m.fase === 'caminho' && <span data-k="falta-essencial">Faltam <b>{fmtMi(m.faltaEssencial)}</b> para a essencial{m.porDiaEssencial !== null && <> · <b>{fmtMi(m.porDiaEssencial)}</b> por dia até 31/12</>}</span>}
+        {m.fase === 'essencial' && <span className="ok" data-k="essencial-batida">Meta essencial batida: <b>{fmtMi(m.realizado - m.essencial)}</b> acima</span>}
+        {m.fase === 'desafio' && <span className="ok" data-k="desafio-batido">Desafio batido: <b>{fmtMi(m.realizado - m.desafio)}</b> acima dos {marco(m.desafio)}</span>}
+        {m.fase !== 'desafio' && <span data-k="falta-desafio">Faltam <b>{fmtMi(m.faltaDesafio)}</b> para o desafio{m.fase === 'essencial' && m.porDiaDesafio !== null && <> · <b>{fmtMi(m.porDiaDesafio)}</b> por dia até 31/12</>}</span>}
+        <span className="ma-data">até {dm(today!)}</span>
+      </footer>
+    </section>
+  )
+}
+
+const CSS = `
+.ma{--ma-a:#4f46e5;--ma-b:#7c3aed;--ma-g1:#f59e0b;--ma-g2:#fcd34d;--ma-ok:#16a34a;
+  --ma-fg:var(--foreground,#111827);--ma-mute:var(--muted-foreground,#6b7280);--ma-line:var(--border,rgba(120,120,140,.28));--ma-bg:var(--card,#fff);--ma-trk:var(--secondary,rgba(120,120,140,.14));
+  position:relative;overflow:hidden;border-radius:22px;padding:22px clamp(16px,2.4vw,28px) 18px;color:var(--ma-fg);border:1px solid var(--ma-line);
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in srgb,var(--ma-a) 9%,transparent),transparent 58%),radial-gradient(90% 120% at 100% 100%,color-mix(in srgb,var(--ma-g1) 8%,transparent),transparent 60%),var(--ma-bg)}
+.ma-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px 28px;flex-wrap:wrap}
+.ma-main{min-width:0}
+.ma-eyebrow{margin:0 0 6px;font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--ma-mute)}
+.ma-valor{margin:0;font-size:clamp(34px,5vw,52px);font-weight:900;letter-spacing:-.045em;line-height:1;font-variant-numeric:tabular-nums}
+.ma-valor small{font-size:.42em;font-weight:800;letter-spacing:-.01em;color:var(--ma-mute);margin-right:2px}
+.ma-valor small:last-child{margin-left:1px}
+.ma-sub{margin:6px 0 0;font-size:12.5px;color:var(--ma-mute);font-weight:600}
+.ma-pcts{display:flex;gap:10px;flex-wrap:wrap}
+.ma-pct{display:flex;flex-direction:column;gap:2px;min-width:132px;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,var(--ma-a) 8%,var(--ma-bg));border:1px solid color-mix(in srgb,var(--ma-a) 22%,var(--ma-line))}
+.ma-pct b{font-size:24px;font-weight:900;letter-spacing:-.03em;line-height:1.05;font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--ma-a) 70%,var(--ma-fg))}
+.ma-pct span{font-size:11.5px;font-weight:700;color:var(--ma-mute)}
+.ma-pct2{background:color-mix(in srgb,var(--ma-g1) 9%,var(--ma-bg));border-color:color-mix(in srgb,var(--ma-g1) 30%,var(--ma-line))}
+.ma-pct2 b{color:color-mix(in srgb,var(--ma-g1) 62%,var(--ma-fg))}
+.ma-pct.ok{border-color:color-mix(in srgb,var(--ma-ok) 55%,var(--ma-line))}.ma-pct.ok b{color:color-mix(in srgb,var(--ma-ok) 70%,var(--ma-fg))}
+.ma-bar{position:relative;margin-top:46px}
+.ma-flag{position:absolute;bottom:calc(100% + 11px);transform:translateX(-100%);padding:3px 9px 3px 10px;border-radius:9px 9px 2px 9px;font-size:11.5px;font-weight:800;white-space:nowrap;color:#fff;background:linear-gradient(135deg,var(--ma-a),var(--ma-b));box-shadow:0 6px 14px -8px color-mix(in srgb,var(--ma-a) 80%,transparent)}
+.ma-flag.ok{background:linear-gradient(135deg,#15803d,var(--ma-ok))}
+.ma-track{position:relative;height:16px;border-radius:999px;background:var(--ma-trk);box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
+.ma-zone{position:absolute;top:0;bottom:0;right:0;border-radius:0 999px 999px 0;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--ma-g1) 24%,transparent) 0 6px,color-mix(in srgb,var(--ma-g1) 7%,transparent) 6px 12px)}
+.ma-fill{position:absolute;top:0;bottom:0;left:0;border-radius:999px;transition:width 1.1s cubic-bezier(.22,.8,.24,1)}
+.ma-f1{background:linear-gradient(90deg,var(--ma-a),var(--ma-b));box-shadow:0 0 14px -2px color-mix(in srgb,var(--ma-b) 65%,transparent)}
+.ma-f2{border-radius:0 999px 999px 0;background:linear-gradient(90deg,var(--ma-g1),var(--ma-g2));box-shadow:0 0 14px -2px color-mix(in srgb,var(--ma-g1) 70%,transparent)}
+.ma-fill::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(255,255,255,.34),transparent 55%)}
+.ma-mark{position:absolute;top:-6px;bottom:-6px;width:2px;margin-left:-1px;border-radius:2px;background:var(--ma-fg);opacity:.78}
+.ma-dot{position:absolute;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:#fff;border:4px solid var(--ma-b);box-shadow:0 3px 10px rgba(0,0,0,.28);transition:left 1.1s cubic-bezier(.22,.8,.24,1);animation:ma-pulse 2.6s ease-in-out infinite}
+.ma[data-fase=essencial] .ma-dot,.ma[data-fase=desafio] .ma-dot{border-color:var(--ma-g1)}
+@keyframes ma-pulse{0%,100%{box-shadow:0 3px 10px rgba(0,0,0,.28),0 0 0 0 color-mix(in srgb,var(--ma-b) 45%,transparent)}50%{box-shadow:0 3px 10px rgba(0,0,0,.28),0 0 0 9px transparent}}
+.ma-scale{display:flex;justify-content:space-between;gap:10px;margin-top:9px;font-size:11.5px;font-weight:800;color:var(--ma-mute)}
+.ma-scale .ok,.ma-foot .ok{color:color-mix(in srgb,var(--ma-ok) 78%,var(--ma-fg))}
+.ma-foot{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 22px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--ma-line);font-size:13px;color:var(--ma-mute);font-weight:600}
+.ma-foot b{color:var(--ma-fg);font-weight:800;font-variant-numeric:tabular-nums}
+.ma-data{margin-left:auto;font-size:11.5px;opacity:.85}
+.ma-skel{height:132px;border-radius:16px;background:var(--ma-trk);animation:ma-shim 1.4s ease-in-out infinite}
+@keyframes ma-shim{0%,100%{opacity:.55}50%{opacity:1}}
+.ma-erro{margin:6px 0 0;font-size:13px;color:var(--ma-mute)}
+@media(max-width:640px){.ma{border-radius:18px}.ma-pcts{width:100%;flex-wrap:nowrap}.ma-pct{min-width:0;flex:1 1 0}.ma-data{margin-left:0}.ma-bar{margin-top:48px}}
+@media(prefers-reduced-motion:reduce){.ma-fill,.ma-dot{transition:none;animation:none}.ma-skel{animation:none}}
+`

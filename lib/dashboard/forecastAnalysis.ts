@@ -118,8 +118,18 @@ export async function computeForecastLive(admin: any, since?: string | null) {
     queryLinks(admin, 'id, deal_id, deal_value, generated_at',
       q => q.is('converted_at', null).is('superseded_by_link_id', null).is('dismissed_at', null)
         .gt('expires_at', nowIso).gte('generated_at', validFrom)),
-    admin.from('telao_events').select('value, vertical, sale_type, occurred_at')
-      .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd).limit(999999),
+    // vendas do mês em páginas de 1.000: o banco corta qualquer leitura em 1.000 linhas e ignora .limit(999999) (o "já realizado" ficava menor que o real)
+    (async () => {
+      const rows: any[] = []
+      for (let a = 0; ; a += 1000) {
+        const r = await admin.from('telao_events').select('value, vertical, sale_type, occurred_at')
+          .eq('event_type', 'sale').gte('occurred_at', mStart).lte('occurred_at', mEnd).order('id', { ascending: true }).range(a, a + 999)
+        if (r.error) return { data: null, error: r.error }
+        rows.push(...(r.data ?? []))
+        if (!r.data || r.data.length < 1000) break
+      }
+      return { data: rows, error: null as any }
+    })(),
     admin.from('company_goals').select('scope, goal_value').eq('month', monthKey),
     admin.from('closer_goals').select('goal_sales').eq('month', monthKey),
   ])

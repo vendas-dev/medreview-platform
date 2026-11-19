@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/client'
 import { VERTICALS, GOLD, VerticalId, Closer } from '@/lib/telao/types'
 import { fmtBRL, monthKey, todayKey } from '@/lib/telao/format'
 import * as A from '@/lib/telao/analytics'
+import { MetaAnoCard } from '@/components/dashboard/MetaAnoCard'
+import { realizadoDoAno } from '@/lib/dashboard/metaAno'
 import {
   CountUp, TrendBadge, PaceThermometer, Clock, Ticker, MoneyLeftOnTable, Celebration, GoalCelebration, MonthGoalCelebration, CloserGoalCelebration,
   initAudio, loadCelebratedGoals, persistCelebratedGoal,
@@ -332,57 +334,45 @@ function RegionPanel({ th, uf, accent }: { th: Th; uf: ReturnType<typeof A.byUF>
   )
 }
 
-// ══ Forma de pagamento: à vista × parcelado + formas mais usadas ═══════════════
-// Todas as % saem da receita TOTAL do período, e a lista termina em "Demais formas" +
-// "Sem forma informada" — então as linhas sempre fecham em 100% (nada some em silêncio).
-const PAY_ROW_COLOR: Record<A.PayRow['kind'], string> = { avista: '#22c55e', parcelado: '#8b5cf6', outras: '#94a3b8', 'sem-info': '#64748b' }
-// Cor por forma + modalidade: à vista = tom cheio, parcelado = tom claro da MESMA cor (Pix verde, Boleto âmbar, Cartão roxo; as demais formas ganham cor própria)
-const METHOD_TONES: Record<string, [string, string]> = { Pix: ['#22c55e', '#86efac'], Boleto: ['#f59e0b', '#fcd34d'], 'Cartão': ['#8b5cf6', '#c4b5fd'] }
-const EXTRA_METHODS = ['NuPay', 'Apple Pay', 'Google Pay', 'PayPal', 'Pagamento híbrido', 'Saldo Hotmart', 'Dinheiro']
-const EXTRA_TONES: [string, string][] = [['#06b6d4', '#67e8f9'], ['#ec4899', '#f9a8d4'], ['#14b8a6', '#5eead4'], ['#f97316', '#fdba74'], ['#3b82f6', '#93c5fd'], ['#a3e635', '#d9f99d'], ['#e879f9', '#f0abfc']]
-const payColor = (method: string, kind: 'avista' | 'parcelado'): string => {
-  const i = EXTRA_METHODS.indexOf(method)
-  const tone = METHOD_TONES[method] ?? EXTRA_TONES[(i >= 0 ? i : [...method].reduce((a, c) => a + c.charCodeAt(0), 0)) % EXTRA_TONES.length]
-  return kind === 'avista' ? tone[0] : tone[1]
-}
+// ══ Forma de pagamento em 3 categorias: à vista · parcelamentos de cartões · boletos bancários ═══════════════
+// Todas as % saem da receita TOTAL do período; "Sem forma informada" só aparece se existir — então as linhas sempre fecham em 100% (nada some em silêncio).
+// A regra de qual venda cai em qual categoria está em lib/telao/analytics.ts (payGroupOf).
+const PAYG_COLOR: Record<A.PayGroupId, string> = { avista: '#22c55e', 'cartao-parcelado': '#8b5cf6', boleto: '#f59e0b' }
 const pctFmt = (v: number) => `${v.toFixed(v >= 10 || v === 0 ? 0 : 1)}%`
-function PaymentPanel({ th, ps, pay, accent }: { th: Th; ps: A.PayStructure; pay: ReturnType<typeof A.byPayment>; accent: string }) {
-  const base = Math.max(ps.total, 1)
-  const bd = useMemo(() => A.payBreakdown(ps, 99), [ps])
-  const noInfo = ps.unknown.revenue > 0.005
-  const cards = [
-    { id: 'avista', label: 'À vista', color: '#22c55e', rev: ps.avista.revenue, n: ps.avista.count, note: 'pagamento integral, de uma vez (Pix, boleto ou cartão em 1x)' },
-    { id: 'parcelado', label: 'Parcelado', color: '#8b5cf6', rev: ps.parcelado.revenue, n: ps.parcelado.count, note: ps.parcelado.avgInstallments ? `média de ${ps.parcelado.avgInstallments.toFixed(1)} parcelas` : 'Pix, boleto ou cartão em 2x ou mais' },
-  ]
+function PaymentPanel({ th, pg, accent }: { th: Th; pg: A.PayGrouped; accent: string }) {
+  const base = Math.max(pg.total, 1)
+  const noInfo = pg.unknown.revenue > 0.005
+  const cards = pg.groups.map(g => ({ id: g.id, label: g.label, color: PAYG_COLOR[g.id], rev: g.revenue, n: g.count, note: g.id === 'cartao-parcelado' && g.avgInstallments ? `média de ${g.avgInstallments.toFixed(1)} parcelas` : g.note }))
   const lab: React.CSSProperties = { margin: '0 0 8px', fontSize: 9.5, fontWeight: 900, color: th.muted, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.1em' }
-  const donutSlices = [...ps.groups.map(g => ({ id: g.id, label: g.label, color: payColor(g.method, g.kind), value: g.revenue })), ...(noInfo ? [{ id: 'nd', label: 'Não informado', color: '#64748b', value: ps.unknown.revenue }] : [])]
-  const donutTop = [...donutSlices].sort((x, y) => y.value - x.value)[0]
+  const slices = [...cards.map(c => ({ id: c.id, label: c.label, color: c.color, value: c.rev })), ...(noInfo ? [{ id: 'nd', label: 'Sem forma informada', color: '#64748b', value: pg.unknown.revenue }] : [])]
+  const top = [...slices].sort((x, y) => y.value - x.value)[0]
   return (
     <Panel th={th} title="Forma de pagamento" accent={accent} className="tc-s6" id="pagamento"
-      sub={noInfo ? `${ps.coveragePct.toFixed(0)}% da receita tem forma informada · o resto aparece como "Sem forma informada"` : '100% da receita com forma de pagamento informada'}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10, marginBottom: 10 }}>
+      sub={noInfo ? `${pg.coveragePct.toFixed(0)}% da receita tem forma informada · o resto aparece como "Sem forma informada"` : '100% da receita com forma de pagamento informada'}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(168px,1fr))', gap: 10, marginBottom: 10 }}>
         {cards.map(c => (
-          <div key={c.id} data-pay={c.id} style={{ padding: '11px 14px', borderRadius: 14, background: `${c.color}14`, border: `1px solid ${c.color}40` }}>
+          <div key={c.id} data-pay={c.id} style={{ padding: '11px 14px', borderRadius: 14, background: `${c.color}14`, border: `1px solid ${c.color}40`, minWidth: 0 }}>
             <span style={{ fontSize: 10, fontWeight: 900, color: c.color, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '.08em' }}>{c.label}</span>
             <p style={{ margin: '4px 0 0', fontSize: 22, fontWeight: 900, color: th.text, fontFamily: SANS, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(c.rev)}</p>
-            <p style={{ margin: '2px 0 0', fontSize: 10.5, color: th.soft, fontFamily: MONO }}><strong data-pct style={{ color: c.color }}>{pctFmt((c.rev / base) * 100)}</strong> · {c.n.toLocaleString('pt-BR')} vendas · {c.note}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 10.5, color: th.soft, fontFamily: MONO }}><strong data-pct style={{ color: c.color }}>{pctFmt((c.rev / base) * 100)}</strong> · {c.n.toLocaleString('pt-BR')} vendas</p>
+            <p style={{ margin: '2px 0 0', fontSize: 10, color: th.soft, fontFamily: MONO, lineHeight: 1.35 }}>{c.note}</p>
           </div>
         ))}
       </div>
       <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: th.track, marginBottom: noInfo ? 6 : 14 }}>
-        {[...cards.map(c => ({ id: c.id, color: c.color, rev: c.rev })), ...(noInfo ? [{ id: 'nd', color: '#64748b', rev: ps.unknown.revenue }] : [])].map(c => <motion.div key={c.id} initial={{ width: 0 }} animate={{ width: `${(c.rev / base) * 100}%` }} transition={{ duration: 0.8, ease: 'easeOut' }} style={{ background: c.color }} />)}
+        {slices.map(c => <motion.div key={c.id} initial={{ width: 0 }} animate={{ width: `${(c.value / base) * 100}%` }} transition={{ duration: 0.8, ease: 'easeOut' }} style={{ background: c.color }} />)}
       </div>
-      {noInfo && <p data-pay-noinfo style={{ margin: '0 0 12px', fontSize: 10.5, color: th.soft, fontFamily: MONO }}>⚪ Sem forma informada: <strong style={{ color: th.text }}>{fmtBRL(ps.unknown.revenue)}</strong> ({pctFmt((ps.unknown.revenue / base) * 100)}) · {ps.unknown.count} vendas — não dá pra classificar como à vista ou parcelado</p>}
+      {noInfo && <p data-pay-noinfo style={{ margin: '0 0 12px', fontSize: 10.5, color: th.soft, fontFamily: MONO }}>⚪ Sem forma informada: <strong style={{ color: th.text }}>{fmtBRL(pg.unknown.revenue)}</strong> ({pctFmt((pg.unknown.revenue / base) * 100)}) · {pg.unknown.count} vendas — não dá pra classificar nas 3 categorias</p>}
       <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start', flexWrap: 'wrap', flex: 1 }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-          <Donut th={th} size={128} centerTop={donutTop ? `${((donutTop.value / base) * 100).toFixed(0)}%` : '—'} centerBottom={donutTop ? donutTop.label : 'sem dados'} slices={donutSlices} />
-          <Legend th={th} items={donutSlices.map(i => ({ id: i.id, label: `${i.label} · ${fmtCompact(i.value).replace('R$ ', '')}`, color: i.color }))} />
+          <Donut th={th} size={128} centerTop={top && top.value > 0 ? `${((top.value / base) * 100).toFixed(0)}%` : '—'} centerBottom={top && top.value > 0 ? top.label : 'sem dados'} slices={slices} />
+          <Legend th={th} items={slices.map(i => ({ id: i.id, label: `${i.label} · ${fmtCompact(i.value).replace('R$ ', '')}`, color: i.color }))} />
         </div>
         <div style={{ flex: 1, minWidth: 230 }}>
-          <p style={lab}>Formas mais usadas · % da receita do período</p>
-          <HBars th={th} color={accent} items={bd.rows.map(r => ({ label: r.label, value: r.revenue, sub: `${pctFmt((r.revenue / base) * 100)} · ${r.count} vendas`, color: r.method && (r.kind === 'avista' || r.kind === 'parcelado') ? payColor(r.method, r.kind) : PAY_ROW_COLOR[r.kind] }))} />
+          <p style={lab}>Por categoria · % da receita do período</p>
+          <HBars th={th} color={accent} items={slices.map(r => ({ label: r.label, value: r.value, sub: `${pctFmt((r.value / base) * 100)}${r.id === 'nd' ? ` · ${pg.unknown.count} vendas` : ` · ${cards.find(c => c.id === r.id)!.n} vendas`}`, color: r.color }))} />
           <div data-pay-total style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${th.border}`, fontFamily: MONO, fontSize: 11, fontWeight: 800, color: th.text }}>
-            <span>= Total do período</span><span>{fmtBRL(bd.total)} · 100%</span>
+            <span>= Total do período</span><span>{fmtBRL(pg.total)} · 100%</span>
           </div>
         </div>
       </div>
@@ -626,9 +616,9 @@ function TelaoCompletoInner() {
   const cumKind = useMemo(() => A.cumulativeBy(cur, range, T, s => s.kind, ['nova', 'recorrencia', 'evento'] as const), [cur, range, T])
   const cumChan = useMemo(() => A.cumulativeBy(cur, range, T, s => s.channel, ['closer', 'self', 'embaixador'] as const), [cur, range, T])
   const uf = useMemo(() => A.byUF(cur), [cur])
-  const pay = useMemo(() => A.byPayment(cur), [cur])
   const prods = useMemo(() => A.topProducts(cur, 6), [cur])
-  const payS = useMemo(() => A.payStructure(cur), [cur])
+  const payG = useMemo(() => A.payGrouped(cur), [cur])
+  const realizadoAno = useMemo(() => (today ? realizadoDoAno(sales, +today.slice(0, 4), A.VERT_IDS) : null), [sales, today])        // meta do ano: sempre a empresa toda (não segue a aba nem o período)
   const toggleKind = (id: string) => setOffKinds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const cmpLabel = compareLabel(preset)
@@ -690,6 +680,10 @@ function TelaoCompletoInner() {
           <div data-loading style={{ height: 220, borderRadius: 24, background: th.card, border: `1px solid ${th.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: th.muted, fontFamily: MONO, fontSize: 12 }}>Carregando o histórico de vendas…</div>
         ) : (<>
           <Hero th={th} accent={accent} panel={panel} sum={sum} prev={prevSum} pace={pace} rangeLabel={rangeLabel} cmpLabel={cmpLabel} />
+
+          <MetaAnoCard realizado={realizadoAno} today={today || null} variant="telao" vars={th.dark
+            ? { fontFamily: SANS, ['--tc-mono' as any]: MONO, ['--tc-t' as any]: th.text, ['--tc-m' as any]: th.muted, ['--tc-eye' as any]: '#c084fc', ['--tc-ok' as any]: '#4ade80', ['--tc-num' as any]: accent, ['--tc-p1' as any]: '#d8b4fe', ['--tc-p2' as any]: '#fcd34d', ['--tc-trk' as any]: th.track, ['--tc-fa' as any]: '#6d28d9', ['--tc-fb' as any]: '#a855f7', ['--tc-fc' as any]: '#d8b4fe', ['--tc-bg' as any]: 'linear-gradient(135deg,rgba(88,28,135,.35),rgba(59,7,100,.25),rgba(15,3,25,.4))', ['--tc-br' as any]: '1px solid rgba(168,85,247,.25)', ['--tc-sh' as any]: '0 0 60px rgba(88,28,135,.2),inset 0 1px 0 rgba(255,255,255,.06)', ['--tc-glow' as any]: `${accent}22`, ['--tc-pill' as any]: 'rgba(168,85,247,.16)', ['--tc-pillb' as any]: 'rgba(192,132,252,.34)', ['--tc-line' as any]: th.border }
+            : { fontFamily: SANS, ['--tc-mono' as any]: MONO, ['--tc-t' as any]: th.text, ['--tc-m' as any]: th.muted, ['--tc-eye' as any]: '#7c3aed', ['--tc-ok' as any]: '#15803d', ['--tc-num' as any]: accent, ['--tc-p1' as any]: '#6d28d9', ['--tc-p2' as any]: '#b45309', ['--tc-trk' as any]: th.track, ['--tc-fa' as any]: '#7c3aed', ['--tc-fb' as any]: '#a855f7', ['--tc-fc' as any]: '#c084fc', ['--tc-bg' as any]: 'linear-gradient(135deg,rgba(196,181,253,.55),rgba(233,213,255,.65),rgba(255,255,255,.5))', ['--tc-br' as any]: '1px solid rgba(139,92,246,.35)', ['--tc-sh' as any]: '0 8px 32px rgba(139,92,246,.18),inset 0 1px 0 rgba(255,255,255,.5)', ['--tc-glow' as any]: `${accent}33`, ['--tc-pill' as any]: 'rgba(139,92,246,.12)', ['--tc-pillb' as any]: 'rgba(139,92,246,.3)', ['--tc-line' as any]: th.border }} />
 
           <div className="tc-grid">
             <Panel th={th} title="Receita acumulada" accent={accent} className="tc-s8" id="acumulado"
@@ -755,7 +749,7 @@ function TelaoCompletoInner() {
             <GoalsPanel th={th} goals={goalsMap} sales={sales} panel={panel} today={today} accent={accent} />
             <HeatPanel th={th} heat={heat} accent={accent} />
 
-            <PaymentPanel th={th} ps={payS} pay={pay} accent={accent} />
+            <PaymentPanel th={th} pg={payG} accent={accent} />
             <RankingPanel th={th} heat={heat} accent={accent} />
 
             <RegionPanel th={th} uf={uf} accent={accent} />

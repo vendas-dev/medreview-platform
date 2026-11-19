@@ -1,10 +1,12 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDownUp, BarChart3, Layers, SearchX, ShoppingBag, Store, Table2, TrendingUp, Undo2, UsersRound, Wallet } from 'lucide-react'
+import { ArrowDownUp, BarChart3, Gauge, Layers, SearchX, ShoppingBag, Store, Table2, TrendingUp, Undo2, UsersRound, Wallet } from 'lucide-react'
 import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
 import { BuscaVendas } from '@/components/vendas/BuscaVendas'
 import { CanalTag, GeraisTable } from '@/components/vendas/GeraisTable'
 import { Banner, Btn, FilterBar, Kpi, Legenda, PageHeader, Select, Skeleton, VendasStyle } from '@/components/vendas/ui'
+import { VisaoSwitch } from '@/components/vendas/VisaoSwitch'
+import { KpiView } from '@/components/vendas/KpiView'
 import { api, qs } from '@/lib/vendas/client'
 import { VERTICAIS_ATIVAS, fmtBRL, teamCor, verticalCor, verticalLabel } from '@/lib/vendas/format'
 import { ABAS, CANAIS, textoCor, tokensDaBusca, type AbaId, type VendaGeral } from '@/lib/vendas/gerais'
@@ -20,6 +22,7 @@ const corAba = (a: AbaId) => (a === 'geral' ? 'var(--primary)' : verticalCor(a))
 /** Superadmin: a tabela geral de TODAS as vendas (Self-Checkout, Imparáveis e Embaixadores), mais uma tabela por vertical. Filtros: período, vertical, time, canal e ordem; busca em qualquer dado. */
 export function GeraisClient() {
   const [periodo, setPeriodo] = useState<Periodo | null>(() => periodoPadrao()); const [vertical, setVertical] = useState('todas'); const [team, setTeam] = useState('todos'); const [canal, setCanal] = useState('todos'); const [ordem, setOrdem] = useState('recentes')
+  const [visao, setVisao] = useState<'kpi' | 'tabela'>('kpi')                           // as duas abas do topo: KPI (placar estilo planilha) e Tabela de Vendas (a lista com busca)
   const [busca, setBusca] = useState(''); const buscaDeb = useDebounced(busca, 300); const [soReemb, setSoReemb] = useState(false)
   const [aba, setAba] = useState<AbaId>('geral'); const [pageSize, setPageSize] = useState(25); const [pg, setPg] = useState<{ chave: string; n: number }>({ chave: '', n: 1 })
   const [dados, setDados] = useState<Pagina | null>(null); const [carregando, setCarregando] = useState(true); const [erro, setErro] = useState<string | null>(null)
@@ -35,9 +38,10 @@ export function GeraisClient() {
   const limpar = () => { setPeriodo(periodoPadrao()); setVertical('todas'); setTeam('todos'); setCanal('todos'); setOrdem('recentes'); setBusca(''); setAba('geral'); setSoReemb(false) }
 
   useEffect(() => {                                                                  // totais das abas: não dependem da aba, da ordem nem da página
+    if (visao !== 'tabela') return
     const my = ++reqResumo.current; setCarregandoResumo(true)
     api<Resumo>('/api/admin/vendas/gerais/resumo' + qs(base)).then(r => { if (my !== reqResumo.current) return; setCarregandoResumo(false); if (r.ok) setResumo(r.data) })
-  }, [base])
+  }, [base, visao])
   const carregar = useCallback(async () => {
     const my = ++reqLinhas.current; setCarregando(true); setErro(null)
     const r = await api<Pagina>('/api/admin/vendas/gerais' + qs({ ...base, aba: aba === 'geral' ? '' : aba, ordem: ordem === 'recentes' ? '' : ordem, page: pagina > 1 ? pagina : '', pageSize: pageSize === 25 ? '' : pageSize, reembolsadas: soReemb ? '1' : '' }))      // o filtro "Só reembolsadas" vale só para a TABELA; os totais (resumo) seguem sem as reembolsadas
@@ -46,7 +50,7 @@ export function GeraisClient() {
     if (!r.ok) { setErro(r.error ?? 'Erro ao carregar as vendas.'); return }
     setDados(r.data)
   }, [base, aba, ordem, pagina, pageSize, soReemb])
-  useEffect(() => { carregar() }, [carregar])
+  useEffect(() => { if (visao === 'tabela') carregar() }, [carregar, visao])
 
   const mudarVertical = (v: string) => { setVertical(v); if (v !== 'todas' && aba !== 'geral' && aba !== v) setAba('geral') }
   const irParaPagina = (n: number) => { setPg({ chave, n }); tabelaRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }
@@ -57,6 +61,18 @@ export function GeraisClient() {
     <div className="vd" style={{ padding: '36px clamp(16px, 3vw, 40px) 64px', maxWidth: 1640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 26 }}>
       <VendasStyle />
       <PageHeader icon={<Table2 size={26} />} title="Vendas Gerais" subtitle="Todas as vendas da operação numa tabela só — Self-Checkout, Imparáveis (closers) e Embaixadores — e uma tabela para cada vertical. Pesquise por qualquer dado." />
+      <VisaoSwitch name="Visão de Vendas Gerais" value={visao} onChange={v => setVisao(v as 'kpi' | 'tabela')} items={[
+        { value: 'kpi', titulo: 'KPI', icone: <Gauge size={18} /> },
+        { value: 'tabela', titulo: 'Tabela de Vendas', icone: <Table2 size={18} /> },
+      ]} />
+      {visao === 'kpi' ? (
+        <>
+          <FilterBar ativo={periodo?.key !== 'mes'} onClear={() => setPeriodo(periodoPadrao())}>
+            <PeriodoFilter value={periodo} onChange={p => setPeriodo(p ?? periodoPadrao())} padrao={periodoPadrao()} />
+          </FilterBar>
+          <KpiView periodo={periodo} />
+        </>
+      ) : (<>
       <BuscaVendas value={busca} onChange={setBusca} carregando={busy}
         resultado={busca.trim() && atual ? <><strong data-v="busca-resultado-n" style={{ color: 'var(--foreground)' }}>{atual.vendas}</strong> venda{atual.vendas === 1 ? '' : 's'} · <strong style={{ color: 'var(--foreground)' }}>{fmtBRL(atual.valor)}</strong></> : null} />
       <FilterBar ativo={filtroAtivo} onClear={limpar}>
@@ -112,6 +128,7 @@ export function GeraisClient() {
             </div>} />
         </div>
       )}
+      </>)}
     </div>
   )
 }

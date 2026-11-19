@@ -54,10 +54,22 @@ export function buildTable(d: YoYData): TableRow[] {
 //   situação     = já igualou (falta 0) · no caminho (exigência ≤ 100%: repetindo o resto de 2025 já iguala) · atenção (até 115%) · precisa acelerar (acima de 115%)
 export type Status = 'batido' | 'ok' | 'atencao' | 'acelerar' | 'semBase'      // semBase: o ano passado não vendeu nada neste mês (não há o que igualar nem com o que comparar)
 export const LIMITE_ATENCAO = 100, LIMITE_ACELERAR = 115
-export interface Pico { day: number; valor: number; share: number; wd: string }
+/** Dias fortes DESTE ano (chave "AAAA-MM"), quando eles não caem nas mesmas datas do ano passado. Black Friday 2026 = sexta 27/11 (27, 28 e 29 = sex, sáb, dom);
+ *  em 2025 o mesmo fim de semana foi 28, 29 e 30. Cada dia forte é comparado com o dia do ano passado que caiu no MESMO dia da semana (27/11 sex ↔ 28/11/2025 sex).
+ *  Mês sem entrada aqui: os dias fortes continuam sendo os 3 de maior receita do mesmo mês do ano passado. */
+export const DIAS_FORTES: Record<string, number[]> = { '2026-11': [27, 28, 29] }
+/** O dia do ano passado que corresponde a `day` deste ano: para um dia forte configurado, o que caiu no mesmo dia da semana (o mais próximo); nos demais, a mesma data. */
+export function diaPar(d: Pick<YoYData, 'month' | 'yearCur' | 'yearPrev' | 'daysInMonth'>, day: number): number {
+  const fortes = DIAS_FORTES[d.month]; if (!fortes || !fortes.includes(day)) return day
+  const m1 = +d.month.slice(5), w = new Date(Date.UTC(d.yearCur, m1 - 1, day)).getUTCDay()
+  let best = day, bestDist = Infinity
+  for (let q = 1; q <= d.daysInMonth.prev; q++) { if (new Date(Date.UTC(d.yearPrev, m1 - 1, q)).getUTCDay() !== w) continue; const dist = Math.abs(q - day); if (dist < bestDist) { best = q; bestDist = dist } }
+  return best
+}
+export interface Pico { day: number; valor: number; share: number; wd: string; dayPrev?: number; wdPrev?: string }
 /** Os dias de MAIOR receita do mês inteiro do ano passado, com a % FIXA (dia ÷ receita do mês inteiro: nunca muda com o passar dos dias). quando = em relação a hoje. */
 export type Quando = 'passou' | 'hoje' | 'vem'
-export interface PicoMes extends Pico { quando: Quando }
+export interface PicoMes extends Pico { quando: Quando; dayPrev: number; wdPrev: string }
 export interface Route {
   key: 'total' | VKey; label: string; status: Status
   accPrev: number; accCur: number; fechPrev: number; falta: number; restoPrev: number; diasRestantes: number
@@ -76,8 +88,10 @@ export function buildRoute(d: YoYData, key: 'total' | VKey): Route {
   const accPrev = keys.reduce((s, k) => s + sum(d.prev[k], 0, D), 0), accCur = keys.reduce((s, k) => s + sum(d.cur[k], 0, D), 0), fechPrev = keys.reduce((s, k) => s + sum(d.prev[k]), 0)
   const restoPrev = keys.reduce((s, k) => s + sum(d.prev[k], D, Nc), 0), falta = Math.max(fechPrev - accCur, 0), dias = Math.max(Nc - D, 0)
   const { status, exigencia } = fechPrev > 0 ? statusOf(falta, restoPrev) : { status: 'semBase' as Status, exigencia: null }
-  const picos: Pico[] = []
-  for (let day = D + 1; day <= Math.min(Nc, d.daysInMonth.prev); day++) { const valor = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0); if (valor > 0) picos.push({ day, valor, share: restoPrev > 0 ? valor / restoPrev * 100 : 0, wd: wd(d.yearCur, m1, day) }) }
+  const picos: Pico[] = [], fortes = DIAS_FORTES[d.month]
+  if (fortes) {      // os dias fortes deste ano que ainda vêm, cada um com o valor do dia equivalente do ano passado
+    for (const day of fortes) { if (day <= D || day > Nc) continue; const dp = diaPar(d, day), valor = keys.reduce((s, k) => s + (d.prev[k][dp - 1] || 0), 0); if (valor > 0) picos.push({ day, valor, share: restoPrev > 0 ? valor / restoPrev * 100 : 0, wd: wd(d.yearCur, m1, day), dayPrev: dp, wdPrev: wd(d.yearPrev, m1, dp) }) }
+  } else for (let day = D + 1; day <= Math.min(Nc, d.daysInMonth.prev); day++) { const valor = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0); if (valor > 0) picos.push({ day, valor, share: restoPrev > 0 ? valor / restoPrev * 100 : 0, wd: wd(d.yearCur, m1, day) }) }
   picos.sort((a, b) => b.valor - a.valor || a.day - b.day)
   return {
     key, label: key === 'total' ? 'Operação' : VLABEL[key], status, accPrev, accCur, fechPrev, falta, restoPrev, diasRestantes: dias, precisaDia: dias > 0 ? falta / dias : null,
@@ -87,12 +101,13 @@ export function buildRoute(d: YoYData, key: 'total' | VKey): Route {
 }
 /** Top dias da receita de TODO o mês do ano passado. A % de cada dia é dia ÷ mês inteiro: é FIXA (não muda com o dia de hoje). Só dias que existem também neste mês. */
 function picosDoMes(d: YoYData, keys: VKey[], fechPrev: number, n = 3): { picosMes: PicoMes[]; picosMesShare: number } {
-  const m1 = +d.month.slice(5), D = d.dayOfMonth, lista: PicoMes[] = []
-  for (let day = 1; day <= Math.min(d.daysInMonth.cur, d.daysInMonth.prev); day++) {
-    const valor = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0)
-    if (valor > 0 && fechPrev > 0) lista.push({ day, valor, share: valor / fechPrev * 100, wd: wd(d.yearCur, m1, day), quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem' })
+  const m1 = +d.month.slice(5), D = d.dayOfMonth, lista: PicoMes[] = [], fortes = DIAS_FORTES[d.month]
+  const dias = fortes ? fortes.filter(x => x >= 1 && x <= d.daysInMonth.cur) : Array.from({ length: Math.min(d.daysInMonth.cur, d.daysInMonth.prev) }, (_, i) => i + 1)
+  for (const day of dias) {
+    const dp = diaPar(d, day), valor = dp <= d.daysInMonth.prev ? keys.reduce((s, k) => s + (d.prev[k][dp - 1] || 0), 0) : 0
+    if (valor > 0 && fechPrev > 0) lista.push({ day, valor, share: valor / fechPrev * 100, wd: wd(d.yearCur, m1, day), dayPrev: dp, wdPrev: wd(d.yearPrev, m1, dp), quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem' })
   }
-  lista.sort((a, b) => b.valor - a.valor || a.day - b.day)
+  if (fortes) lista.sort((a, b) => a.day - b.day); else lista.sort((a, b) => b.valor - a.valor || a.day - b.day)      // dias configurados: em ordem de data; senão, do maior para o menor
   const top = lista.slice(0, n); return { picosMes: top, picosMesShare: top.reduce((s, p) => s + p.share, 0) }
 }
 export const buildRoutes = (d: YoYData): Route[] => (['total', 'anest', 'oft', 'ortop', 'r1'] as const).map(k => buildRoute(d, k))
@@ -112,7 +127,7 @@ export function routeMessage(r: Route, yearPrev: number): string {
 // repartida pelas 24 horas de Brasília NA MESMA PROPORÇÃO em que A-1 vendeu naquele dia. Em centavos: a soma das horas fecha EXATAMENTE a meta do dia.
 export interface HoraPlano { h: number; prev: number; prevN: number; shareDia: number; alvo: number; alvoAcum: number }
 export interface PlanoDia {
-  key: 'total' | VKey; label: string; day: number; wdCur: string; wdPrev: string; quando: Quando
+  key: 'total' | VKey; label: string; day: number; dayPrev: number; wdCur: string; wdPrev: string; quando: Quando      // dayPrev = o dia do ano passado usado como modelo (igual a `day`, exceto nos dias fortes configurados)
   share: number                                                   // % FIXA do dia sobre a receita do mês inteiro de A-1
   valorPrev: number; vendasPrev: number; fechPrev: number
   meta: number; temMeta: boolean; alvoDia: number                  // meta do mês cadastrada · meta deste dia = share × meta
@@ -130,15 +145,17 @@ export function reparte(total: number, pesos: number[]): number[] {
 export function buildPlanoDia(d: YoYData, key: 'total' | VKey, day: number): PlanoDia | null {
   const keys = key === 'total' ? VKEYS : [key], m1 = +d.month.slice(5), D = d.dayOfMonth
   if (!(day >= 1 && day <= Math.min(d.daysInMonth.cur, d.daysInMonth.prev))) return null
-  const valorPrev = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0), fechPrev = keys.reduce((s, k) => s + sum(d.prev[k]), 0)
+  const dp = diaPar(d, day)
+  if (dp < 1 || dp > d.daysInMonth.prev) return null
+  const valorPrev = keys.reduce((s, k) => s + (d.prev[k][dp - 1] || 0), 0), fechPrev = keys.reduce((s, k) => s + sum(d.prev[k]), 0)
   if (!(valorPrev > 0) || !(fechPrev > 0)) return null
   const meta = (key === 'total' ? d.metas.geral : d.metas[key]) || 0, temMeta = meta > 0, alvoDia = temMeta ? Math.round(meta * valorPrev / fechPrev * 100) / 100 : 0
-  const hv = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevH?.[k]?.[day - 1]?.[h] || 0), 0)), hn = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevHN?.[k]?.[day - 1]?.[h] || 0), 0))
+  const hv = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevH?.[k]?.[dp - 1]?.[h] || 0), 0)), hn = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevHN?.[k]?.[dp - 1]?.[h] || 0), 0))
   const somaH = hv.reduce((a, b) => a + b, 0), temHoras = somaH > 0
   const alvos = temMeta && temHoras ? reparte(Math.round(alvoDia * 100), hv).map(c => c / 100) : hv.map(() => 0)
   let acum = 0; const horas: HoraPlano[] = temHoras ? hv.map((v, h) => { acum = Math.round((acum + alvos[h]) * 100) / 100; return { h, prev: v, prevN: hn[h], shareDia: v / somaH * 100, alvo: alvos[h], alvoAcum: acum } }) : []
   const ref = (x: HoraPlano) => (temMeta ? x.alvo : x.prev), forte = horas.reduce<HoraPlano | null>((b, x) => (b === null || ref(x) > ref(b) ? x : b), null)
-  return { key, label: key === 'total' ? 'Operação' : VLABEL[key], day, wdCur: wd(d.yearCur, m1, day), wdPrev: wd(d.yearPrev, m1, day), quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem',
+  return { key, label: key === 'total' ? 'Operação' : VLABEL[key], day, dayPrev: dp, wdCur: wd(d.yearCur, m1, day), wdPrev: wd(d.yearPrev, m1, dp), quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem',
     share: valorPrev / fechPrev * 100, valorPrev, vendasPrev: hn.reduce((a, b) => a + b, 0), fechPrev, meta, temMeta, alvoDia, temHoras, horas, horaForte: forte ? forte.h : null }
 }
 

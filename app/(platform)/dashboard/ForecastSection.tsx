@@ -8,6 +8,7 @@ import { DealsModal } from './ForecastDealsModal'
 import type { DealsQuery } from '@/lib/dashboard/forecastDeals'
 import { composeClosingForecast, LINKS_WEIGHT } from '@/lib/dashboard/forecastMath'
 import { ForecastYoY } from './ForecastYoY'
+import { MetaAnoForecast } from './MetaAnoForecast'
 
 // ══════════════════════════════════════════════════════════════════════
 // Tipos
@@ -1072,6 +1073,9 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
   const outros = live?.links.byVertical.outros
 
   return (
+    <>
+    {/* a meta do ano abre a página: essencial (60 mi) e desafio (72 mi) */}
+    <div className="fc-ano" style={{ marginBottom: 14 }}><MetaAnoForecast /></div>
     <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 26, padding: 'clamp(14px,2vw,24px)', boxShadow: 'var(--shadow-sm)', marginBottom: 14 }}>
       <style>{CSS}</style>
 
@@ -1183,5 +1187,6 @@ export function ForecastSection({ commercial }: { commercial: ForecastCommercial
 
       <DealsModal query={dealsQ} onClose={closeDeals} theme={DEALS_THEME} />
     </div>
+    </>
   )
 }

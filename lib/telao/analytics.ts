@@ -524,6 +524,41 @@ export function payBreakdown(ps: PayStructure, topN = 5): { rows: PayRow[]; tota
   return { rows, total: ps.total, hiddenForms: rest.length }
 }
 
+// ══ Forma de pagamento em 3 categorias (a rosca e as barras do Telão Completo) ════════════════════════════════════════════════════
+// 1) À vista: pagamento integral, de uma vez, em qualquer forma que NÃO seja boleto (Pix, cartão em 1x, NuPay, Apple Pay...).
+// 2) Parcelamentos de cartões: 2x ou mais em qualquer forma que NÃO seja boleto (cartão de crédito, NuPay, Apple Pay, Google Pay...).
+// 3) Boletos bancários: todo boleto, à vista ou parcelado (não precisa saber o nº de parcelas).
+// Venda sem forma de pagamento (ou cartão/outra forma sem nº de parcelas) não é presumida: fica em "Sem forma informada", fora das 3 categorias.
+export type PayGroupId = 'avista' | 'cartao-parcelado' | 'boleto'
+export const PAY_GROUPS: { id: PayGroupId; label: string; note: string }[] = [
+  { id: 'avista', label: 'Pagamentos à vista', note: 'Pix, cartão em 1x e demais formas pagas de uma vez' },
+  { id: 'cartao-parcelado', label: 'Parcelamentos de cartões', note: 'cartão de crédito, NuPay, Apple Pay… em 2x ou mais' },
+  { id: 'boleto', label: 'Boletos bancários', note: 'boleto, à vista ou parcelado' },
+]
+export function payGroupOf(s: { pay: PayKind | null; installments: number | null; method?: string | null; totalInstallments?: number | null }): PayGroupId | null {
+  if (s.pay === 'boleto') return 'boleto'
+  const f = payForm(s); if (!f) return null
+  return f.kind === 'avista' ? 'avista' : 'cartao-parcelado'
+}
+export interface PayGrouped {
+  groups: { id: PayGroupId; label: string; note: string; revenue: number; count: number; avgInstallments: number | null }[]       // sempre as 3, na ordem acima (mesmo zeradas)
+  unknown: { revenue: number; count: number }; total: number; coveragePct: number
+}
+export function payGrouped(sales: Sale[]): PayGrouped {
+  const acc = Object.fromEntries(PAY_GROUPS.map(g => [g.id, { revenue: 0, count: 0, inst: 0, instN: 0 }])) as Record<PayGroupId, { revenue: number; count: number; inst: number; instN: number }>
+  let total = 0, known = 0, unknownCount = 0
+  for (const s of sales) {
+    total += s.value
+    const g = payGroupOf(s); if (!g) { unknownCount++; continue }
+    known += s.value; const a = acc[g]; a.revenue += s.value; a.count++
+    if (g === 'cartao-parcelado') { const f = payForm(s); if (f) { a.inst += f.n; a.instN++ } }
+  }
+  return {
+    groups: PAY_GROUPS.map(g => ({ ...g, revenue: acc[g.id].revenue, count: acc[g.id].count, avgInstallments: acc[g.id].instN ? acc[g.id].inst / acc[g.id].instN : null })),
+    unknown: { revenue: total - known, count: unknownCount }, total, coveragePct: total > 0 ? (known / total) * 100 : 0,
+  }
+}
+
 // ══ Destaques do mapa de calor ═════════════════════════════════════════════════
 export interface HeatSlot { weekday: number; hour: number; revenue: number; count: number; pct: number }
 export function heatHighlights(h: Heat, n = 3): { top: HeatSlot[]; day: { weekday: number; revenue: number; pct: number } | null; hour: { hour: number; revenue: number; pct: number } | null; days: number[]; hours: number[] } {

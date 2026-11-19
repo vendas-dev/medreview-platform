@@ -1,0 +1,50 @@
+'use client'
+import type { ReactNode } from 'react'
+import { motion } from 'framer-motion'
+import { Check, ChevronRight } from 'lucide-react'
+
+// ══ Troca de visão do topo de Vendas Gerais: duas abas GRANDES (ícone + título + o que cada uma mostra), a ativa preenchida com a cor da marca ═══════
+// Pensada para ser impossível de não ver: ocupa a largura toda, fica logo abaixo do título e diz em uma linha o que há em cada aba.
+export interface VisaoItem { value: string; titulo: string; desc: string; icone: ReactNode }
+
+export function VisaoSwitch({ name, value, onChange, items }: { name: string; value: string; onChange: (v: string) => void; items: VisaoItem[] }) {
+  return (
+    <div data-v="visao-switch" data-name={name} role="tablist" aria-label={name} className="vs">
+      <style>{CSS}</style>
+      {items.map(it => {
+        const on = it.value === value
+        return (
+          <button key={it.value} type="button" role="tab" aria-selected={on} data-v="visao-tab" data-s={it.value} data-ativa={on ? 'sim' : 'nao'} onClick={() => onChange(it.value)} className={`vs-tab${on ? ' on' : ''}`}>
+            {on && <motion.span layoutId={`vs-${name}`} className="vs-bg" transition={{ type: 'spring', stiffness: 380, damping: 34 }} aria-hidden />}
+            <span className="vs-ico" aria-hidden>{it.icone}</span>
+            <span className="vs-txt">
+              <span className="vs-tit">{it.titulo}</span>
+              <span className="vs-desc">{it.desc}</span>
+            </span>
+            <span className="vs-end" aria-hidden>{on ? <Check size={18} strokeWidth={3} /> : <ChevronRight size={18} />}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const CSS = `
+.vs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px;border-radius:22px;background:color-mix(in srgb,var(--primary) 7%,var(--secondary));border:1.5px solid color-mix(in srgb,var(--primary) 26%,var(--border));box-shadow:0 12px 30px -22px color-mix(in srgb,var(--primary) 70%,transparent)}
+.vs-tab{position:relative;display:flex;align-items:center;gap:14px;min-width:0;padding:14px 18px;border:0;border-radius:17px;background:transparent;cursor:pointer;font-family:inherit;text-align:left;color:var(--muted-foreground);transition:background .2s,color .2s,transform .2s}
+.vs-tab:hover:not(.on){background:color-mix(in srgb,var(--card) 80%,transparent);color:var(--foreground)}
+.vs-tab:active{transform:scale(.99)}
+.vs-tab:focus-visible{outline:3px solid color-mix(in srgb,var(--primary) 55%,transparent);outline-offset:2px}
+.vs-bg{position:absolute;inset:0;border-radius:17px;background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 62%,#7c3aed));box-shadow:0 12px 26px -12px color-mix(in srgb,var(--primary) 85%,transparent)}
+.vs-ico,.vs-txt,.vs-end{position:relative}
+.vs-ico{flex:none;display:grid;place-items:center;width:46px;height:46px;border-radius:14px;background:color-mix(in srgb,var(--primary) 12%,var(--card));color:var(--primary);transition:background .2s,color .2s}
+.vs-tab.on .vs-ico{background:rgba(255,255,255,.2);color:#fff}
+.vs-txt{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.vs-tit{font-size:17px;font-weight:800;letter-spacing:-.015em;line-height:1.15;color:var(--foreground)}
+.vs-desc{font-size:12.5px;font-weight:600;line-height:1.35;color:var(--muted-foreground)}
+.vs-tab.on .vs-tit{color:#fff}.vs-tab.on .vs-desc{color:rgba(255,255,255,.82)}
+.vs-end{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:99px;opacity:.55}
+.vs-tab.on .vs-end{opacity:1;background:rgba(255,255,255,.22);color:#fff}
+@media(max-width:720px){.vs{grid-template-columns:1fr}.vs-tab{padding:12px 14px}.vs-ico{width:42px;height:42px}.vs-tit{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.vs-tab{transition:none}}
+`

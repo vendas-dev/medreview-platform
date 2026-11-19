@@ -164,20 +164,26 @@ function Picos({ r, d }: { r: Route; d: YoYData }) {
   const [aberto, setAberto] = useState<number | null>(null)
   const plano = useMemo(() => (aberto === null ? null : buildPlanoDia(d, 'total', aberto)), [d, aberto])
   if (!r.picosMes.length) return null
-  const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), n = r.picosMes.length
+  const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), n = r.picosMes.length, par = r.picosMes.some(p => p.dayPrev !== p.day)       // dias fortes deste ano que casam com outras datas do ano passado
   return (
     <div className="yy-picos" data-testid="picos-total">
       <div className="yy-picoline">
-        <span className="yy-picolab">★ Onde {d.yearPrev} concentrou a receita de {mes}</span>
-        {r.picosMes.map(p => (
-          <button key={p.day} type="button" className={`yy-pico${aberto === p.day ? ' on' : ''}`} data-day={p.day} data-quando={p.quando} aria-expanded={aberto === p.day} aria-controls="yy-plano-total"
-            title={`Em ${d.yearPrev} o dia ${p.day} vendeu ${fmtReais(p.valor)}: ${fmtShare(p.share)} da receita de ${mes} de ${d.yearPrev}. Clique para ver quanto fazer hora a hora.`} onClick={() => setAberto(a => (a === p.day ? null : p.day))}>
-            <b>{dd2(p.day)}/{mm}</b> {p.wd} · <span data-k="share">{fmtShare(p.share)}</span>
-            {p.quando !== 'vem' && <u>{p.quando === 'hoje' ? 'hoje' : 'já passou'}</u>}
-            <i className="yy-caret" aria-hidden>▾</i>
-          </button>
-        ))}
-        <small data-testid="picos-soma">{n === 1 ? 'esse dia' : `esses ${n} dias`} = {fmtShare(r.picosMesShare)} de toda a receita de {mes} de {d.yearPrev}</small>
+        <div className="yy-pichead">
+          <span className="yy-picolab">{par ? <>★ Dias fortes de {mes}: {d.yearCur} × {d.yearPrev}</> : <>★ Onde {d.yearPrev} concentrou a receita de {mes}</>}</span>
+          <small data-testid="picos-soma">{par ? (n === 1 ? 'o dia equivalente' : `os ${n} dias equivalentes`) + ` em ${d.yearPrev}` : (n === 1 ? 'esse dia' : `esses ${n} dias`)} = {fmtShare(r.picosMesShare)} de toda a receita de {mes} de {d.yearPrev}</small>
+        </div>
+        <div className="yy-picgrid">
+          {r.picosMes.map(p => (
+            <button key={p.day} type="button" className={`yy-pico${aberto === p.day ? ' on' : ''}`} data-day={p.day} data-quando={p.quando} aria-expanded={aberto === p.day} aria-controls="yy-plano-total"
+              title={`${p.dayPrev !== p.day ? `Comparado com ${dd2(p.dayPrev)}/${mm}/${d.yearPrev} (${p.wdPrev}): ` : `Em ${d.yearPrev} o dia ${p.day} `}vendeu ${fmtReais(p.valor)}, ${fmtShare(p.share)} da receita de ${mes} de ${d.yearPrev}. Clique para ver quanto fazer hora a hora.`} onClick={() => setAberto(a => (a === p.day ? null : p.day))}>
+              <span className="yy-pl">
+                <span className="yy-pl1"><b>{dd2(p.day)}/{mm}</b> {p.wd}{p.quando !== 'vem' && <u>{p.quando === 'hoje' ? 'hoje' : 'já passou'}</u>}</span>
+                <span className="yy-pl2">{p.dayPrev !== p.day ? <span className="yy-par" data-k="par">↔ {dd2(p.dayPrev)}/{mm}/{d.yearPrev}</span> : <span className="yy-par">em {d.yearPrev}</span>}</span>
+              </span>
+              <span className="yy-pr"><b data-k="share">{fmtShare(p.share)}</b><i className="yy-caret" aria-hidden>▾</i></span>
+            </button>
+          ))}
+        </div>
       </div>
       {aberto === null && <p className="yy-picohint">Clique em um dia para ver quanto fazer, hora a hora, para ele pesar o mesmo na nossa meta de {d.yearCur}.</p>}
       {plano && <HourPlan p={plano} d={d} id="yy-plano-total" onClose={() => setAberto(null)} />}
@@ -209,12 +215,12 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
       <header className="yy-plhead">
         <div style={{ minWidth: 0 }}>
           <h4 className="yy-pltitle">{dd2(p.day)}/{mm}: quanto fazer, hora a hora</h4>
-          <p className="yy-plsub">{p.wdCur} em {d.yearCur} (em {d.yearPrev} foi {p.wdPrev}) · {quandoTxt}</p>
+          <p className="yy-plsub">{p.wdCur} em {d.yearCur} ({p.dayPrev !== p.day ? <>comparado com {dd2(p.dayPrev)}/{mm}/{d.yearPrev}, {p.wdPrev}</> : <>em {d.yearPrev} foi {p.wdPrev}</>}) · {quandoTxt}</p>
         </div>
         <button type="button" className="yy-plclose" aria-label="Fechar o gráfico hora a hora" onClick={onClose}>×</button>
       </header>
       <div className="yy-plcards">
-        <div className="yy-plcard" data-k="peso"><span>Peso do dia em {d.yearPrev}</span><b>{fmtShare(p.share)}</b><small>{fmtReais(p.valorPrev)} de {fmtReais(p.fechPrev)} (receita de {mes} de {d.yearPrev})</small></div>
+        <div className="yy-plcard" data-k="peso"><span>{p.dayPrev !== p.day ? `Peso de ${dd2(p.dayPrev)}/${mm}` : 'Peso do dia'} em {d.yearPrev}</span><b>{fmtShare(p.share)}</b><small>{fmtReais(p.valorPrev)} de {fmtReais(p.fechPrev)} (receita de {mes} de {d.yearPrev})</small></div>
         <div className="yy-plcard" data-k="meta"><span>Nossa meta de {mes} de {d.yearCur}</span><b>{meta ? fmtMi(p.meta) : '—'}</b><small>{meta ? 'a meta cadastrada (a geral)' : 'sem meta cadastrada para este mês'}</small></div>
         <div className="yy-plcard yy-plhero" data-k="dia"><span>Meta deste dia</span><b>{meta ? fmtMi(p.alvoDia) : '—'}</b><small>{meta ? `${fmtShare(p.share)} × ${fmtMi(p.meta)} = ${fmtReais(p.alvoDia)}` : 'cadastre a meta do mês para calcular'}</small></div>
         <div className="yy-plcard" data-k="forte"><span>Hora mais forte</span><b>{forte ? `${hh(forte.h)} às ${hh((forte.h + 1) % 24)}` : '—'}</b><small>{forte ? `${fmtReais(val(forte))}${totalRef > 0 ? ` · ${fmtShare(val(forte) / totalRef * 100)} do dia` : ''}` : 'sem detalhe por hora'}</small></div>
@@ -333,7 +339,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
       <div className="yy-legend" aria-hidden>
         <span><i className="yy-sw" style={{ background: `linear-gradient(180deg,${from},${to})` }} />{d.yearCur} · até hoje</span>
         <span><i className="yy-sw yy-sw-prev" />{d.yearPrev} · mês inteiro</span>
-        {peaks.size > 0 && <span><i className="yy-starsw">★</i>dia forte de {d.yearPrev} que ainda vem</span>}
+        {peaks.size > 0 && <span><i className="yy-starsw">★</i>dia forte que ainda vem</span>}
       </div>
       <div className="yy-chartscroll">
         <div className="yy-chartin" style={{ minWidth: N * 28 + 60 }}>
@@ -346,7 +352,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
                   <div key={p.day} className={`yy-col${hover?.i === i ? ' yy-on' : ''}${p.day === d.dayOfMonth ? ' yy-today' : ''}`} data-day={p.day} tabIndex={0}
                     aria-label={`Dia ${p.day}: ${d.yearCur} ${p.cur === null ? 'sem dado' : fmtReais(p.cur)}; ${d.yearPrev} ${p.prev === null ? 'sem dado' : fmtReais(p.prev)}`}
                     onMouseEnter={e => show(i, e.currentTarget)} onFocus={e => show(i, e.currentTarget)} onBlur={clear}>
-                    {peaks.has(p.day) && !cut.has(p.day) && <i className="yy-star" data-star={p.day} style={{ bottom: `calc(${pct(Math.max(p.prev ?? 0, p.cur ?? 0))} + 6px)` }} title={`Dia forte de ${d.yearPrev}`}>★</i>}
+                    {peaks.has(p.day) && !cut.has(p.day) && <i className="yy-star" data-star={p.day} style={{ bottom: `calc(${pct(Math.max(p.prev ?? 0, p.cur ?? 0))} + 6px)` }} title="Dia forte">★</i>}
                     {cut.has(p.day) && <em className={`yy-cutlbl${i >= N - 2 ? ' yy-cutr' : i <= 1 ? ' yy-cutl' : ''}`} data-cut={p.day} data-nivel={nivel.get(p.day) ?? 0} style={{ bottom: `calc(100% + 3px + ${(nivel.get(p.day) ?? 0) * 22}px)` }}>{peaks.has(p.day) && <b className="yy-lstar">★</b>}{fmtNum(Math.max(p.prev ?? 0, p.cur ?? 0))}</em>}
                     <span className={`yy-bar yy-cur${(p.cur ?? 0) > top ? ' yy-cutbar' : ''}`} data-bar="cur" style={{ height: pct(p.cur), minHeight: p.cur && p.cur > 0 ? 4 : 0 }} />
                     <span className={`yy-bar yy-prev${p.prev && p.prev > 0 ? '' : ' yy-zero'}${(p.prev ?? 0) > top ? ' yy-cutbar' : ''}`} data-bar="prev" style={{ height: pct(p.prev), minHeight: p.prev && p.prev > 0 ? 4 : 0 }} />
@@ -443,7 +449,7 @@ export function ForecastYoY() {
         <p className="yy-foot">Receita só das 4 verticais ativas; “Operação” é a soma delas. As metas vêm do cadastro de metas do mês. Datas como a plataforma registra cada venda (confirmação do pagamento), nos dois anos. A bolinha ao lado do nome é a situação da rota. Passe o mouse no título de uma coluna para ver como ela é calculada.<span className="yy-hint"> Arraste a tabela para o lado para ver todas as colunas.</span></p>
       </Panel>
 
-      <Panel testid="yoy-total" icon={BarChart3} title="Dia a dia — todas as verticais" subtitle={`Receita de cada dia de ${mes}: ${data.yearCur} ao lado de ${data.yearPrev}, na mesma data · ★ = dia forte de ${data.yearPrev} que ainda vem${algumCorte && ampliada ? ' · ✂ = barra cortada para ampliar os dias menores (o valor está escrito no topo)' : ''}`} right={<div className="yy-rightstack">{algumCorte && <ScaleToggle on={ampliada} set={setAmpliada} />}{total ? <Summary s={total} d={data} /> : null}</div>}>
+      <Panel testid="yoy-total" icon={BarChart3} title="Dia a dia — todas as verticais" subtitle={`Receita de cada dia de ${mes}: ${data.yearCur} ao lado de ${data.yearPrev}, na mesma data · ★ = dia forte que ainda vem${algumCorte && ampliada ? ' · ✂ = barra cortada para ampliar os dias menores (o valor está escrito no topo)' : ''}`} right={<div className="yy-rightstack">{algumCorte && <ScaleToggle on={ampliada} set={setAmpliada} />}{total ? <Summary s={total} d={data} /> : null}</div>}>
         {total && <DayBars s={total} d={data} from="#6366f1" to="#4f46e5" id="total" name="Todas as verticais" peaks={peaksOf('total')} ampliada={ampliada} />}
       </Panel>
 
@@ -522,16 +528,21 @@ const CSS = `
 .yy-rprog{display:flex;align-items:center;gap:12px}.yy-rprog .yy-pbar{flex:1}.yy-rprog b{font-size:15px;font-weight:900;min-width:38px;text-align:right;color:var(--foreground);font-variant-numeric:tabular-nums}
 .yy-rtable td b[data-k]{font-size:19px;font-weight:900;letter-spacing:-0.03em;color:var(--foreground);font-variant-numeric:tabular-nums;white-space:nowrap}
 .yy-rtable tr[data-status=batido] td b[data-k=falta]{color:var(--yy-good-ink)}
-.yy-picoline{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;margin:0 0 4px;padding:12px 16px;border-radius:14px;background:color-mix(in srgb,#f59e0b 10%,var(--card));border:1px solid color-mix(in srgb,#f59e0b 38%,var(--border))}
+.yy-picoline{display:flex;flex-direction:column;align-items:stretch;gap:12px;margin:0 0 4px;padding:12px 16px;border-radius:14px;background:color-mix(in srgb,#f59e0b 10%,var(--card));border:1px solid color-mix(in srgb,#f59e0b 38%,var(--border))}
 .yy-picolab{font-size:13px;font-weight:900;color:var(--foreground)}
 .yy-picoline em{font-style:normal;font-size:13px;font-weight:700;padding:4px 10px;border-radius:9px;background:var(--card);border:1px solid color-mix(in srgb,#f59e0b 45%,var(--border));color:var(--foreground);white-space:nowrap}.yy-picoline em b{font-weight:900}
-.yy-picoline small{font-size:12.5px;color:var(--yy-mute);font-weight:600;margin-left:auto}
+.yy-pichead{display:flex;align-items:baseline;justify-content:space-between;gap:4px 16px;flex-wrap:wrap}
+.yy-picoline small{font-size:12.5px;color:var(--yy-mute);font-weight:600}
+.yy-picgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 .yy-picos{margin:0 0 4px}.yy-picos .yy-picoline{margin-bottom:0}
-.yy-pico{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:700;padding:5px 11px;border-radius:10px;background:var(--card);border:1px solid color-mix(in srgb,#f59e0b 45%,var(--border));color:var(--foreground);white-space:nowrap;cursor:pointer;min-height:34px;transition:background .15s,border-color .15s,transform .15s}.yy-pico b{font-weight:900}
+.yy-pico{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;font:inherit;font-size:13px;font-weight:700;padding:9px 14px;border-radius:12px;background:var(--card);border:1px solid color-mix(in srgb,#f59e0b 45%,var(--border));color:var(--foreground);white-space:nowrap;cursor:pointer;min-height:58px;transition:background .15s,border-color .15s,transform .15s}.yy-pico b{font-weight:900}
+.yy-pl{display:flex;flex-direction:column;gap:3px;min-width:0}.yy-pl1{display:flex;align-items:center;gap:8px;font-size:14px}.yy-pl1 b{font-size:15px}.yy-pl2{font-size:12px}
+.yy-pr{display:flex;align-items:center;gap:8px;flex:none}.yy-pr b{font-size:17px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .yy-pico:hover{background:color-mix(in srgb,#f59e0b 14%,var(--card));border-color:#f59e0b}.yy-pico:focus-visible{outline:3px solid color-mix(in srgb,${ACCENT} 55%,transparent);outline-offset:2px}
 .yy-pico.on{background:linear-gradient(135deg,${BRAND_A},${BRAND_B});border-color:transparent;color:#fff;box-shadow:0 6px 16px -6px rgba(79,70,229,.65)}.yy-pico.on b,.yy-pico.on span{color:#fff}
 .yy-pico u{text-decoration:none;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 10%,transparent);color:var(--yy-mute)}.yy-pico.on u{background:rgba(255,255,255,.2);color:#fff}
 .yy-caret{font-style:normal;font-size:11px;opacity:.7;transition:transform .2s}.yy-pico.on .yy-caret{transform:rotate(180deg);opacity:1}
+.yy-par{font-size:12px;font-weight:700;opacity:.72}.yy-pico.on .yy-par{opacity:.9}
 .yy-picohint{margin:8px 4px 0;font-size:12.5px;color:var(--yy-mute);font-weight:600}
 .yy-plano{margin-top:12px;padding:20px clamp(12px,2vw,22px) 18px;border-radius:20px;background:linear-gradient(180deg,color-mix(in srgb,${ACCENT} 7%,var(--card)),var(--card));border:1px solid color-mix(in srgb,${ACCENT} 32%,var(--border));box-shadow:0 10px 28px -14px rgba(79,70,229,.45);min-width:0;animation:yy-abre .28s ease both}
 @keyframes yy-abre{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
@@ -650,7 +661,7 @@ const CSS = `
 @media(max-width:1180px){.yy-hint{display:inline}}
 @media(max-width:900px){.yy-hero-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:900px){.yy-plcards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.yy-plhint{display:block}.yy-plcards{gap:8px}.yy-plcard{padding:10px 12px}.yy-pico{min-height:44px}.yy-panel{padding:18px 14px;border-radius:22px}.yy-hero{padding:20px 16px}.yy-card{padding:16px 12px}.yy-title{font-size:19px}.yy-picoline small{margin-left:0}.yy-plot{height:320px}}
+@media(max-width:700px){.yy-plhint{display:block}.yy-plcards{gap:8px}.yy-plcard{padding:10px 12px}.yy-pico{min-height:56px}.yy-picgrid{grid-template-columns:1fr}.yy-panel{padding:18px 14px;border-radius:22px}.yy-hero{padding:20px 16px}.yy-card{padding:16px 12px}.yy-title{font-size:19px}.yy-picoline small{margin-left:0}.yy-plot{height:320px}}
 @media(max-width:560px){.yy-hero-h{font-size:24px}.yy-hero-day b{font-size:34px}.yy-chip{white-space:normal}.yy-rightstack{justify-content:flex-start}.yy-seg button{padding:7px 10px}}
 @media(prefers-reduced-motion:reduce){.yy-bar,.yy-fill,.yy-shimmer,.yy-plano,.yy-plbar,.yy-caret{transition:none;animation:none}}
 `
