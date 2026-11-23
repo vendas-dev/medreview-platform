@@ -6,10 +6,11 @@ import { fmtBRL } from '@/lib/telao/format'
 import { offersLabel } from '@/lib/telao/offer'
 import { NotificationCard } from '@/components/notifications/NotificationBell'
 import { TierTeamBlock } from './TierViews'
+import { slotPrize, slotRange, slotsOfDay } from '@/lib/campaigns/hourly'
 
 // ══ Prévia da campanha — o que o superadmin vê enquanto preenche (e nos cards da lista) ══
 
-export interface PreviewTeam { team: Team; winners: number; top: { name: string; rank: number; metric: number; count: number; revenue: number; progress: number; qualified: boolean; tierPrize?: string | null }[] }
+export interface PreviewTeam { team: Team; winners: number; top: { name: string; rank: number; metric: number; count: number; revenue: number; progress: number; qualified: boolean; tierPrize?: string | null }[]; hourly?: { current: { label: string; leader: string | null } | null; next: string | null; total: number; closed: number } }
 export interface PreviewData { errors: string[]; phase: string; participants: { OAO: number; R1: number }; teams: PreviewTeam[] }
 
 const MEDALS = ['🥇', '🥈', '🥉', '🏅', '🏅']
@@ -55,6 +56,16 @@ export function CampaignBanner({ d, today, compact = false }: { d: CampaignDraft
 function TeamBlock({ d, team }: { d: CampaignDraft; team: Team }) {
   const r = d.teams[team]!, info = criterionInfo(d.criterion), n = r.winners > 0 ? r.winners : 0
   if (info.tiers) return <TierTeamBlock team={team} tiers={r.tiers ?? []} />
+  if (info.hourly) {
+    const per = slotsOfDay(d.hourly).length, tot = per * durationDays(d)
+    return (
+      <div data-team-block={team} style={{ flex: 1, minWidth: 150, padding: '10px 12px', borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)' }}>
+        <span style={{ display: 'block', marginBottom: 6, fontSize: 10, fontWeight: 900, letterSpacing: '.12em', color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>TIME {team}</span>
+        <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 900, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>⏰ 1 por rodada</p>
+        <p data-hourly-count style={{ margin: 0, fontSize: 11.5, fontWeight: 700, color: 'var(--foreground)' }}>{tot > 0 ? `${tot} ${tot === 1 ? 'ganhador' : 'ganhadores'} no total` : <span style={{ opacity: 0.55 }}>defina os horários</span>}</p>
+      </div>
+    )
+  }
   return (
     <div data-team-block={team} style={{ flex: 1, minWidth: 150, padding: '10px 12px', borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -75,7 +86,7 @@ function Standings({ d, live, loading, today }: { d: CampaignDraft; live: Previe
   if (durationDays(d) === 0) return null
   return (
     <div data-live style={{ marginTop: 16 }}>
-      <p style={{ margin: '0 0 8px', fontSize: 10, fontWeight: 900, letterSpacing: '.12em', color: 'var(--muted-foreground)' }}>📊 {ph === 'ended' ? 'COMO FICOU' : 'QUEM LIDERA HOJE'}</p>
+      <p style={{ margin: '0 0 8px', fontSize: 10, fontWeight: 900, letterSpacing: '.12em', color: 'var(--muted-foreground)' }}>📊 {ph === 'ended' ? 'COMO FICOU' : info.hourly ? 'RODADAS GANHAS' : 'QUEM LIDERA HOJE'}</p>
       {ph === 'scheduled' ? <p data-live-empty style={{ margin: 0, fontSize: 12, color: 'var(--muted-foreground)' }}>A campanha ainda não começou — o ranking aparece a partir de {fmtDM(d.starts_on)}.</p>
         : !live ? <div style={{ height: 70, borderRadius: 12, background: 'var(--secondary)', opacity: loading ? 0.6 : 0.3 }} />
         : (
@@ -85,14 +96,15 @@ function Standings({ d, live, loading, today }: { d: CampaignDraft; live: Previe
               return (
                 <div key={t.team} data-live-team={t.team} style={{ flex: 1, minWidth: 200 }}>
                   <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 800, color: 'var(--foreground)' }}>Time {t.team}</p>
-                  {rows.length === 0 ? <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted-foreground)' }}>Ainda sem vendas no período.</p> : rows.map(r => {
-                    const inMoney = info.tiers ? !!r.tierPrize : r.rank <= t.winners && (!info.race || r.qualified)
+                  {t.hourly && (t.hourly.current ? <p data-hourly-now style={{ margin: '0 0 6px', fontSize: 11.5, color: 'var(--foreground)' }}>⏰ Agora <strong>{t.hourly.current.label}</strong> · {t.hourly.current.leader ? <>líder: <strong>{t.hourly.current.leader}</strong></> : 'ninguém vendeu ainda'}</p> : t.hourly.next ? <p data-hourly-now style={{ margin: '0 0 6px', fontSize: 11.5, color: 'var(--muted-foreground)' }}>⏰ Próxima rodada: <strong>{t.hourly.next}</strong></p> : null)}
+                  {rows.length === 0 ? <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted-foreground)' }}>{info.hourly ? 'Nenhuma rodada ganha ainda.' : 'Ainda sem vendas no período.'}</p> : rows.map(r => {
+                    const inMoney = info.tiers ? !!r.tierPrize : info.hourly ? r.metric > 0 : r.rank <= t.winners && (!info.race || r.qualified)
                     return (
                       <div key={r.rank + r.name} data-live-row={r.name} style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', marginBottom: 4, borderRadius: 10, background: inMoney ? 'rgba(34,197,94,.1)' : 'var(--secondary)', border: inMoney ? '1px solid rgba(34,197,94,.35)' : '1px solid transparent' }}>
                         <motion.div initial={{ width: 0 }} animate={{ width: `${((info.race ? r.progress : r.metric / max) * 100)}%` }} transition={{ duration: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: inMoney ? 'rgba(34,197,94,.14)' : 'rgba(99,102,241,.1)' }} />
                         <span style={{ position: 'relative', width: 22, fontSize: 13, textAlign: 'center' }}>{r.rank <= 3 ? MEDALS[r.rank - 1] : `${r.rank}º`}</span>
                         <span style={{ position: 'relative', flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-                        <span style={{ position: 'relative', fontSize: 11.5, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{info.tiers ? `${metricText(d.criterion, r.metric)}${r.tierPrize ? ` · 🎁 ${r.tierPrize}` : ''}` : info.race ? (r.qualified ? '✅ bateu' : `${Math.round(r.progress * 100)}%`) : metricText(d.criterion, r.metric)}</span>
+                        <span style={{ position: 'relative', fontSize: 11.5, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{info.hourly ? `${r.metric} ${r.metric === 1 ? 'rodada' : 'rodadas'}` : info.tiers ? `${metricText(d.criterion, r.metric)}${r.tierPrize ? ` · 🎁 ${r.tierPrize}` : ''}` : info.race ? (r.qualified ? '✅ bateu' : `${Math.round(r.progress * 100)}%`) : metricText(d.criterion, r.metric)}</span>
                       </div>
                     )
                   })}
@@ -108,7 +120,7 @@ function Standings({ d, live, loading, today }: { d: CampaignDraft; live: Previe
 export function CampaignPreview({ d, today, eligible, live, liveLoading = false }: { d: CampaignDraft; today: string; eligible: { OAO: number; R1: number }; live: PreviewData | null; liveLoading?: boolean }) {
   const teams = TEAMS.filter(t => d.teams[t]), pt = live?.participants ?? eligible
   const total = teams.reduce((a, t) => a + pt[t], 0)
-  const rule = teams.length > 0 && durationDays(d) > 0 && (!criterionInfo(d.criterion).needsTarget || teams.every(t => (d.teams[t]!.target ?? 0) > 0))
+  const rule = teams.length > 0 && durationDays(d) > 0 && (!criterionInfo(d.criterion).needsTarget || teams.every(t => (d.teams[t]!.target ?? 0) > 0)) && (d.criterion !== 'hourly' || slotsOfDay(d.hourly).length > 0)
   const msgReady = d.name.trim() && rule && validateDraft(d, true).length === 0      // (a validação já exige o prêmio, único ou por posição)
   return (
     <div data-preview style={{ borderRadius: 20, overflow: 'hidden', background: 'var(--card)', border: '1px solid var(--border)', boxShadow: '0 12px 40px rgba(0,0,0,.14)' }}>
@@ -118,7 +130,19 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
         <p data-howto style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: 'var(--foreground)', fontWeight: 600 }}>{rule ? howToWin(d) : <span style={{ opacity: 0.55, fontWeight: 500 }}>Escolha o critério, os times e as datas para ver a regra aqui.</span>}</p>
         {teams.length > 0 && <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>{teams.map(t => <TeamBlock key={t} d={d} team={t} />)}</div>}
 
-        {criterionInfo(d.criterion).tiers ? null : d.prize_mode === 'tiered' ? (
+        {criterionInfo(d.criterion).tiers ? null : d.criterion === 'hourly' && d.prize_mode === 'tiered' ? (
+          <div data-prize="hourly" style={{ marginTop: 14, padding: '11px 14px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(234,88,12,.12))', border: '1px solid rgba(245,158,11,.4)' }}>
+            <p style={{ margin: '0 0 8px', fontSize: 9.5, fontWeight: 900, letterSpacing: '.14em', color: '#d97706' }}>🎁 PREMIAÇÃO POR HORÁRIO</p>
+            {teams.length === 0 ? <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Escolha os times para definir os prêmios.</p> : (() => {
+              const per = slotsOfDay(d.hourly), t0 = teams[0], shown = per.slice(0, 8)
+              return (<div>
+                {shown.map(s => { const p = slotPrize(d, t0, s.idx); return <p key={s.idx} data-prize-line={`h-${s.idx}`} style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 800, color: 'var(--foreground)', wordBreak: 'break-word' }}><span style={{ display: 'inline-block', width: 84, fontVariantNumeric: 'tabular-nums', color: 'var(--muted-foreground)', fontWeight: 700 }}>{slotRange(s)}</span>{p || <span style={{ opacity: 0.45, fontWeight: 600 }}>defina o prêmio</span>}</p> })}
+                {per.length > shown.length && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--muted-foreground)', fontWeight: 700 }}>+ {per.length - shown.length} {per.length - shown.length === 1 ? 'horário' : 'horários'}</p>}
+                {per.length === 0 && <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Defina os horários.</p>}
+              </div>)
+            })()}
+          </div>
+        ) : d.prize_mode === 'tiered' ? (
           <div data-prize="tiered" style={{ marginTop: 14, padding: '11px 14px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(234,88,12,.12))', border: '1px solid rgba(245,158,11,.4)' }}>
             <p style={{ margin: '0 0 8px', fontSize: 9.5, fontWeight: 900, letterSpacing: '.14em', color: '#d97706' }}>🎁 PREMIAÇÃO POR POSIÇÃO</p>
             {teams.length === 0 ? <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Escolha os times para definir os prêmios.</p> : (
@@ -139,8 +163,8 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
         <div data-prize="single" style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 14, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(234,88,12,.12))', border: '1px solid rgba(245,158,11,.4)' }}>
           <span style={{ fontSize: 26 }}>🎁</span>
           <div style={{ minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: 9.5, fontWeight: 900, letterSpacing: '.14em', color: '#d97706' }}>PRÊMIO</p>
-            <p style={{ margin: '1px 0 0', fontSize: 16, fontWeight: 900, color: 'var(--foreground)', wordBreak: 'break-word' }}>{d.prize.trim() || <span style={{ opacity: 0.45, fontWeight: 600 }}>Qual será o prêmio?</span>}</p>
+            <p style={{ margin: 0, fontSize: 9.5, fontWeight: 900, letterSpacing: '.14em', color: '#d97706' }}>{d.criterion === 'hourly' ? 'PRÊMIO POR RODADA' : 'PRÊMIO'}</p>
+            <p style={{ margin: '1px 0 0', fontSize: 16, fontWeight: 900, color: 'var(--foreground)', wordBreak: 'break-word' }}>{d.prize.trim() || <span style={{ opacity: 0.45, fontWeight: 600 }}>Qual será o prêmio?</span>}{d.criterion === 'hourly' && d.prize.trim() ? <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted-foreground)' }}> · em cada rodada</span> : null}</p>
           </div>
         </div>
         )}

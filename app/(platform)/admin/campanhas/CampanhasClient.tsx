@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Copy, Eye, Pencil, Plus, RefreshCw, Rocket, Trash2, Trophy, X, Ban } from 'lucide-react'
 import { CampaignDraft, CampaignRow, criterionInfo, emptyDraft, Phase, Team, TEAMS } from '@/lib/campaigns/types'
+import { hourlyLiveInfo, slotLabel, slotPrize, slotRange } from '@/lib/campaigns/hourly'
 import { fmtDM, metricText, prizeFor, prizeHeadline, spDay, todaySP, winnersText, Evaluation } from '@/lib/campaigns/engine'
 import { offersLabel } from '@/lib/telao/offer'
 import { CampaignBanner } from '@/components/campaigns/CampaignPreview'
@@ -12,6 +13,43 @@ import { PeriodoFilter } from '@/components/vendas/PeriodoFilter'
 import { VendasStyle } from '@/components/vendas/ui'
 import { periodoRotulo, type Periodo } from '@/lib/vendas/periodo'
 import { addDaysToDateStr, todayInSaoPaulo, weekdayInSaoPaulo } from '@/lib/timezone'
+
+/** Critério POR HORA: uma linha por rodada (dia + horário), com quem ganhou (ou está na frente) e o prêmio daquela hora. */
+export function HourlyRounds({ c, t }: { c: CampaignRow; t: Evaluation['teams'][number] }) {
+  const slots = t.slots ?? [], byCount = c.hourly?.metric === 'count'
+  const multiDay = new Set(slots.map(s => s.day)).size > 1
+  const won = new Map<string, number>(); for (const s of slots) if (s.closed && s.winner) won.set(s.winner.name, (won.get(s.winner.name) ?? 0) + 1)
+  const summary = [...won.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR')).map(([n, k]) => `${n.split(' ')[0]} ×${k}`).join(' · ')
+  let lastDay = ''
+  return (
+    <div data-hourly-rounds={t.team} style={{ maxHeight: 460, overflowY: 'auto' }}>
+      {summary && <p style={{ margin: 0, padding: '8px 12px', fontSize: 11.5, color: 'var(--muted-foreground)', borderBottom: '1px solid var(--border)' }}>🏆 Rodadas ganhas: <strong style={{ color: 'var(--foreground)' }}>{summary}</strong></p>}
+      {slots.map(s => {
+        const head = multiDay && s.day !== lastDay ? (lastDay = s.day, <p key={`d${s.day}`} style={{ margin: 0, padding: '6px 12px', fontSize: 10.5, fontWeight: 900, letterSpacing: '.08em', color: 'var(--muted-foreground)', background: 'var(--secondary)', borderBottom: '1px solid var(--border)' }}>{fmtDM(s.day)}</p>) : null
+        const prize = slotPrize(c, t.team, s.idx)
+        const state = s.closed ? (s.winner ? 'win' : 'none') : s.current ? 'live' : 'wait'
+        const value = s.winner ? (byCount ? `${s.winner.metric} ${s.winner.metric === 1 ? 'venda' : 'vendas'}` : metricText('revenue_rank', s.winner.metric)) : ''
+        return (
+          <div key={s.pos}>
+            {head}
+            <div data-slot-row={s.pos} data-slot-state={state} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', color: 'var(--foreground)', background: state === 'win' ? 'rgba(34,197,94,.09)' : state === 'live' ? 'rgba(99,102,241,.1)' : 'transparent' }}>
+              <span style={{ flex: 'none', minWidth: 84, padding: '2px 8px', borderRadius: 8, background: 'rgba(99,102,241,.12)', color: '#6366f1', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'center' }}>{slotRange(s)}</span>
+              <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {state === 'win' && <>🏆 {s.winner!.name}</>}
+                {state === 'live' && <>🟢 Agora{s.winner ? <> · na frente: <strong>{s.winner.name}</strong></> : <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}> · ninguém vendeu ainda</span>}</>}
+                {state === 'none' && <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}>Sem vendas nesta rodada</span>}
+                {state === 'wait' && <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}>{s.winner ? `Em andamento · ${s.winner.name}` : 'Aguardando'}</span>}
+              </span>
+              {value && <strong style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{value}</strong>}
+              {prize && c.prize_mode === 'tiered' && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#d97706', whiteSpace: 'nowrap' }}>🎁 {prize}</span>}
+            </div>
+          </div>
+        )
+      })}
+      {slots.length === 0 && <p style={{ margin: 0, padding: 14, fontSize: 12, color: 'var(--muted-foreground)' }}>Nenhuma rodada configurada.</p>}
+    </div>
+  )
+}
 
 type Winner = { id: string; team: Team; position: number; user_name: string; metric_value: number | null; reached_at: string | null; delivered_at: string | null; prize: string | null }
 type Notified = { notifications: number; deliveries: number }
@@ -193,7 +231,7 @@ function CampaignCard({ c, today, i, onView, onPublish, onEdit, onDuplicate, onD
           <div style={{ marginTop: 6, padding: '14px 16px', borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div data-winners-line style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {TEAMS.filter(t => c.teams[t]).map(t => (
-                <p key={t} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--foreground)' }}><strong>{t}:</strong>{' '}{c.winners.filter(w => w.team === t).map(w => `${c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)} ${w.user_name.split(' ')[0]}`).join(' ') || '—'}</p>
+                <p key={t} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--foreground)' }}><strong>{t}:</strong>{' '}{c.criterion === 'hourly' ? (() => { const by = new Map<string, number>(); for (const w of c.winners.filter(x => x.team === t)) by.set(w.user_name.split(' ')[0], (by.get(w.user_name.split(' ')[0]) ?? 0) + 1); const l = [...by].sort((a, b) => b[1] - a[1]); return l.length ? `⏰ ${l.slice(0, 5).map(([n, k]) => `${n} ×${k}`).join(' · ')}${l.length > 5 ? ` · +${l.length - 5}` : ''}` : '—' })() : c.winners.filter(w => w.team === t).map(w => `${c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)} ${w.user_name.split(' ')[0]}`).join(' ') || '—'}</p>
               ))}
             </div>
             {c.finalized_at && (
@@ -251,12 +289,12 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
                 <p style={{ margin: '0 0 8px', fontSize: 10.5, fontWeight: 900, letterSpacing: '.12em', color: 'var(--muted-foreground)' }}>🏆 GANHADORES</p>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {TEAMS.filter(t => c.teams[t]).map(t => (
-                    <div key={t} style={{ flex: 1, minWidth: 250, padding: 12, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)' }}>
-                      <p style={{ margin: '0 0 8px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)' }}>Time {t}</p>
+                    <div key={t} style={{ flex: 1, minWidth: 250, padding: 12, borderRadius: 14, background: 'var(--card)', border: '1px solid var(--border)', ...(c.criterion === 'hourly' ? { maxHeight: 420, overflowY: 'auto' as const } : {}) }}>
+                      <p style={{ margin: '0 0 8px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)' }}>Time {t}{c.criterion === 'hourly' && <span style={{ fontWeight: 600, color: 'var(--muted-foreground)' }}> · {data.winners.filter(w => w.team === t).length} {data.winners.filter(w => w.team === t).length === 1 ? 'rodada ganha' : 'rodadas ganhas'}</span>}</p>
                       {data.winners.filter(w => w.team === t).map(w => (
                         <label key={w.id} data-winner={w.user_name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 12.5, color: 'var(--foreground)', cursor: 'pointer' }}>
-                          <span style={{ width: 22 }}>{c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)}</span>
-                          <span style={{ flex: 1, fontWeight: 700 }}>{w.user_name}{w.metric_value != null && <span style={{ fontWeight: 500, color: 'var(--muted-foreground)' }}> · {metricText(c.criterion, w.metric_value)}</span>}{(w.prize || c.prize_mode === 'tiered') && <span data-winner-prize style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#d97706' }}>🎁 {w.prize || prizeFor(c, w.team, w.position) || '—'}</span>}</span>
+                          {c.criterion === 'hourly' ? <span data-winner-slot style={{ flex: 'none', minWidth: 104, padding: '2px 8px', borderRadius: 8, background: 'rgba(99,102,241,.12)', color: '#6366f1', fontSize: 11, fontWeight: 800, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{slotLabel(c, w.position)}</span> : <span style={{ width: 22 }}>{c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)}</span>}
+                          <span style={{ flex: 1, fontWeight: 700 }}>{w.user_name}{w.metric_value != null && <span style={{ fontWeight: 500, color: 'var(--muted-foreground)' }}> · {metricText(c.criterion, w.metric_value, c)}</span>}{(w.prize || c.prize_mode === 'tiered') && <span data-winner-prize style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#d97706' }}>🎁 {w.prize || prizeFor(c, w.team, w.position) || '—'}</span>}</span>
                           <input type="checkbox" data-delivered={w.user_name} checked={!!w.delivered_at} onChange={e => toggleDelivered(w, e.target.checked)} />
                           <span style={{ fontSize: 10.5, color: w.delivered_at ? '#16a34a' : 'var(--muted-foreground)', fontWeight: 700 }}>{w.delivered_at ? 'entregue' : 'a entregar'}</span>
                         </label>
@@ -273,13 +311,14 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {data.evaluation.teams.map(t => (
                   <div key={t.team} style={{ flex: 1, minWidth: 280, borderRadius: 14, border: '1px solid var(--border)', background: 'var(--card)', overflow: 'hidden' }}>
-                    <p style={{ margin: 0, padding: '9px 12px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)', borderBottom: '1px solid var(--border)' }}>Time {t.team} · {info.tiers ? 'quem atingir uma faixa ganha' : `premia até o ${t.rule.winners}º`}</p>
-                    {t.standings.map(s => (
-                      <div key={s.userId} data-row={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', background: (info.tiers ? !!s.tierPrize : s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0)) ? 'rgba(34,197,94,.09)' : 'transparent', color: 'var(--foreground)' }}>
+                    <p style={{ margin: 0, padding: '9px 12px', fontSize: 11.5, fontWeight: 900, color: 'var(--foreground)', borderBottom: '1px solid var(--border)' }}>Time {t.team} · {info.hourly ? '1 ganhador por rodada' : info.tiers ? 'quem atingir uma faixa ganha' : `premia até o ${t.rule.winners}º`}</p>
+                    {info.hourly && t.slots && (() => { const li = hourlyLiveInfo(t.slots); return <p data-hourly-progress style={{ margin: 0, padding: '8px 12px', fontSize: 11.5, color: 'var(--muted-foreground)', borderBottom: '1px solid var(--border)' }}>⏰ {li.closed} de {li.total} rodadas encerradas{li.current ? <> · agora <strong style={{ color: 'var(--foreground)' }}>{li.current.label}</strong> ({li.current.leader ? `líder: ${li.current.leader}` : 'ninguém vendeu ainda'})</> : li.next ? <> · próxima <strong style={{ color: 'var(--foreground)' }}>{li.next}</strong></> : ''}</p> })()}
+                    {info.hourly && t.slots ? <HourlyRounds c={c} t={t} /> : t.standings.map(s => (
+                      <div key={s.userId} data-row={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', background: (info.hourly ? s.metric > 0 : info.tiers ? !!s.tierPrize : s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0)) ? 'rgba(34,197,94,.09)' : 'transparent', color: 'var(--foreground)' }}>
                         <span style={{ width: 24, textAlign: 'center', fontWeight: 800 }}>{s.rank <= 3 ? MEDALS[s.rank - 1] : `${s.rank}º`}</span>
-                        <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}{c.prize_mode === 'tiered' && s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0) && <span data-row-prize style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#d97706' }}>🎁 {prizeFor(c, t.team, s.rank) || '—'}</span>}</span>
+                        <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}{!info.hourly && c.prize_mode === 'tiered' && s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0) && <span data-row-prize style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#d97706' }}>🎁 {prizeFor(c, t.team, s.rank) || '—'}</span>}</span>
                         <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>{s.count} {s.count === 1 ? 'venda' : 'vendas'}</span>
-                        <strong style={{ minWidth: 92, textAlign: 'right' }}>{info.tiers ? `${metricText(c.criterion, s.metric)}${s.tierPrize ? ` · 🎁 ${s.tierPrize}` : ''}` : info.race ? (s.qualified ? `✅ ${fmtDM(spDay(s.reachedAt!))}` : `${Math.round(s.progress * 100)}%`) : metricText(c.criterion, s.metric)}</strong>
+                        <strong style={{ minWidth: 92, textAlign: 'right' }}>{info.hourly ? `${s.metric} ${s.metric === 1 ? 'rodada ganha' : 'rodadas ganhas'}` : info.tiers ? `${metricText(c.criterion, s.metric)}${s.tierPrize ? ` · 🎁 ${s.tierPrize}` : ''}` : info.race ? (s.qualified ? `✅ ${fmtDM(spDay(s.reachedAt!))}` : `${Math.round(s.progress * 100)}%`) : metricText(c.criterion, s.metric)}</strong>
                       </div>
                     ))}
                     {t.standings.length === 0 && <p style={{ margin: 0, padding: 14, fontSize: 12, color: 'var(--muted-foreground)' }}>Nenhum participante neste time.</p>}

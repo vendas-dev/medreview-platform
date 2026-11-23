@@ -1,7 +1,0 @@
-{
- "salvos": [
-  "lib/vendas/kpi-handlers.ts",
-  "components/vendas/KpiView.tsx",
-  "tests/unit/kpi_handler.test.ts"
- ]
-}

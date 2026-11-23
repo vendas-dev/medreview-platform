@@ -2,10 +2,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, ChevronDown, Minus, Plus, Rocket, Save, X } from 'lucide-react'
-import { CampaignDraft, CRITERIA, criterionInfo, EMOJIS, Team, TEAMS, TEAM_HINT, THEMES, ThemeId } from '@/lib/campaigns/types'
+import { CampaignDraft, Criterion, CRITERIA, criterionInfo, EMOJIS, Team, TEAMS, TEAM_HINT, THEMES, ThemeId } from '@/lib/campaigns/types'
 import { addDays, durationDays, fmtDM, ruleSignature, validateDraft, weekdayOf } from '@/lib/campaigns/engine'
 import { CampaignPreview, PreviewData } from './CampaignPreview'
 import { TierEditor } from './TierEditor'
+import { HourlyPrizes, HourlySchedule } from './HourlyEditor'
+import { defaultHourly, HOURLY_MAX_DAYS, slotsOfDay, validateHourly } from '@/lib/campaigns/hourly'
 import { tiersValid } from '@/lib/campaigns/tiers'
 import type { TeamRule } from '@/lib/campaigns/types'
 import { Btn, CampaignStyles } from './ui'
@@ -88,7 +90,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   const teamKey = TEAMS.filter(t => d.teams[t]).join('+')
 
   // prévia do ranking: só refaz quando muda algo que altera o RESULTADO (não o visual); espera 600 ms de calma
-  const sig = JSON.stringify([d.criterion, d.teams, d.starts_on, d.ends_on, d.count_recurring, d.verticals, d.offer_codes, d.product_ids, d.filter_logic])
+  const sig = JSON.stringify([d.criterion, d.teams, d.starts_on, d.ends_on, d.count_recurring, d.verticals, d.offer_codes, d.product_ids, d.filter_logic, d.hourly])
   const seq = useRef(0)
   useEffect(() => {
     if (durationDays(d) === 0 || TEAMS.every(t => !d.teams[t])) { setLive(null); return }
@@ -104,10 +106,18 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
   }, [sig])
 
   const setTeams = (mode: 'OAO' | 'R1' | 'BOTH') => {
-    const keep = (t: Team) => d.teams[t] ?? { winners: t === 'R1' ? 4 : 3, target: null, ...(info.tiers ? { tiers: [{ target: null, prize: '' }] } : {}) }
-    patch({ teams: mode === 'BOTH' ? { OAO: keep('OAO'), R1: keep('R1') } : { [mode]: keep(mode) } })
+    const keep = (t: Team) => d.teams[t] ?? { winners: info.hourly ? 1 : t === 'R1' ? 4 : 3, target: null, ...(info.tiers ? { tiers: [{ target: null, prize: '' }] } : {}) }
+    const teams = (mode === 'BOTH' ? { OAO: keep('OAO'), R1: keep('R1') } : { [mode]: keep(mode) }) as CampaignDraft['teams']
+    // por hora: a lista de prêmios por horário é a MESMA para todos os times — quem entra agora já nasce com ela
+    const base = info.hourly ? TEAMS.map(t => d.prizes[t]).find(Boolean) : null
+    patch(base ? { teams, prizes: Object.fromEntries(TEAMS.filter(t => teams[t]).map(t => [t, d.prizes[t] ?? base])) as CampaignDraft['prizes'] } : { teams })
   }
   const mode: 'OAO' | 'R1' | 'BOTH' | null = d.teams.OAO && d.teams.R1 ? 'BOTH' : d.teams.OAO ? 'OAO' : d.teams.R1 ? 'R1' : null
+  const pickCriterion = (id: Criterion) => {
+    if (id === 'tier_revenue') patch({ criterion: id, teams: Object.fromEntries(TEAMS.filter(t => d.teams[t]).map(t => [t, { ...d.teams[t]!, tiers: d.teams[t]!.tiers?.length ? d.teams[t]!.tiers : [{ target: null, prize: '' }] }])) as CampaignDraft['teams'] })
+    else if (id === 'hourly') patch({ criterion: id, hourly: d.hourly ?? defaultHourly(), teams: Object.fromEntries(TEAMS.filter(t => d.teams[t]).map(t => [t, { ...d.teams[t]!, winners: 1, target: null }])) as CampaignDraft['teams'] })      // por hora: 1 ganhador por rodada, em cada time
+    else patch({ criterion: id })
+  }
   const setRule = (t: Team, p: Partial<TeamRule>) => patch({ teams: { ...d.teams, [t]: { ...d.teams[t]!, ...p } } })
   const MED = ['🥇', '🥈', '🥉']
   const setPrize = (t: Team, i: number, v: string) => { const list = [...(d.prizes[t] ?? [])]; while (list.length <= i) list.push(''); list[i] = v; patch({ prizes: { ...d.prizes, [t]: list } }) }
@@ -161,12 +171,17 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
     d.name.trim().length > 0 && d.name.trim().length <= 60,
     true,
     info.tiers ? (tf.length > 0 && tf.every(t => tiersValid(d.teams[t]!.tiers))) : tf.length > 0 && tf.every(t => { const r = d.teams[t]!; return Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50 && (!info.needsTarget || (r.target ?? 0) > 0) }),
-    durationDays(d) > 0 && durationDays(d) <= 92,
+    durationDays(d) > 0 && durationDays(d) <= (info.hourly ? HOURLY_MAX_DAYS : 92),
     d.prize_mode === 'tiered'
       ? tf.length > 0 && tf.every(t => { const n = d.teams[t]!.winners || 0; return n >= 1 && Array.from({ length: Math.min(n, 50) }, (_, i) => (d.prizes[t]?.[i] ?? '').trim()).every(Boolean) })
       : d.prize.trim().length > 0,
   ]
   if (info.tiers) done[4] = done[2]
+  if (info.hourly) {
+    done[1] = !!d.hourly && slotsOfDay(d.hourly).length > 0 && validateHourly({ ...d, starts_on: '2026-01-01', ends_on: '2026-01-01', prize_mode: 'single', prize: 'x' }, true).length === 0
+    done[4] = d.prize_mode === 'tiered' ? tf.length > 0 && !!d.hourly && slotsOfDay(d.hourly).length > 0 && tf.every(t => slotsOfDay(d.hourly).every((_, i) => (d.prizes[t]?.[i] ?? '').trim().length > 0)) : d.prize.trim().length > 0
+  }
+  const setHourlyPrizes = (list: string[]) => patch({ prizes: Object.fromEntries(tf.map(t => [t, list])) as CampaignDraft['prizes'] })
   const go = (n: number) => mainRef.current?.querySelector(`[data-step="${n}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   useEffect(() => { const prev = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = prev } }, [])   // o fundo não rola atrás da janela
   // Editar vale pra QUALQUER campanha. O que a edição faz com os avisos já enviados é mostrado antes de salvar:
@@ -227,13 +242,14 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
             <Section n={2} title="Como se ganha?" hint="O critério que decide os ganhadores." done={done[1]}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(230px,1fr))', gap: 12 }}>
                 {CRITERIA.map(c => (
-                  <button key={c.id} type="button" className="cp-opt" aria-pressed={d.criterion === c.id} data-criterion={c.id} onClick={() => patch(c.id === 'tier_revenue' ? { criterion: c.id, teams: Object.fromEntries(TEAMS.filter(t => d.teams[t]).map(t => [t, { ...d.teams[t]!, tiers: d.teams[t]!.tiers?.length ? d.teams[t]!.tiers : [{ target: null, prize: '' }] }])) as CampaignDraft['teams'] } : { criterion: c.id })} style={{ padding: 16, minHeight: 100 }}>
+                  <button key={c.id} type="button" className="cp-opt" aria-pressed={d.criterion === c.id} data-criterion={c.id} onClick={() => pickCriterion(c.id)} style={{ padding: 16, minHeight: 100 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 9, paddingRight: 22, fontSize: 14, fontWeight: 800, color: 'var(--foreground)' }}><span style={{ fontSize: 19 }}>{c.icon}</span>{c.label}</span>
                     <span style={{ display: 'block', marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>{c.desc}</span>
                     {d.criterion === c.id && <span style={{ position: 'absolute', top: 12, right: 12, width: 20, height: 20, borderRadius: '50%', background: '#6366f1', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={12} strokeWidth={3.5} /></span>}
                   </button>
                 ))}
               </div>
+              {info.hourly && d.hourly && <HourlySchedule cfg={d.hourly} days={durationDays(d)} onChange={h => patch({ hourly: h })} />}
               <div data-offer-block style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <label className="cb-check">
                   <input data-f="offer-on" type="checkbox" checked={offersOn} onChange={e => { setOfferText(''); setOfferMsg(null); patch({ offer_codes: e.target.checked ? [] : null }) }} />
@@ -319,7 +335,8 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                           <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted-foreground)' }}>{TEAM_HINT[t]}</p>
                         </div>
                         {info.tiers && <TierEditor team={t} tiers={r.tiers ?? [{ target: null, prize: '' }]} copyFrom={TEAMS.filter(x => x !== t && d.teams[x] && d.teams[x]!.tiers?.length).map(x => ({ team: x, tiers: d.teams[x]!.tiers! }))[0] ?? null} onChange={tiers => setRule(t, { tiers, winners: Math.max(1, tiers.length) })} />}
-                        <div style={info.tiers ? { display: 'none' } : undefined}><Field label="Quantos serão premiados?">
+                        {info.hourly && <p data-hourly-winners style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--muted-foreground)' }}>⏰ <strong style={{ color: 'var(--foreground)' }}>1 ganhador por rodada</strong> neste time — quem mais se destacar em cada horário.</p>}
+                        <div style={info.tiers || info.hourly ? { display: 'none' } : undefined}><Field label="Quantos serão premiados?">
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <button type="button" className="cp-ib" aria-label="menos" disabled={r.winners <= 1} onClick={() => setRule(t, { winners: Math.max(1, r.winners - 1) })} style={{ width: 44, height: 44 }}><Minus size={15} /></button>
                             <input className="cp-field" data-winners={t} type="number" min={1} max={50} value={r.winners || ''} onChange={e => setRule(t, { winners: Math.trunc(Number(e.target.value)) })} style={{ width: 84, textAlign: 'center', fontWeight: 800, fontSize: 16 }} />
@@ -350,10 +367,23 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
                 <Field label="Fim" as="label"><input className="cp-field" data-f="ends_on" type="date" value={d.ends_on} min={d.starts_on} onChange={e => patch({ ends_on: e.target.value })} /></Field>
               </div>
               <Note data-duration>{durationDays(d) > 0 ? <>Duração: <strong style={{ color: 'var(--foreground)' }}>{durationDays(d)} {durationDays(d) === 1 ? 'dia' : 'dias'}</strong> ({fmtDM(d.starts_on)}{d.starts_on !== d.ends_on ? ` a ${fmtDM(d.ends_on)}` : ''}). Para as outras semanas, crie (ou duplique) uma campanha para cada.</> : 'Informe as datas.'}</Note>
+              {info.hourly && d.hourly && <Note tone={durationDays(d) > HOURLY_MAX_DAYS ? 'warn' : 'info'} data-hourly-days>{durationDays(d) > HOURLY_MAX_DAYS ? `⚠ Campanha por hora pode durar no máximo ${HOURLY_MAX_DAYS} dias.` : `⏰ Todos os dias terão as mesmas rodadas (${slotsOfDay(d.hourly).length} por dia), no horário de São Paulo. O dia começa às 00h e termina às 24h.`}</Note>}
               {past && <Note tone="warn" data-past>⚠ O início é no passado: a campanha será apurada com as vendas que já aconteceram.</Note>}
             </Section>
 
-            {info.tiers ? <Section n={5} title="Qual é o prêmio?" hint="Cada faixa já tem o seu prêmio." done={done[4]}><Note>Os prêmios foram definidos junto de cada faixa, no passo 3: quem atinge uma faixa ganha o prêmio dela (a mais alta que alcançar).</Note></Section> : <Section n={5} title="Qual é o prêmio?" hint="Um prêmio só pra todos os ganhadores, ou um diferente para cada posição." done={done[4]}>
+            {info.hourly && d.hourly ? <Section n={5} title="Qual é o prêmio?" hint="Cada rodada tem um ganhador por time: o mesmo prêmio em todas, ou um prêmio diferente por horário." done={done[4]}>
+              <div>
+                <div className="cp-seg" role="group">
+                  {([['single', '🎁 Mesmo prêmio em todas as rodadas'], ['tiered', '🕐 Prêmio diferente por horário']] as const).map(([id, label]) => (
+                    <button key={id} type="button" aria-pressed={d.prize_mode === id} data-prize-mode={id} onClick={() => patch({ prize_mode: id })}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              {d.prize_mode !== 'tiered' ? (
+                <Field label="Prêmio de cada rodada" as="label"><input className="cp-field" data-f="prize" value={d.prize} onChange={e => patch({ prize: e.target.value })} maxLength={120} placeholder="Ex.: Vale-presente de R$ 50" /></Field>
+              ) : tf.length === 0 ? <Note>Escolha os times no passo 3 para definir o prêmio de cada horário.</Note>
+                : <HourlyPrizes cfg={d.hourly} list={d.prizes[tf[0]] ?? []} onChange={setHourlyPrizes} />}
+            </Section> : info.tiers ? <Section n={5} title="Qual é o prêmio?" hint="Cada faixa já tem o seu prêmio." done={done[4]}><Note>Os prêmios foram definidos junto de cada faixa, no passo 3: quem atinge uma faixa ganha o prêmio dela (a mais alta que alcançar).</Note></Section> : <Section n={5} title="Qual é o prêmio?" hint="Um prêmio só pra todos os ganhadores, ou um diferente para cada posição." done={done[4]}>
               <div>
                 <div className="cp-seg" role="group">
                   {([['single', '🎁 Premiação única'], ['tiered', '🏅 Premiação diferenciada']] as const).map(([id, label]) => (

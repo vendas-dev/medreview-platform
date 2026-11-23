@@ -9,7 +9,7 @@ import { THEMES, ThemeId } from '@/lib/campaigns/types'
 // Abre ao clicar num aviso de campanha. Mostra SÓ quem ganhou e o prêmio — nunca valores de venda.
 // O servidor já devolve só o time da pessoa (OAO vê OAO, R1 vê R1; superadmin vê os times da campanha).
 
-interface Position { position: number; prize: string | null; winner: { name: string; me: boolean } | null; state: 'winner' | 'pending' | 'empty' }
+interface Position { position: number; label?: string; prize: string | null; winner: { name: string; me: boolean } | null; state: 'winner' | 'pending' | 'empty' }
 interface View {
   campaign: { id: string; name: string; subtitle: string; emoji: string; theme: ThemeId; state: 'scheduled' | 'active' | 'counting' | 'finished' | 'cancelled'; prize_mode: 'single' | 'tiered'; prize_single: string | null }
   viewer: { team: string | null; admin: boolean }; teams: { team: string; positions: Position[] }[]
@@ -71,7 +71,8 @@ export function WinnersModal({ campaignId, onClose }: { campaignId: string; onCl
                       {t.positions.map((p, i) => (
                         <motion.div key={p.position} data-wm-row={p.state} data-wm-me={p.winner?.me ? '1' : '0'} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.12 + i * 0.05 }}
                           style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 12, background: p.winner?.me ? 'rgba(34,197,94,.13)' : 'var(--secondary)', border: p.winner?.me ? '1px solid rgba(34,197,94,.45)' : '1px solid transparent', opacity: p.state === 'empty' ? 0.55 : 1 }}>
-                          <span style={{ width: 28, textAlign: 'center', fontSize: p.position <= 3 ? 20 : 12, fontWeight: 800, color: 'var(--muted-foreground)' }}>{p.position <= 3 ? MEDALS[p.position - 1] : `${p.position}º`}</span>
+                          {p.label ? <span data-wm-slot style={{ flex: 'none', minWidth: 92, textAlign: 'center', padding: '3px 8px', borderRadius: 8, background: 'rgba(99,102,241,.12)', color: '#6366f1', fontSize: 11.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{p.label}</span>
+                            : <span style={{ width: 28, textAlign: 'center', fontSize: p.position <= 3 ? 20 : 12, fontWeight: 800, color: 'var(--muted-foreground)' }}>{p.position <= 3 ? MEDALS[p.position - 1] : `${p.position}º`}</span>}
                           <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: p.winner ? 800 : 600, color: p.winner ? 'var(--foreground)' : 'var(--muted-foreground)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {p.winner ? <>{p.winner.name}{p.winner.me && <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 999, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 800 }}>VOCÊ</span>}</> : p.state === 'empty' ? 'Sem ganhador' : 'Aguardando…'}
                           </span>

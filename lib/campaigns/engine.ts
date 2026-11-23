@@ -1,5 +1,6 @@
 import { fmtBRL, normalizeName } from '@/lib/telao/format'
 import { MAX_OFFER_CODES, MAX_PRODUCT_IDS, isValidOfferCode, offerKey, offerMatches, offersLabel, saleMatchesFilter } from '@/lib/telao/offer'
+import { evalHourly, finishMessagesHourly, hourlyConfigKey, hourlyMetricText, hourlyPrizeLine, howToWinHourly, SlotResult, slotPrizeForPos, spMinutes, validateHourly } from './hourly'
 import { finishMessagesTiers, howToWinTiers, tierStanding, tierTargetsKey, tiersText, TierStanding, validateTiers } from './tiers'
 import { CampaignDraft, Criterion, CRITERIA, criterionInfo, Phase, Team, TEAMS, TeamRule } from './types'
 
@@ -34,11 +35,12 @@ export function phaseOf(d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>, today: 
  * "A regra" da campanha: o que, se mudar, muda QUEM ganha. Nome, descrição, prêmio, ícone e cor ficam de fora
  * (mexer neles só reescreve os textos dos avisos). Usado pra decidir se uma edição refaz os ganhadores.
  */
-export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals' | 'offer_codes' | 'product_ids' | 'filter_logic'>): string {
+export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals' | 'offer_codes' | 'product_ids' | 'filter_logic'> & { hourly?: CampaignDraft['hourly'] }): string {
   const teams = TEAMS.filter(t => d.teams[t]).map(t => [t, d.teams[t]!.winners, d.teams[t]!.target ?? null, ...(d.criterion === 'tier_revenue' ? [tierTargetsKey(d.teams[t]!.tiers)] : [])])
+  const hourly = d.criterion === 'hourly' ? [['por-hora', hourlyConfigKey(d.hourly)]] : []      // só entra quando é por hora: as outras campanhas mantêm a assinatura de antes
   const pc = d.product_ids && d.product_ids.length ? [...new Set(d.product_ids.map(offerKey))].sort() : null
   const oc = d.offer_codes && d.offer_codes.length ? [...new Set(d.offer_codes.map(offerKey))].sort() : null      // só entra na assinatura quando há filtro: campanha antiga mantém a assinatura de antes
-  return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null, ...(oc ? [oc] : []), ...(pc ? [['produtos', pc]] : []), ...(oc && pc ? [['condicao', d.filter_logic === 'or' ? 'or' : 'and']] : [])])
+  return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null, ...(oc ? [oc] : []), ...(pc ? [['produtos', pc]] : []), ...(oc && pc ? [['condicao', d.filter_logic === 'or' ? 'or' : 'and']] : []), ...hourly])
 }
 
 // ── validação (a tela e a API usam a MESMA) ────────────────────────────────────
@@ -50,6 +52,7 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
   if (d.subtitle.length > 140) e.push('A descrição curta pode ter até 140 caracteres.')
   const tiered = d.prize_mode === 'tiered'
   const tierCrit = d.criterion === 'tier_revenue'
+  const hourlyCrit = d.criterion === 'hourly'
   if (!tiered && !tierCrit) {
     if (strict && !d.prize.trim()) e.push('Informe o prêmio.')
     else if (d.prize.trim().length > 120) e.push('O prêmio pode ter até 120 caracteres.')
@@ -79,15 +82,16 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
   const info = CRITERIA.find(c => c.id === d.criterion)
   for (const t of teams) {
     const r = d.teams[t]!
-    if (strict && !tierCrit && !(Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50)) e.push(`Time ${t}: informe quantos serão premiados (1 a 50).`)
+    if (strict && !tierCrit && !hourlyCrit && !(Number.isInteger(r.winners) && r.winners >= 1 && r.winners <= 50)) e.push(`Time ${t}: informe quantos serão premiados (1 a 50).`)
     if (strict && info?.needsTarget && !(typeof r.target === 'number' && r.target > 0)) e.push(`Time ${t}: informe ${info.unit === 'money' ? 'o valor (R$)' : 'o número de vendas'} a bater.`)
   }
-  if (tiered && !tierCrit) for (const t of teams) {                                 // premiação diferenciada: cada posição precisa do seu prêmio
+  if (tiered && !tierCrit && !hourlyCrit) for (const t of teams) {                                 // premiação diferenciada: cada posição precisa do seu prêmio
     const n = Number.isInteger(d.teams[t]!.winners) ? d.teams[t]!.winners : 0, list = d.prizes?.[t] ?? [], missing: number[] = []
     for (let i = 0; i < Math.min(n, 50); i++) { const v = (list[i] ?? '').trim(); if (!v) missing.push(i + 1); else if (v.length > 120) e.push(`Time ${t}: o prêmio do ${i + 1}º lugar pode ter até 120 caracteres.`) }
     if (strict && missing.length) e.push(`Time ${t}: ${missingText(missing, n)}.`)
   }
   if (tierCrit) e.push(...validateTiers(d, teams, strict))
+  if (hourlyCrit) e.push(...validateHourly(d, strict))
   if (!DAY_RE.test(d.starts_on) || !DAY_RE.test(d.ends_on)) e.push('Informe a data de início e a de fim.')
   else if (d.ends_on < d.starts_on) e.push('A data final não pode ser antes da inicial.')
   else if (durationDays(d) > 92) e.push('A campanha pode durar no máximo 92 dias.')
@@ -101,16 +105,17 @@ function missingText(missing: number[], total: number): string {
   return missing.length === 1 ? `informe o prêmio do ${missing[0]}º lugar` : `informe os prêmios do ${ords(missing)} lugar`
 }
 /** O prêmio de UMA posição de UM time ('' se não há). Na premiação única é o mesmo pra todos. */
-export const prizeFor = (d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes'>, team: Team, position: number): string =>
-  d.prize_mode === 'tiered' ? (d.prizes?.[team]?.[position - 1] ?? '').trim() : d.prize.trim()
+export const prizeFor = (d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes'> & Partial<Pick<CampaignDraft, 'criterion' | 'hourly'>>, team: Team, position: number): string =>
+  d.criterion === 'hourly' ? slotPrizeForPos({ prize: d.prize, prize_mode: d.prize_mode, prizes: d.prizes, hourly: d.hourly }, team, position)      // por hora: a posição é o nº da rodada
+  : d.prize_mode === 'tiered' ? (d.prizes?.[team]?.[position - 1] ?? '').trim() : d.prize.trim()
 /** Uma linha só com os prêmios: "1º iPhone, 2º Fone, 3º Vale" (se os dois times têm os mesmos, não repete por time). */
 export function prizesText(d: CampaignDraft): string {
   const teams = nTeams(d), lists = teams.map(t => Array.from({ length: Math.max(d.teams[t]!.winners, 0) }, (_, i) => `${i + 1}º ${prizeFor(d, t, i + 1)}`).join(', '))
   return lists.length > 1 && lists.every(l => l === lists[0]) ? lists[0] : teams.map((t, i) => (teams.length > 1 ? `${t}: ${lists[i]}` : lists[i])).join(' · ')
 }
 /** O que aparece no card/lista: o prêmio (único) ou "Premiação por posição". */
-export const prizeHeadline = (d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes' | 'teams' | 'criterion'>): string => d.criterion === 'tier_revenue' ? 'Premiação por faixa de valor' : d.prize_mode === 'tiered' ? 'Premiação por posição' : d.prize.trim()
-const prizeLine = (d: CampaignDraft): string => (d.criterion === 'tier_revenue' ? `Prêmios por faixa: ${tiersText(d)}.` : d.prize_mode === 'tiered' ? `Prêmios: ${prizesText(d)}.` : `Prêmio: ${d.prize.trim()}.`)
+export const prizeHeadline = (d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes' | 'teams' | 'criterion'>): string => d.criterion === 'tier_revenue' ? 'Premiação por faixa de valor' : d.criterion === 'hourly' ? (d.prize_mode === 'tiered' ? 'Premiação por horário' : `${d.prize.trim()} (por hora)`) : d.prize_mode === 'tiered' ? 'Premiação por posição' : d.prize.trim()
+const prizeLine = (d: CampaignDraft): string => (d.criterion === 'tier_revenue' ? `Prêmios por faixa: ${tiersText(d)}.` : d.criterion === 'hourly' ? hourlyPrizeLine(d) : d.prize_mode === 'tiered' ? `Prêmios: ${prizesText(d)}.` : `Prêmio: ${d.prize.trim()}.`)
 
 // ── textos ──────────────────────────────────────────────────────────────────
 const nTeams = (d: CampaignDraft): Team[] => TEAMS.filter(t => d.teams[t])
@@ -118,6 +123,7 @@ const unitText = (c: Criterion, v: number) => (criterionInfo(c).unit === 'money'
 
 /** "Top 3 do time OAO e Top 4 do time R1" */
 export function winnersText(d: CampaignDraft): string {
+  if (d.criterion === 'hourly') return `Um ganhador por rodada, em cada time (${nTeams(d).join(' e ')})`
   if (d.criterion === 'tier_revenue') return `Todos que atingirem uma faixa (${nTeams(d).length > 1 ? 'times' : 'time'} ${nTeams(d).join(' e ')})`
   const parts = nTeams(d).map(t => `${d.teams[t]!.winners === 1 ? '1º lugar' : `Top ${d.teams[t]!.winners}`} do time ${t}`)
   return parts.length <= 1 ? (parts[0] ?? '') : parts.slice(0, -1).join(', ') + ' e ' + parts[parts.length - 1]
@@ -136,6 +142,7 @@ export const offersText = (d: Pick<CampaignDraft, 'offer_codes' | 'product_ids' 
 export function howToWin(d: CampaignDraft): string { return howToWinBase(d) + offersText(d) }
 function howToWinBase(d: CampaignDraft): string {
   if (d.criterion === 'tier_revenue') return howToWinTiers(d, periodText(d))
+  if (d.criterion === 'hourly') return howToWinHourly(d, periodText(d))
   const who = winnersText(d), when = periodText(d), end = d.prize_mode === 'tiered' ? 'ganham prêmios' : 'ganham o prêmio'
   const targets = (): string => {
     const ts = nTeams(d).map(t => d.teams[t]!.target ?? 0)
@@ -152,8 +159,9 @@ function howToWinBase(d: CampaignDraft): string {
   }
 }
 const firstWord = (s: string) => (s.trim().split(/\s+/)[0] ?? s)
-export const metricText = (c: Criterion, v: number): string => {
+export const metricText = (c: Criterion, v: number, d?: { hourly?: CampaignDraft['hourly'] }): string => {
   const info = criterionInfo(c)
+  if (c === 'hourly') return hourlyMetricText(d?.hourly, v)
   return info.unit === 'money' ? fmtBRL(v) : `${v} ${v === 1 ? 'venda' : 'vendas'}`
 }
 
@@ -207,11 +215,13 @@ export interface Standing {
   progress: number                    // corrida: 0..1 do caminho até o alvo
   qualified: boolean                  // corrida: já bateu o alvo
   tier?: number | null; tierTarget?: number | null; tierPrize?: string | null; nextTarget?: number | null; nextPrize?: string | null; tierHits?: (string | null)[]   // faixas de valor
+  slot?: number                       // por hora: nº da rodada que esta linha (ganhador) venceu
 }
-export interface TeamEval { team: Team; rule: TeamRule; standings: Standing[]; winners: Standing[]; slotsLeft: number }
+export interface TeamEval { team: Team; rule: TeamRule; standings: Standing[]; winners: Standing[]; slotsLeft: number; slots?: SlotResult[] }
 export interface Evaluation { phase: Phase; teams: TeamEval[]; raceComplete: boolean; final: boolean }
 
-export function evaluate(d: CampaignDraft, participants: Participant[], credits: Credit[], today: string): Evaluation {
+/** `nowMin`: minuto do dia AGORA no relógio de São Paulo (só o critério por hora usa; define quais rodadas já fecharam). */
+export function evaluate(d: CampaignDraft, participants: Participant[], credits: Credit[], today: string, nowMin: number = today === todaySP() ? spMinutes(new Date()) : 0): Evaluation {
   const info = criterionInfo(d.criterion)
   const phase = phaseOf(d, today)
   const hasOfferFilter = !!(d.offer_codes && d.offer_codes.length)
@@ -230,6 +240,14 @@ export function evaluate(d: CampaignDraft, participants: Participant[], credits:
 
   const teams: TeamEval[] = nTeams(d).map(team => {
     const rule = d.teams[team]!
+    if (info.hourly) {                                                              // por hora: 1 ganhador por rodada (só das rodadas já fechadas)
+      const people = participants.filter(p => p.team === team), ids = new Set(people.map(p => p.userId))
+      const hv = evalHourly(d, people.map(p => ({ userId: p.userId, name: p.name })), inScope.filter(c => ids.has(c.userId)), today, nowMin)
+      const standings: Standing[] = people.map(p => { const u = hv.perUser.get(p.userId)!; return { userId: p.userId, name: p.name, team, rank: 0, metric: u.won, revenue: u.revenue, count: u.count, bestDay: 0, bestSale: 0, reachedAt: null, progress: 0, qualified: u.won > 0 } })
+      standings.sort((a, b) => b.metric - a.metric || b.revenue - a.revenue || a.userId.localeCompare(b.userId)); standings.forEach((r, i) => { r.rank = i + 1 })
+      const winners: Standing[] = hv.slots.filter(s => s.closed && s.winner).map(s => ({ userId: s.winner!.userId, name: s.winner!.name, team, rank: s.pos, metric: s.winner!.metric, revenue: s.winner!.revenue, count: s.winner!.count, bestDay: 0, bestSale: 0, reachedAt: s.winner!.at, progress: 1, qualified: true, slot: s.pos }))
+      return { team, rule, standings, winners, slotsLeft: 0, slots: hv.slots }
+    }
     const rows: Standing[] = participants.filter(p => p.team === team).map(p => {
       const cs = (byUser.get(p.userId) ?? []).slice().sort((a, b) => a.at.localeCompare(b.at) || a.saleId.localeCompare(b.saleId))
       const revenue = cs.reduce((a, c) => a + c.value, 0), count = cs.length
@@ -271,6 +289,7 @@ export function evaluate(d: CampaignDraft, participants: Participant[], credits:
     return { team, rule, standings: rows, winners, slotsLeft: info.tiers ? 0 : Math.max(rule.winners - winners.length, 0) }
   })
   const raceComplete = info.race && teams.length > 0 && teams.every(t => t.slotsLeft === 0)
+  if (info.hourly) return { phase, teams, raceComplete: false, final: teams.length > 0 && teams.every(t => !!t.slots && t.slots.length > 0 && t.slots.every(s => s.closed)) }      // fecha quando a ÚLTIMA rodada fecha (fim + alguns minutos de tolerância)
   return { phase, teams, raceComplete, final: phase === 'ended' || raceComplete }
 }
 
@@ -295,6 +314,7 @@ export interface TeamResult { team: Team; winners: { name: string; metric: numbe
 export function finishMessages(d: CampaignDraft, ev: Evaluation) { return finishMessagesFrom(d, ev.teams.map(t => ({ team: t.team, winners: t.winners.map(w => ({ name: w.name, metric: w.metric, prize: w.tierPrize ?? null })) }))) }
 export function finishMessagesFrom(d: CampaignDraft, results: TeamResult[]): { personal: (w: { team: Team; metric: number; prize?: string | null }, position: number) => Msg; everyone: Msg; creator: Msg } {
   if (d.criterion === 'tier_revenue') return finishMessagesTiers(d, results)
+  if (d.criterion === 'hourly') return finishMessagesHourly(d, results)
   const tiered = d.prize_mode === 'tiered'
   const lines = results.map(t => `${t.team}: ${t.winners.length ? t.winners.map((w, i) => `${i + 1}º ${firstWord(w.name)}${tiered ? ` (${w.prize || prizeFor(d, t.team, i + 1)})` : ''}`).join(', ') : 'sem ganhadores'}`).join(' · ')
   return {

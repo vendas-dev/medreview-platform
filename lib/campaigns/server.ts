@@ -5,6 +5,8 @@ import {
 } from './engine'
 import { CampaignDraft, CampaignRow, criterionInfo, Team, TEAMS } from './types'
 import { finishTierWinners, tickTierWinners } from './tiers-server'
+import { tickHourlyWinners } from './hourly-server'
+import { cleanHourly, slotsOfDay, spMinutes } from './hourly'
 
 // ══ Apuração, avisos e fechamento das campanhas (servidor) ═══════════════════════
 // Tudo é idempotente: rodar a rotina 10 vezes seguidas dá o mesmo resultado de rodar 1.
@@ -13,6 +15,7 @@ export const rowToDraft = (r: any): CampaignDraft => ({
   name: r.name, subtitle: r.subtitle ?? '', prize: r.prize ?? '', prize_mode: r.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: r.prizes && typeof r.prizes === 'object' ? r.prizes : {}, emoji: r.emoji ?? '🏁', theme: r.theme ?? 'roxo', criterion: r.criterion,
   teams: r.teams ?? {}, starts_on: String(r.starts_on).slice(0, 10), ends_on: String(r.ends_on).slice(0, 10),
   count_recurring: r.count_recurring === true, verticals: r.verticals && r.verticals.length ? r.verticals : null, offer_codes: Array.isArray(r.offer_codes) && r.offer_codes.length ? r.offer_codes : null, product_ids: Array.isArray(r.product_ids) && r.product_ids.length ? r.product_ids : null, filter_logic: r.filter_logic === 'and' || r.filter_logic === 'or' ? r.filter_logic : null, notify: r.notify !== false,
+  hourly: r.criterion === 'hourly' ? cleanHourly(r.hourly) : null,
   notify_result: r.notify_result === undefined || r.notify_result === null ? r.notify !== false : r.notify_result !== false,      // banco sem a coluna (SQL ainda não rodou) ou linha antiga: segue o 'notify' de antes
 })
 
@@ -22,16 +25,19 @@ export const mayNotify = (d: Pick<CampaignDraft, 'notify' | 'notify_result'>, ev
 /** Só guarda prêmio das posições que existem (se diminuiu o nº de premiados, o resto sai) e tira espaços. */
 export function cleanPrizes(d: CampaignDraft): CampaignDraft['prizes'] {
   const out: CampaignDraft['prizes'] = {}
-  for (const t of TEAMS) if (d.teams[t]) out[t] = Array.from({ length: Math.max(0, Math.min(50, d.teams[t]!.winners || 0)) }, (_, i) => (d.prizes?.[t]?.[i] ?? '').trim().slice(0, 120))
+  const hourlyN = d.criterion === 'hourly' ? slotsOfDay(d.hourly).length : null          // por hora: um prêmio por horário do dia (e não por posição)
+  for (const t of TEAMS) if (d.teams[t]) out[t] = Array.from({ length: hourlyN ?? Math.max(0, Math.min(50, d.teams[t]!.winners || 0)) }, (_, i) => (d.prizes?.[t]?.[i] ?? '').trim().slice(0, 120))
   return out
 }
-export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; products?: boolean; logic?: boolean; notifyResult?: boolean } = false, hadOffers = typeof had === 'object' ? !!had.offers : !!had) => ({
+export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; products?: boolean; logic?: boolean; notifyResult?: boolean; hourly?: boolean } = false, hadOffers = typeof had === 'object' ? !!had.offers : !!had) => ({
   name: d.name.trim(), subtitle: d.subtitle.trim(), prize: d.prize_mode === 'tiered' ? '' : d.prize.trim(), prize_mode: d.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: d.prize_mode === 'tiered' ? cleanPrizes(d) : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams,
   starts_on: d.starts_on, ends_on: d.ends_on, count_recurring: d.count_recurring, verticals: d.verticals && d.verticals.length ? d.verticals : null, notify: d.notify,
   // só mexe na coluna quando há ofertas (ou havia, para poder LIMPAR): antes da migração, campanha sem oferta salva igual a sempre
   ...(d.offer_codes?.length || hadOffers ? { offer_codes: d.offer_codes?.length ? d.offer_codes : null } : {}),
   // só grava a coluna quando é preciso (desligado, ou estava desligado e vai ligar): antes do SQL rodar, salvar com 'ligado' continua funcionando
   ...(!d.notify_result || (typeof had === 'object' && had.notifyResult) ? { notify_result: d.notify_result } : {}),
+  // só mexe na coluna do critério POR HORA quando é por hora (ou era, para poder LIMPAR): antes do SQL rodar, as outras campanhas salvam igual a sempre
+  ...(d.criterion === 'hourly' || (typeof had === 'object' && had.hourly) ? { hourly: d.criterion === 'hourly' ? d.hourly ?? null : null } : {}),
   ...(d.product_ids?.length || (typeof had === 'object' && had.products) ? { product_ids: d.product_ids?.length ? d.product_ids : null } : {}),
   // a condição E/OU só existe quando há produtos E ofertas; senão fica nula (e é limpa se antes existia)
   ...(d.filter_logic || (typeof had === 'object' && had.logic) ? { filter_logic: d.offer_codes?.length && d.product_ids?.length ? d.filter_logic ?? null : null } : {}),
@@ -57,7 +63,9 @@ export const PRODUCT_COLUMN_MISSING = 'A coluna telao_events.product_id ainda n�
 export async function loadSales(admin: any, from: string, to: string, need: boolean | { offers?: boolean; products?: boolean } = false): Promise<SaleRow[]> {
   const needOffers = typeof need === 'object' ? !!need.offers : need, needProducts = typeof need === 'object' && !!need.products
   if (to < from) return []
-  const fromIso = `${from}T03:00:00.000Z`, toIso = `${addDays(to, 1)}T03:00:00.000Z`
+  // Janela LARGA de propósito (do 00:00 UTC do 1º dia até 06:00 UTC do dia seguinte ao último): cobre o dia de São Paulo inteiro com folga, qualquer que seja o
+  // deslocamento do fuso. Quem decide o DIA e a HORA de cada venda é a apuração (relógio de São Paulo) — vendas de fora do período são descartadas lá.
+  const fromIso = `${from}T00:00:00.000Z`, toIso = `${addDays(to, 1)}T06:00:00.000Z`
   const out: SaleRow[] = []
   const extras = ['offer_code', 'product_id']
   for (let off = 0, i = 0; i < 400; i++) {
@@ -79,12 +87,12 @@ export async function loadSales(admin: any, from: string, to: string, need: bool
   return out
 }
 
-export async function evaluateDraft(admin: any, d: CampaignDraft, today: string): Promise<{ ev: Evaluation; participants: Participant[] }> {
+export async function evaluateDraft(admin: any, d: CampaignDraft, today: string, now: Date = new Date()): Promise<{ ev: Evaluation; participants: Participant[] }> {
   const teams = (Object.keys(d.teams) as Team[]).filter(t => TEAMS.includes(t))
   const participants = await loadParticipants(admin, teams)
   const upto = d.ends_on < today ? d.ends_on : today
   const [sales, closers] = upto >= d.starts_on ? await Promise.all([loadSales(admin, d.starts_on, upto, { offers: !!d.offer_codes?.length, products: !!d.product_ids?.length }), loadCloserRefs(admin)]) : [[], [] as CloserRef[]]
-  return { ev: evaluate(d, participants, attributeSales(sales, participants, closers), today), participants }
+  return { ev: evaluate(d, participants, attributeSales(sales, participants, closers), today, spMinutes(now)), participants }
 }
 
 /** Marca o aviso como enviado. Devolve false se JÁ tinha sido enviado (a chave é única). */
@@ -101,7 +109,7 @@ export async function tickCampaign(admin: any, c: CampaignRow, now: Date, sum: T
   const d = rowToDraft(c), today = todaySP(now), phase = phaseOf(d, today)
   if (c.status !== 'published' || c.finalized_at || phase === 'scheduled') return
   sum.checked++
-  const { ev, participants } = await evaluateDraft(admin, d, today)
+  const { ev, participants } = await evaluateDraft(admin, d, today, now)
   const everyone = participants.map(p => p.userId)
   // link null de propósito: clicar no aviso de campanha abre o popup dos vencedores (não leva pra outra página)
   const send = async (title: string, body: string, kind: 'campanha' | 'vitoria', to: string[], event_key: string) => {
@@ -122,6 +130,9 @@ export async function tickCampaign(admin: any, c: CampaignRow, now: Date, sum: T
   // 1b) Faixas de valor: registra/atualiza quem atingiu faixa e avisa (idempotente; na última apuração fecha os ganhadores certos)
   if (info.tiers) await tickTierWinners({ admin, c, d, ev, participants, send, claim: k => claimEvent(admin, c.id, k), sum })
 
+  // 1c) Por hora: cada rodada FECHADA vira ganhador (e avisa). Se sobrou rodada para a próxima apuração, ainda não fecha a campanha.
+  if (info.hourly && (await tickHourlyWinners({ admin, c, d, ev, today, send, claim: k => claimEvent(admin, c.id, k), sum }))) return
+
   // 2) Corrida: cada vaga preenchida vira ganhador na hora (e avisa)
   if (info.race) {
     for (const t of ev.teams) for (let i = 0; i < t.winners.length; i++) {
@@ -141,7 +152,7 @@ export async function tickCampaign(admin: any, c: CampaignRow, now: Date, sum: T
   const msgs = finishMessages(d, ev)
   for (const t of ev.teams) for (let i = 0; i < t.winners.length; i++) {
     const w = t.winners[i], pos = i + 1
-    if (!info.race && !info.tiers) {
+    if (!info.race && !info.tiers && !info.hourly) {
       await admin.from('campaign_winners').upsert({ campaign_id: c.id, team: t.team, position: pos, user_id: w.userId, user_name: w.name, metric_value: w.metric, reached_at: w.reachedAt, prize: prizeFor(d, t.team, pos) }, { onConflict: 'campaign_id,team,position', ignoreDuplicates: true })
       sum.winners++
       const m = msgs.personal(w, pos); await send(m.title, m.body, 'vitoria', [w.userId], `finish:personal:${t.team}:${pos}`)

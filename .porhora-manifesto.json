@@ -1,0 +1,23 @@
+{
+ "criados": [
+  "lib/campaigns/hourly.ts",
+  "lib/campaigns/hourly-server.ts",
+  "lib/campaigns/paged.ts",
+  "components/campaigns/HourlyEditor.tsx",
+  "sql/migration-campanha-por-hora.sql",
+  "tests/unit/_banco_de_mentira.ts",
+  "tests/unit/campanhas_por_hora.test.ts"
+ ],
+ "salvos": [
+  "lib/campaigns/engine.ts",
+  "lib/campaigns/types.ts",
+  "lib/campaigns/server.ts",
+  "lib/campaigns/handlers.ts",
+  "lib/campaigns/sync.ts",
+  "lib/campaigns/api.ts",
+  "components/campaigns/CampaignBuilder.tsx",
+  "components/campaigns/CampaignPreview.tsx",
+  "components/campaigns/WinnersModal.tsx",
+  "app/(platform)/admin/campanhas/CampanhasClient.tsx"
+ ]
+}

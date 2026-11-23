@@ -1,6 +1,8 @@
 import { sendNotification } from '@/lib/notifications/server'
 import { cancelMessage, finishMessagesFrom, launchMessage, raceHitMessages, startMessage, TeamResult } from './engine'
 import { loadParticipants, rowToDraft } from './server'
+import { slotWinMessage } from './hourly'
+import { fetchAllRows } from './paged'
 import { CampaignRow, Team, TEAMS } from './types'
 
 // ══ Os avisos acompanham a campanha: atualizar (editar), refazer (mudou a regra) e apagar (excluir) ═══════
@@ -13,7 +15,7 @@ export async function syncCampaignNotifications(admin: any, c: CampaignRow, now:
   const d = rowToDraft(c), out = { updated: 0, removed: 0, recipients: 0 }
   const [{ data: ns }, { data: ws }] = await Promise.all([
     admin.from('notifications').select('*').eq('campaign_id', c.id),
-    admin.from('campaign_winners').select('*').eq('campaign_id', c.id),
+    fetchAllRows((f, t) => admin.from('campaign_winners').select('*').eq('campaign_id', c.id).order('team').order('position').range(f, t)).then(data => ({ data })),
   ])
   const notifs = ((ns ?? []) as any[]).filter(n => n.event_key)
   if (notifs.length === 0) return out
@@ -51,6 +53,10 @@ export async function syncCampaignNotifications(admin: any, c: CampaignRow, now:
       const m = raceHitMessages(d, { name: w.user_name, team: team as Team, position: pos, metric: Number(w.metric_value ?? 0), prize: w.prize ?? null })
       await setText(n, who === 'personal' ? m.personal : m.others)
     }
+    else if (kind === 'slot' && who === 'personal') {                                         // por hora: aviso da rodada ganha
+      const w = winnerOf(team, pos); if (!w) { await drop(n); continue }
+      await setText(n, slotWinMessage(d, { team: team as Team, pos, name: w.user_name, metric: Number(w.metric_value ?? 0), prize: w.prize ?? null }))
+    }
     else if (kind === 'finish' && who === 'personal') {
       const w = winnerOf(team, pos); if (!w) { await drop(n); continue }
       await setText(n, fin.personal({ team: team as Team, metric: Number(w.metric_value ?? 0), prize: w.prize ?? null }, pos))
@@ -68,8 +74,8 @@ export async function syncCampaignNotifications(admin: any, c: CampaignRow, now:
  */
 export async function resetCampaignOutcome(admin: any, campaignId: string, opts: { outcome?: boolean; start?: boolean }): Promise<{ notifications: number; winners: number }> {
   // as chaves do AVISO (win:personal:OAO:1, finish:everyone…) e as do HISTÓRICO de apuração (win:OAO:1, finish) têm nomes diferentes
-  const hitNotice = (k: string | null | undefined) => !!k && ((opts.outcome === true && (k.startsWith('win:') || k.startsWith('finish:'))) || (opts.start === true && k === 'start'))
-  const hitLog = (k: string | null | undefined) => !!k && ((opts.outcome === true && (k.startsWith('win:') || k === 'finish')) || (opts.start === true && k === 'start'))
+  const hitNotice = (k: string | null | undefined) => !!k && ((opts.outcome === true && (k.startsWith('win:') || k.startsWith('slot:') || k.startsWith('finish:'))) || (opts.start === true && k === 'start'))
+  const hitLog = (k: string | null | undefined) => !!k && ((opts.outcome === true && (k.startsWith('win:') || k.startsWith('slot:') || k === 'finish')) || (opts.start === true && k === 'start'))
   const { data: ns } = await admin.from('notifications').select('id, event_key').eq('campaign_id', campaignId)
   const ids = byIds(((ns ?? []) as any[]).filter(n => hitNotice(n.event_key)))
   if (ids.length) { await admin.from('notification_recipients').delete().in('notification_id', ids); await admin.from('notifications').delete().in('id', ids) }
