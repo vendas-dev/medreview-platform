@@ -1,0 +1,8 @@
+{
+ "criados": [],
+ "salvos": [
+  "lib/dashboard/eventGoalsCore.ts",
+  "lib/dashboard/eventGoals.ts",
+  "tests/unit/event_goals.test.ts"
+ ]
+}

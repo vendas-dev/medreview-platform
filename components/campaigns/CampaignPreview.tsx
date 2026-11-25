@@ -1,5 +1,6 @@
 'use client'
 import { motion } from 'framer-motion'
+import { Avatar } from '@/app/(platform)/dashboard/eventos/shared'
 import { CampaignDraft, criterionInfo, Team, TEAMS, THEMES } from '@/lib/campaigns/types'
 import { diffDays, durationDays, fmtDM, howToWin, launchMessage, metricText, phaseOf, prizeFor, validateDraft } from '@/lib/campaigns/engine'
 import { fmtBRL } from '@/lib/telao/format'
@@ -10,7 +11,7 @@ import { slotPrize, slotRange, slotsOfDay } from '@/lib/campaigns/hourly'
 
 // ══ Prévia da campanha — o que o superadmin vê enquanto preenche (e nos cards da lista) ══
 
-export interface PreviewTeam { team: Team; winners: number; top: { name: string; rank: number; metric: number; count: number; revenue: number; progress: number; qualified: boolean; tierPrize?: string | null }[]; hourly?: { current: { label: string; leader: string | null } | null; next: string | null; total: number; closed: number } }
+export interface PreviewTeam { team: Team; winners: number; top: { avatar_url?: string | null; name: string; rank: number; metric: number; count: number; revenue: number; progress: number; qualified: boolean; tierPrize?: string | null }[]; hourly?: { current: { label: string; leader: string | null } | null; next: string | null; total: number; closed: number } }
 export interface PreviewData { errors: string[]; phase: string; participants: { OAO: number; R1: number }; teams: PreviewTeam[] }
 
 const MEDALS = ['🥇', '🥈', '🥉', '🏅', '🏅']
@@ -103,6 +104,7 @@ function Standings({ d, live, loading, today }: { d: CampaignDraft; live: Previe
                       <div key={r.rank + r.name} data-live-row={r.name} style={{ position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', marginBottom: 4, borderRadius: 10, background: inMoney ? 'rgba(34,197,94,.1)' : 'var(--secondary)', border: inMoney ? '1px solid rgba(34,197,94,.35)' : '1px solid transparent' }}>
                         <motion.div initial={{ width: 0 }} animate={{ width: `${((info.race ? r.progress : r.metric / max) * 100)}%` }} transition={{ duration: 0.6 }} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: inMoney ? 'rgba(34,197,94,.14)' : 'rgba(99,102,241,.1)' }} />
                         <span style={{ position: 'relative', width: 22, fontSize: 13, textAlign: 'center' }}>{r.rank <= 3 ? MEDALS[r.rank - 1] : `${r.rank}º`}</span>
+                        <span style={{ position: 'relative', display: 'flex', flex: 'none' }}><Avatar c={{ name: r.name, avatar_url: r.avatar_url ?? null }} size={22} /></span>
                         <span style={{ position: 'relative', flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                         <span style={{ position: 'relative', fontSize: 11.5, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{info.hourly ? `${r.metric} ${r.metric === 1 ? 'rodada' : 'rodadas'}` : info.tiers ? `${metricText(d.criterion, r.metric)}${r.tierPrize ? ` · 🎁 ${r.tierPrize}` : ''}` : info.race ? (r.qualified ? '✅ bateu' : `${Math.round(r.progress * 100)}%`) : metricText(d.criterion, r.metric)}</span>
                       </div>
@@ -169,6 +171,8 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
         </div>
         )}
 
+        {!d.event && (d.exclude?.length ?? 0) > 0 && <p data-exclude-chip style={{ margin: '12px 0 0', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 999, fontSize: 12, fontWeight: 800, background: 'rgba(100,116,139,.14)', color: 'var(--foreground)', border: '1px solid rgba(100,116,139,.35)' }}>🏠 {pl(d.exclude!.length, 'closer fica', 'closers ficam')} de fora <span style={{ fontWeight: 600, color: 'var(--muted-foreground)' }}>— não concorrem nem são avisados</span></p>}
+        {d.event && <p data-event-chip style={{ margin: '12px 0 0', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 999, fontSize: 12, fontWeight: 800, background: 'rgba(168,85,247,.12)', color: 'var(--foreground)', border: '1px solid rgba(168,85,247,.35)' }}>🎪 {d.event.name || 'Evento'} · {pl(d.event.closers.length, 'closer', 'closers')} <span style={{ fontWeight: 600, color: 'var(--muted-foreground)' }}>— só eles concorrem e são avisados</span></p>}
         <p data-participants style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--muted-foreground)' }}>
           👥 <strong style={{ color: 'var(--foreground)' }}>{pl(total, 'pessoa concorre', 'pessoas concorrem')}</strong>{teams.length > 1 ? ` · ${teams.map(t => `${t} ${pt[t]}`).join(' · ')}` : ''}
           {d.count_recurring ? ' · parcelas de recorrência contam' : ''}

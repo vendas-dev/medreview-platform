@@ -1,5 +1,6 @@
 import { fmtBRL, normalizeName } from '@/lib/telao/format'
 import { MAX_OFFER_CODES, MAX_PRODUCT_IDS, isValidOfferCode, offerKey, offerMatches, offersLabel, saleMatchesFilter } from '@/lib/telao/offer'
+import { eventConfigKey, eventText, excludeConfigKey, validateEvent, validateExclude } from './event'
 import { evalHourly, finishMessagesHourly, hourlyConfigKey, hourlyMetricText, hourlyPrizeLine, howToWinHourly, SlotResult, slotPrizeForPos, spMinutes, validateHourly } from './hourly'
 import { finishMessagesTiers, howToWinTiers, tierStanding, tierTargetsKey, tiersText, TierStanding, validateTiers } from './tiers'
 import { CampaignDraft, Criterion, CRITERIA, criterionInfo, Phase, Team, TEAMS, TeamRule } from './types'
@@ -35,12 +36,14 @@ export function phaseOf(d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>, today: 
  * "A regra" da campanha: o que, se mudar, muda QUEM ganha. Nome, descrição, prêmio, ícone e cor ficam de fora
  * (mexer neles só reescreve os textos dos avisos). Usado pra decidir se uma edição refaz os ganhadores.
  */
-export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals' | 'offer_codes' | 'product_ids' | 'filter_logic'> & { hourly?: CampaignDraft['hourly'] }): string {
+export function ruleSignature(d: Pick<CampaignDraft, 'criterion' | 'teams' | 'starts_on' | 'ends_on' | 'count_recurring' | 'verticals' | 'offer_codes' | 'product_ids' | 'filter_logic'> & { hourly?: CampaignDraft['hourly']; event?: CampaignDraft['event']; exclude?: CampaignDraft['exclude'] }): string {
   const teams = TEAMS.filter(t => d.teams[t]).map(t => [t, d.teams[t]!.winners, d.teams[t]!.target ?? null, ...(d.criterion === 'tier_revenue' ? [tierTargetsKey(d.teams[t]!.tiers)] : [])])
   const hourly = d.criterion === 'hourly' ? [['por-hora', hourlyConfigKey(d.hourly)]] : []      // só entra quando é por hora: as outras campanhas mantêm a assinatura de antes
+  const ev = eventConfigKey(d)      // só entra quando é campanha de evento: trocar quem vai ao evento muda quem pode ganhar
+  const ex = excludeConfigKey(d)      // idem: só entra quando há closers de fora
   const pc = d.product_ids && d.product_ids.length ? [...new Set(d.product_ids.map(offerKey))].sort() : null
   const oc = d.offer_codes && d.offer_codes.length ? [...new Set(d.offer_codes.map(offerKey))].sort() : null      // só entra na assinatura quando há filtro: campanha antiga mantém a assinatura de antes
-  return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null, ...(oc ? [oc] : []), ...(pc ? [['produtos', pc]] : []), ...(oc && pc ? [['condicao', d.filter_logic === 'or' ? 'or' : 'and']] : []), ...hourly])
+  return JSON.stringify([d.criterion, teams, d.starts_on, d.ends_on, d.count_recurring === true, d.verticals && d.verticals.length ? [...d.verticals].sort() : null, ...(oc ? [oc] : []), ...(pc ? [['produtos', pc]] : []), ...(oc && pc ? [['condicao', d.filter_logic === 'or' ? 'or' : 'and']] : []), ...hourly, ...(ev ? [['evento', ev]] : []), ...(ex ? [['fora', ex]] : [])])
 }
 
 // ── validação (a tela e a API usam a MESMA) ────────────────────────────────────
@@ -92,6 +95,7 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
   }
   if (tierCrit) e.push(...validateTiers(d, teams, strict))
   if (hourlyCrit) e.push(...validateHourly(d, strict))
+  e.push(...validateEvent(d, strict), ...validateExclude(d))
   if (!DAY_RE.test(d.starts_on) || !DAY_RE.test(d.ends_on)) e.push('Informe a data de início e a de fim.')
   else if (d.ends_on < d.starts_on) e.push('A data final não pode ser antes da inicial.')
   else if (durationDays(d) > 92) e.push('A campanha pode durar no máximo 92 dias.')
@@ -139,7 +143,7 @@ export const offersText = (d: Pick<CampaignDraft, 'offer_codes' | 'product_ids' 
   const po = o ? `${o.length === 1 ? 'da oferta' : 'das ofertas'}: ${offersLabel(o)}` : '', pp = p ? `${p.length === 1 ? 'do produto ID' : 'dos produtos ID'}: ${offersLabel(p)}` : ''
   return ` Só contam vendas ${o && p ? `${pp} ${d.filter_logic === 'or' ? 'ou' : 'e'} ${po}` : (pp || po)}.`
 }
-export function howToWin(d: CampaignDraft): string { return howToWinBase(d) + offersText(d) }
+export function howToWin(d: CampaignDraft): string { return howToWinBase(d) + offersText(d) + eventText(d) }
 function howToWinBase(d: CampaignDraft): string {
   if (d.criterion === 'tier_revenue') return howToWinTiers(d, periodText(d))
   if (d.criterion === 'hourly') return howToWinHourly(d, periodText(d))
@@ -208,7 +212,7 @@ export function attributeSales(rows: SaleRow[], participants: Participant[], clo
 
 // ── apuração ──────────────────────────────────────────────────────────────────
 export interface Standing {
-  userId: string; name: string; team: Team; rank: number
+  userId: string; name: string; team: Team; rank: number; avatar_url?: string | null
   metric: number                      // o número do critério (R$, vendas, melhor dia, maior venda…)
   revenue: number; count: number; bestDay: number; bestSale: number
   reachedAt: string | null            // corrida: quando bateu o alvo · ranking: quando fez a última venda contada

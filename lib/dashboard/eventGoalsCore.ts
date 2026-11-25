@@ -53,6 +53,28 @@ export function isCountableSale(r: SaleRow, editionEventName: string): boolean {
   return n !== '' && n === normName(editionEventName)
 }
 
+/** Quantos dias depois do fim do evento uma venda com o nome dele ainda aparece NO GRÁFICO do evento (só o gráfico:
+ *  o crédito da venda para o closer não depende disso). */
+export const POST_EVENT_DAYS = 10
+
+/** A venda (pelo dia de SP) pertence a ESTA edição? Janela: 1 dia antes … POST_EVENT_DAYS depois do fim.
+ *  Havendo outra edição do mesmo evento (mesmo nome) que também alcança o dia, vale a mais próxima do dia
+ *  (dentro das datas = distância 0); empate → a que começou depois. Assim a venda de 21–24/12 vai para o SBOT de
+ *  dezembro e não para o de novembro. */
+export function belongsToEdition(day: string, edition: EditionRow, all: EditionRow[] = []): boolean {
+  const reach = (e: EditionRow) => day >= addDaysToDateStr(e.start_date, -1) && day <= addDaysToDateStr(e.end_date, POST_EVENT_DAYS)
+  if (!reach(edition)) return false
+  const key = normName(edition.event_name)
+  const dist = (e: EditionRow) => (day < e.start_date ? daysBetween(day, e.start_date) : day > e.end_date ? daysBetween(e.end_date, day) : 0)
+  const rivals = all.filter(e => e.id !== edition.id && normName(e.event_name) === key && reach(e))
+  for (const r of rivals) {
+    const dr = dist(r), dm = dist(edition)
+    if (dr < dm || (dr === dm && r.start_date > edition.start_date)) return false
+  }
+  return true
+}
+const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000)
+
 export interface Bucket { value: number; count: number }
 const add = (b: Bucket, v: number) => { b.value += v; b.count += 1 }
 const empty = (): Bucket => ({ value: 0, count: 0 })
@@ -70,7 +92,7 @@ export interface Actuals {
   recent: { id: string | number | null; value: number; closer_id: string | null; occurred_at: string; product: string | null }[]
 }
 
-export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCloser[]): Actuals {
+export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCloser[], allEditions: EditionRow[] = []): Actuals {
   const days = eventDays(edition.start_date, edition.end_date)
   const daySet = new Set(days)
   const hub = new Map<string, string>(); const ids = new Map<string, string>()
@@ -86,6 +108,7 @@ export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCl
     if (!isCountableSale(r, edition.event_name)) continue
     const v = Number(r.value) || 0
     const day = dateInSaoPaulo(r.occurred_at)
+    if (!belongsToEdition(day, edition, allEditions)) continue
     let cid: string | null = null
     if (!r.is_self_checkout) {
       const h = r.closer_hubspot_id ? String(r.closer_hubspot_id).trim() : ''

@@ -1,6 +1,7 @@
 import { sendNotification } from '@/lib/notifications/server'
 import { cancelMessage, finishMessagesFrom, launchMessage, raceHitMessages, startMessage, TeamResult } from './engine'
 import { loadParticipants, rowToDraft } from './server'
+import { scopeOf } from './event'
 import { slotWinMessage } from './hourly'
 import { fetchAllRows } from './paged'
 import { CampaignRow, Team, TEAMS } from './types'
@@ -24,7 +25,7 @@ export async function syncCampaignNotifications(admin: any, c: CampaignRow, now:
   const fin = finishMessagesFrom(d, results)
   const winnerOf = (team: string, pos: number) => winners.find(w => w.team === team && w.position === pos)
   let participantIds: string[] | null = null
-  const people = async () => (participantIds ??= (await loadParticipants(admin, TEAMS.filter(t => d.teams[t]) as Team[])).map(p => p.userId))
+  const people = async () => (participantIds ??= (await loadParticipants(admin, TEAMS.filter(t => d.teams[t]) as Team[], scopeOf(d))).map(p => p.userId))
 
   const setText = async (n: any, m: { title: string; body: string }) => {
     if (n.title === m.title.slice(0, 120) && (n.body ?? '') === m.body.slice(0, 1000)) return

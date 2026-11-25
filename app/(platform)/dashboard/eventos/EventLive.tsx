@@ -169,7 +169,7 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
           {(data.actual.others.count > 0 || data.actual.outside.count > 0) && (
             <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 12, lineHeight: 1.5 }}>
               {data.actual.others.count > 0 && <>Self-checkout e vendas de quem não está na escalação: <b>{brl(data.actual.others.value)}</b> ({data.actual.others.count}) — contam na meta geral. </>}
-              {data.actual.outside.count > 0 && <>Vendas do evento fora dos dias cadastrados: <b>{brl(data.actual.outside.value)}</b> ({data.actual.outside.count}) — contam só no total.</>}
+              {data.actual.outside.count > 0 && <>Vendas do evento fora dos dias cadastrados: <b>{brl(data.actual.outside.value)}</b> ({data.actual.outside.count}) — contam no total (vendas até 10 dias depois do fim do evento entram aqui).</>}
             </p>)}
         </div>
         <div style={{ minWidth: 0 }}>

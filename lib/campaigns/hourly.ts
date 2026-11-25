@@ -135,7 +135,7 @@ export function hourlyPrizeLine(d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 
 // ── apuração ───────────────────────────────────────────────────────────────────
 export interface HCredit { userId: string; at: string; value: number }
 export interface HPerson { userId: string; name: string }
-export interface SlotWinner { userId: string; name: string; metric: number; revenue: number; count: number; at: string }
+export interface SlotWinner { avatar_url?: string | null; userId: string; name: string; metric: number; revenue: number; count: number; at: string }
 export interface SlotResult extends DaySlot { closed: boolean; current: boolean; winner: SlotWinner | null }
 export interface HourlyEval { slots: SlotResult[]; perUser: Map<string, { won: number; revenue: number; count: number }>; allClosed: boolean }
 
@@ -220,7 +220,7 @@ export function finishMessagesHourly(d: CampaignDraft, results: { team: Team; wi
 }
 
 /** Popup dos vencedores (SÓ nome e prêmio): rodadas de hoje (todas) + as anteriores que tiveram ganhador, da mais antiga para a mais nova (as últimas 60). */
-export function hourlyTeamsView(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hourly' | 'prize' | 'prize_mode' | 'prizes'>, allowed: Team[], winners: { team: string; position: number; user_id: string | null; user_name: string; prize?: string | null }[], userId: string, closed: boolean, today: string, nowMin: number) {
+export function hourlyTeamsView(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hourly' | 'prize' | 'prize_mode' | 'prizes'>, allowed: Team[], winners: { team: string; position: number; user_id: string | null; user_name: string; prize?: string | null; avatar_url?: string | null }[], userId: string, closed: boolean, today: string, nowMin: number) {
   const all = allSlots(d), base = DAY_RE.test(d.starts_on) ? dayNum(d.starts_on) : 0, absNow = (dayNum(today) - base) * DAY_MIN + nowMin
   return allowed.map(team => {
     const win = new Map(winners.filter(w => w.team === team).map(w => [Number(w.position), w]))
@@ -230,7 +230,7 @@ export function hourlyTeamsView(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' |
       team,
       positions: rows.map(s => {
         const w = win.get(s.pos), isClosed = closed || absNow >= (dayNum(s.day) - base) * DAY_MIN + s.to + SLOT_GRACE_MIN
-        return { position: s.pos, label: `${fmtDM(s.day)} · ${slotRange(s)}`, prize: (w?.prize || slotPrize(d, team, s.idx)) || null, winner: w ? { name: w.user_name, me: w.user_id === userId } : null, state: w ? 'winner' : isClosed ? 'empty' : 'pending' }
+        return { position: s.pos, label: `${fmtDM(s.day)} · ${slotRange(s)}`, prize: (w?.prize || slotPrize(d, team, s.idx)) || null, winner: w ? { name: w.user_name, me: w.user_id === userId, avatar_url: w.avatar_url ?? null } : null, state: w ? 'winner' : isClosed ? 'empty' : 'pending' }
       }),
     }
   })

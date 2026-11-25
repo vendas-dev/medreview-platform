@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Avatar } from '@/app/(platform)/dashboard/eventos/shared'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Copy, Eye, Pencil, Plus, RefreshCw, Rocket, Trash2, Trophy, X, Ban } from 'lucide-react'
 import { CampaignDraft, CampaignRow, criterionInfo, emptyDraft, Phase, Team, TEAMS } from '@/lib/campaigns/types'
@@ -35,8 +36,8 @@ export function HourlyRounds({ c, t }: { c: CampaignRow; t: Evaluation['teams'][
             <div data-slot-row={s.pos} data-slot-state={state} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', color: 'var(--foreground)', background: state === 'win' ? 'rgba(34,197,94,.09)' : state === 'live' ? 'rgba(99,102,241,.1)' : 'transparent' }}>
               <span style={{ flex: 'none', minWidth: 84, padding: '2px 8px', borderRadius: 8, background: 'rgba(99,102,241,.12)', color: '#6366f1', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', textAlign: 'center' }}>{slotRange(s)}</span>
               <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {state === 'win' && <>🏆 {s.winner!.name}</>}
-                {state === 'live' && <>🟢 Agora{s.winner ? <> · na frente: <strong>{s.winner.name}</strong></> : <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}> · ninguém vendeu ainda</span>}</>}
+                {state === 'win' && <>🏆 <span style={{ display: 'inline-flex', verticalAlign: 'middle', margin: '0 6px' }}><Avatar c={{ name: s.winner!.name, avatar_url: s.winner!.avatar_url ?? null }} size={22} /></span>{s.winner!.name}</>}
+                {state === 'live' && <>🟢 Agora{s.winner ? <> · na frente: <span style={{ display: 'inline-flex', verticalAlign: 'middle', margin: '0 6px' }}><Avatar c={{ name: s.winner.name, avatar_url: s.winner.avatar_url ?? null }} size={22} /></span><strong>{s.winner.name}</strong></> : <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}> · ninguém vendeu ainda</span>}</>}
                 {state === 'none' && <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}>Sem vendas nesta rodada</span>}
                 {state === 'wait' && <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}>{s.winner ? `Em andamento · ${s.winner.name}` : 'Aguardando'}</span>}
               </span>
@@ -51,12 +52,12 @@ export function HourlyRounds({ c, t }: { c: CampaignRow; t: Evaluation['teams'][
   )
 }
 
-type Winner = { id: string; team: Team; position: number; user_name: string; metric_value: number | null; reached_at: string | null; delivered_at: string | null; prize: string | null }
+type Winner = { avatar_url?: string | null; id: string; team: Team; position: number; user_name: string; metric_value: number | null; reached_at: string | null; delivered_at: string | null; prize: string | null }
 type Notified = { notifications: number; deliveries: number }
 type ListItem = CampaignRow & { phase: Phase; winners: Winner[]; notified: Notified }
 type BuilderState = { draft: CampaignDraft; id: string | null; status: 'draft' | 'published' | 'cancelled'; hasOutcome: boolean; notified: Notified }
 
-const FILTERS = [['all', 'Todas'], ['active', 'Em andamento'], ['scheduled', 'Programadas'], ['ended', 'Encerradas'], ['draft', 'Rascunhos']] as const
+const FILTERS = [['all', 'Todas'], ['active', 'Em andamento'], ['scheduled', 'Programadas'], ['ended', 'Encerradas'], ['draft', 'Rascunhos'], ['event', '🎪 Eventos']] as const
 const MEDALS = ['🥇', '🥈', '🥉']
 
 // ── Filtro de período das campanhas ───────────────────────────────────────────────────────────────────────────────────────
@@ -109,8 +110,8 @@ export function CampanhasClient() {
   useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(null), 4000); return () => clearTimeout(id) }, [toast])
 
   const inPeriod = useMemo(() => (periodo ? list.filter(c => c.starts_on <= periodo.end && c.ends_on >= periodo.start) : list), [list, periodo])
-  const shown = useMemo(() => inPeriod.filter(c => filter === 'all' ? true : filter === 'draft' ? c.status === 'draft' : filter === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === filter), [inPeriod, filter])
-  const count = (f: string) => inPeriod.filter(c => f === 'all' ? true : f === 'draft' ? c.status === 'draft' : f === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === f).length
+  const shown = useMemo(() => inPeriod.filter(c => filter === 'all' ? true : filter === 'event' ? !!c.event : filter === 'draft' ? c.status === 'draft' : filter === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === filter), [inPeriod, filter])
+  const count = (f: string) => inPeriod.filter(c => f === 'all' ? true : f === 'event' ? !!c.event : f === 'draft' ? c.status === 'draft' : f === 'ended' ? (c.status === 'published' && c.phase === 'ended') || c.status === 'cancelled' : c.status === 'published' && c.phase === f).length
 
   const post = async (id: string, body: object, ok: string) => {
     const r = await fetch(`/api/admin/campaigns/${id}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -206,6 +207,8 @@ function CampaignCard({ c, today, i, onView, onPublish, onEdit, onDuplicate, onD
           <span data-status style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 12px', borderRadius: 999, background: `${st.color}1f`, color: st.color, fontSize: 12, fontWeight: 800 }}>
             <i style={{ width: 7, height: 7, borderRadius: '50%', background: st.color }} />{st.label}
           </span>
+          {!c.event && (c.exclude?.length ?? 0) > 0 && <span data-chip="fora" title="Estes closers não concorrem nem são avisados" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 999, background: 'rgba(100,116,139,.14)', border: '1px solid rgba(100,116,139,.35)', color: 'var(--foreground)', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>🏠 {c.exclude!.length} {c.exclude!.length === 1 ? 'de fora' : 'de fora'}</span>}
+          {c.event && <span data-chip="evento" title="Só estes closers concorrem e são avisados" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 999, background: 'rgba(168,85,247,.12)', border: '1px solid rgba(168,85,247,.35)', color: 'var(--foreground)', fontSize: 12, fontWeight: 800, maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🎪 {c.event.name || 'Evento'} · {c.event.closers.length} {c.event.closers.length === 1 ? 'closer' : 'closers'}</span>}
           {running && <button type="button" className="cp-link" data-act="cancelar" onClick={onCancel} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Ban size={13} />Cancelar campanha</button>}
         </div>
 
@@ -294,7 +297,7 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
                       {data.winners.filter(w => w.team === t).map(w => (
                         <label key={w.id} data-winner={w.user_name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: 12.5, color: 'var(--foreground)', cursor: 'pointer' }}>
                           {c.criterion === 'hourly' ? <span data-winner-slot style={{ flex: 'none', minWidth: 104, padding: '2px 8px', borderRadius: 8, background: 'rgba(99,102,241,.12)', color: '#6366f1', fontSize: 11, fontWeight: 800, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{slotLabel(c, w.position)}</span> : <span style={{ width: 22 }}>{c.criterion === 'tier_revenue' ? '🎁' : (MEDALS[w.position - 1] ?? `${w.position}º`)}</span>}
-                          <span style={{ flex: 1, fontWeight: 700 }}>{w.user_name}{w.metric_value != null && <span style={{ fontWeight: 500, color: 'var(--muted-foreground)' }}> · {metricText(c.criterion, w.metric_value, c)}</span>}{(w.prize || c.prize_mode === 'tiered') && <span data-winner-prize style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#d97706' }}>🎁 {w.prize || prizeFor(c, w.team, w.position) || '—'}</span>}</span>
+                          <Avatar c={{ name: w.user_name, avatar_url: w.avatar_url ?? null }} size={26} /><span style={{ flex: 1, fontWeight: 700 }}>{w.user_name}{w.metric_value != null && <span style={{ fontWeight: 500, color: 'var(--muted-foreground)' }}> · {metricText(c.criterion, w.metric_value, c)}</span>}{(w.prize || c.prize_mode === 'tiered') && <span data-winner-prize style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#d97706' }}>🎁 {w.prize || prizeFor(c, w.team, w.position) || '—'}</span>}</span>
                           <input type="checkbox" data-delivered={w.user_name} checked={!!w.delivered_at} onChange={e => toggleDelivered(w, e.target.checked)} />
                           <span style={{ fontSize: 10.5, color: w.delivered_at ? '#16a34a' : 'var(--muted-foreground)', fontWeight: 700 }}>{w.delivered_at ? 'entregue' : 'a entregar'}</span>
                         </label>
@@ -316,7 +319,7 @@ function Detail({ id, today, onClose, onChanged, onDuplicate }: { id: string; to
                     {info.hourly && t.slots ? <HourlyRounds c={c} t={t} /> : t.standings.map(s => (
                       <div key={s.userId} data-row={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 12, borderBottom: '1px solid var(--border)', background: (info.hourly ? s.metric > 0 : info.tiers ? !!s.tierPrize : s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0)) ? 'rgba(34,197,94,.09)' : 'transparent', color: 'var(--foreground)' }}>
                         <span style={{ width: 24, textAlign: 'center', fontWeight: 800 }}>{s.rank <= 3 ? MEDALS[s.rank - 1] : `${s.rank}º`}</span>
-                        <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}{!info.hourly && c.prize_mode === 'tiered' && s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0) && <span data-row-prize style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#d97706' }}>🎁 {prizeFor(c, t.team, s.rank) || '—'}</span>}</span>
+                        <Avatar c={{ name: s.name, avatar_url: s.avatar_url ?? null }} size={24} /><span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}{!info.hourly && c.prize_mode === 'tiered' && s.rank <= t.rule.winners && (info.race ? s.qualified : s.metric > 0) && <span data-row-prize style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#d97706' }}>🎁 {prizeFor(c, t.team, s.rank) || '—'}</span>}</span>
                         <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>{s.count} {s.count === 1 ? 'venda' : 'vendas'}</span>
                         <strong style={{ minWidth: 92, textAlign: 'right' }}>{info.hourly ? `${s.metric} ${s.metric === 1 ? 'rodada ganha' : 'rodadas ganhas'}` : info.tiers ? `${metricText(c.criterion, s.metric)}${s.tierPrize ? ` · 🎁 ${s.tierPrize}` : ''}` : info.race ? (s.qualified ? `✅ ${fmtDM(spDay(s.reachedAt!))}` : `${Math.round(s.progress * 100)}%`) : metricText(c.criterion, s.metric)}</strong>
                       </div>

@@ -1,7 +1,7 @@
 // Metas de evento — camada de banco (service role). Lógica de contagem em eventGoalsCore.ts.
 import { addDaysToDateStr, dayBoundsSaoPaulo, todayInSaoPaulo } from '@/lib/timezone'
 import {
-  aggregate, buildGoals, editionStatus, eventDays, normName,
+  aggregate, buildGoals, editionStatus, eventDays, normName, POST_EVENT_DAYS,
   type EditionRow, type GoalRow, type RosterCloser, type SaleRow,
 } from './eventGoalsCore'
 
@@ -21,10 +21,10 @@ async function paged<T>(build: (from: number, to: number) => any): Promise<T[]> 
 
 const SALE_COLS = 'id, value, event_name, closer_id, closer_hubspot_id, is_self_checkout, occurred_at, is_refunded, product'
 
-/** Vendas com nome de evento preenchido na janela (dia -1 … +2 em torno do evento, horário de SP). */
+/** Vendas com nome de evento preenchido na janela (dia -1 … +10 em torno do evento, horário de SP: vendas tardias do mesmo evento contam por até 10 dias após o fim). */
 async function fetchSales(admin: Admin, from: string, to: string): Promise<SaleRow[]> {
   const start = dayBoundsSaoPaulo(addDaysToDateStr(from, -1)).start
-  const end = dayBoundsSaoPaulo(addDaysToDateStr(to, 2)).end
+  const end = dayBoundsSaoPaulo(addDaysToDateStr(to, POST_EVENT_DAYS)).end
   return paged<SaleRow>((a, b) =>
     admin.from('telao_events').select(SALE_COLS)
       .eq('event_type', 'sale').not('event_name', 'is', null)
@@ -73,7 +73,7 @@ export async function listEditions(admin: Admin) {
   return {
     today,
     editions: editions.map(e => {
-      const act = aggregate(sales, e, rosters[e.id])
+      const act = aggregate(sales, e, rosters[e.id], editions)
       const g = buildGoals(goals[e.id])
       return { ...e, status: editionStatus(e, today), closersCount: rosters[e.id].length,
         goalTotal: g.total, realized: act.total.value, salesCount: act.total.count }
@@ -94,12 +94,13 @@ export async function computeLive(admin: Admin, id: string) {
   if (!full) return null
   const { edition, closers, goalRows } = full
   const sales = await fetchSales(admin, edition.start_date, edition.end_date)
+  const { data: others } = await admin.from('event_editions').select('id, name, event_name, vertical, start_date, end_date, notes').limit(500)   // outras edições (ex.: o mesmo congresso em outro mês) disputam a venda pelo dia
   const today = todayInSaoPaulo()
   return {
     serverTime: new Date().toISOString(), today,
     status: editionStatus(edition, today),
     edition, days: eventDays(edition.start_date, edition.end_date), closers,
-    goals: buildGoals(goalRows), actual: aggregate(sales, edition, closers),
+    goals: buildGoals(goalRows), actual: aggregate(sales, edition, closers, (others ?? []) as EditionRow[]),
   }
 }
 

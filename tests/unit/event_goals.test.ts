@@ -1,6 +1,6 @@
 // Testes da lógica pura de metas de evento. Rodar: node tests/unit/rodar.mjs
 import assert from 'node:assert/strict'
-import { aggregate, buildGoals, editionStatus, eventDays, normName, parseConfig, rangesOverlap, isCountableSale, distribute, NO_PRODUCT, type SaleRow } from '../../lib/dashboard/eventGoalsCore'
+import { belongsToEdition, POST_EVENT_DAYS, aggregate, buildGoals, editionStatus, eventDays, normName, parseConfig, rangesOverlap, isCountableSale, distribute, NO_PRODUCT, type SaleRow } from '../../lib/dashboard/eventGoalsCore'
 
 let n = 0; const t = (nome: string, f: () => void) => { f(); n++; console.log('ok  ' + nome) }
 const ed = { id: 'e1', name: 'Congresso', event_name: 'Congresso X 2026', start_date: '2026-11-18', end_date: '2026-11-20', notes: null }
@@ -91,5 +91,34 @@ t('vertical: aceita as 4, vazio vira null, inválida recusa', () => {
   for (const v of ['anestreview', 'oftreview', 'ortopreview', 'medreview']) { const r = parseConfig({ ...base, vertical: v }); assert.ok(r.ok && r.value.vertical === v) }
   const n = parseConfig({ ...base }); assert.ok(n.ok && n.value.vertical === null)
   assert.equal(parseConfig({ ...base, vertical: 'x' }).ok, false)
+})
+// ── janela pós-evento (só o gráfico) e atribuição por data entre edições do mesmo evento ──
+const nov = { id: 'nov', name: 'SBOT nov', event_name: 'SBOT', start_date: '2026-11-18', end_date: '2026-11-20', notes: null }
+const dez = { id: 'dez', name: 'SBOT dez', event_name: 'sbot', start_date: '2026-12-21', end_date: '2026-12-24', notes: null }
+const sb = (iso: string, v = 100) => s({ event_name: 'SBOT', occurred_at: iso, value: v })
+t('janela: 10 dias depois do fim contam; 11 não; 1 dia antes conta; 2 antes não', () => {
+  assert.equal(POST_EVENT_DAYS, 10)
+  const a = aggregate([sb('2026-11-30T15:00:00Z'), sb('2026-12-01T15:00:00Z'), sb('2026-11-17T15:00:00Z'), sb('2026-11-16T15:00:00Z')], nov, roster, [nov, dez])
+  assert.equal(a.total.count, 2); assert.equal(a.outside.count, 2); assert.equal(a.byDay['2026-11-18'].count, 0)
+})
+t('2 edições do SBOT: venda de 21–24/12 soma só na de dezembro', () => {
+  const rows = [sb('2026-12-22T15:00:00Z', 500), sb('2026-11-19T15:00:00Z', 70)]
+  const n1 = aggregate(rows, nov, roster, [nov, dez]), d1 = aggregate(rows, dez, roster, [nov, dez])
+  assert.equal(n1.total.value, 70); assert.equal(d1.total.value, 500); assert.equal(d1.byDay['2026-12-22'].value, 500)
+})
+t('venda no meio (dias 25/11 a 20/12): conta na de novembro até o dia 30/11; depois só na de dezembro se alcançar', () => {
+  assert.equal(belongsToEdition('2026-11-25', nov, [nov, dez]), true); assert.equal(belongsToEdition('2026-11-25', dez, [nov, dez]), false)
+  assert.equal(belongsToEdition('2026-12-05', nov, [nov, dez]), false); assert.equal(belongsToEdition('2026-12-05', dez, [nov, dez]), false)
+  assert.equal(belongsToEdition('2026-12-20', dez, [nov, dez]), true)
+})
+t('janelas que se encostam: vale a edição mais próxima do dia (empate → a mais nova)', () => {
+  const a = { ...nov, id: 'a', start_date: '2026-12-01', end_date: '2026-12-03' }, b = { ...nov, id: 'b', start_date: '2026-12-10', end_date: '2026-12-12' }
+  assert.equal(belongsToEdition('2026-12-09', a, [a, b]), false); assert.equal(belongsToEdition('2026-12-09', b, [a, b]), true)   // 1 dia antes de b vs 6 depois de a
+  assert.equal(belongsToEdition('2026-12-06', a, [a, b]), true); assert.equal(belongsToEdition('2026-12-06', b, [a, b]), false)   // 3 depois de a vs 4 antes de b
+  assert.equal(belongsToEdition('2026-12-02', a, [a, b]), true)                                                                   // dentro das datas
+})
+t('evento de nome diferente não disputa a venda', () => {
+  const outro = { ...dez, id: 'o', event_name: 'Outro' }
+  assert.equal(belongsToEdition('2026-11-19', nov, [nov, outro]), true)
 })
 console.log(`\n${n} testes passaram`)

@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { maskMoneyPasted, maskMoneyTyped, moneyFieldText } from '@/lib/dashboard/moneyMask'
 
 // Cores do evento: vêm de variáveis CSS (--ev-a / --ev-b) definidas pelo visual da vertical (theme.ts).
-export const PINK = 'var(--ev-a)'
-export const PURPLE = 'var(--ev-b)'
+export const PINK = 'var(--ev-a, #ec4899)'      // (cor de reserva: fora da tela de Eventos — ex.: Campanhas — a variável não existe)
+export const PURPLE = 'var(--ev-b, #8b5cf6)'
 export const mix = (c: string, pct: number) => `color-mix(in srgb, ${c} ${pct}%, transparent)`
 export const GOLD = '#f59e0b'
 export const GREEN = '#22c55e'
@@ -125,12 +126,29 @@ export function Ring({ pct, size = 160, stroke = 14, color = PINK, track = 'rgba
 export function MoneyInput({ value, onChange, placeholder = '—', width, ariaLabel, accent }: {
   value: number | undefined; onChange: (v: number | undefined) => void; placeholder?: string; width?: number | string; ariaLabel?: string; accent?: boolean
 }) {
+  // Valor em reais COM centavos (até 2 casas). A máscara põe o ponto de milhar sozinha; a vírgula começa os centavos;
+  // Ctrl+V aceita "R$ 1.234,56", "1234,56", "1234.56", "1,234.56"… (lib/dashboard/moneyMask.ts)
+  const [text, setText] = useState(() => moneyFieldText(value))
+  const ref = useRef<HTMLInputElement>(null)
+  const caret = useRef<number | null>(null)
+  useEffect(() => {                                 // valor mudou por fora (ex.: "sugerir distribuição"): atualiza o texto
+    if (maskMoneyTyped(text).value !== value) setText(moneyFieldText(value))
+  }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { if (caret.current != null && ref.current) { ref.current.setSelectionRange(caret.current, caret.current); caret.current = null } })
+  const apply = (r: { text: string; value: number | undefined }, pos: number | null) => { caret.current = pos; setText(r.text); onChange(r.value) }
   return (
     <div style={{ position: 'relative', width: width ?? '100%' }}>
       <span aria-hidden style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--muted-foreground)', pointerEvents: 'none' }}>R$</span>
-      <input inputMode="numeric" aria-label={ariaLabel} placeholder={placeholder}
-        value={value === undefined ? '' : nf0.format(value)}
-        onChange={e => { const d = e.target.value.replace(/\D/g, '').slice(0, 10); onChange(d === '' ? undefined : Number(d)) }}
+      <input ref={ref} inputMode="decimal" aria-label={ariaLabel} placeholder={placeholder} value={text}
+        onChange={e => {
+          const el = e.target, before = el.value.slice(0, el.selectionStart ?? el.value.length).replace(/[^\d,]/g, '').length
+          const r = maskMoneyTyped(el.value)
+          let pos = 0, seen = 0
+          while (pos < r.text.length && seen < before) { if (/[\d,]/.test(r.text[pos])) seen++; pos++ }      // o cursor continua depois do mesmo dígito
+          apply(r, pos)
+        }}
+        onPaste={e => { e.preventDefault(); const r = maskMoneyPasted(e.clipboardData.getData('text')); if (r.value !== undefined) apply(r, r.text.length) }}
+        onBlur={() => setText(moneyFieldText(value))}
         style={{ width: '100%', padding: '9px 10px 9px 30px', borderRadius: 10, fontSize: 13, fontWeight: 600, textAlign: 'right',
           background: 'var(--secondary)', color: 'var(--foreground)', border: `1px solid ${accent ? mix(PINK, 40) : 'var(--border)'}`, outline: 'none', fontVariantNumeric: 'tabular-nums' }}
         className="ev-inp" />

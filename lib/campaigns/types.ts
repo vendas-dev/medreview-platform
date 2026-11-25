@@ -26,6 +26,8 @@ export const CRITERIA: CriterionInfo[] = [
 export const criterionInfo = (c: Criterion): CriterionInfo => CRITERIA.find(x => x.id === c)!
 
 /** Faixa de valor: quem atingir `target` (R$) ganha `prize`. */
+import type { EventCfg } from './event'
+export type { EventCfg } from './event'
 export interface Tier { target: number | null; prize: string }
 /** Critério POR HORA. Horários em MINUTOS desde 00:00 de São Paulo (0..1440; 1440 = meia-noite do fim do dia). */
 export interface HourlyRange { from: number; to: number }
@@ -64,6 +66,8 @@ export interface CampaignDraft {
   verticals: string[] | null                       // null = todas as do time
   offer_codes?: string[] | null                    // null/ausente = todas as ofertas · lista = SÓ vendas dessas ofertas da Hotmart (código da oferta)
   product_ids?: string[] | null                    // null/ausente = todos os produtos · lista = SÓ vendas desses produtos da Hotmart (ID do produto)
+  exclude?: string[]                               // campanha de TIMES: closers que ficam DE FORA (não concorrem nem recebem aviso); vazio = todos participam
+  event?: EventCfg | null                          // campanha de EVENTO: só estes closers concorrem e são avisados (null = o time todo)
   hourly?: HourlyCfg | null                        // só no critério 'hourly': quando (dia completo ou intervalos) e o que conta
   filter_logic?: 'and' | 'or' | null               // com produtos E ofertas ligados: 'and' = precisa ser do produto E da oferta · 'or' = basta uma das duas
   notify: boolean                                  // AVISAR A CRIAÇÃO: todo o time recebe o aviso de que a campanha está rolando (lançamento e 1º dia)

@@ -110,7 +110,7 @@ export function tierTeamsView(d: Pick<CampaignDraft, 'teams'>, allowed: Team[], 
       .sort((a, b) => Number(b.metric_value ?? 0) - Number(a.metric_value ?? 0) || String(a.user_name).localeCompare(String(b.user_name)))
     return {
       team, tiers: s,
-      positions: mine.map((w, i) => ({ position: i + 1, prize: w.prize || null, winner: { name: w.user_name as string, me: w.user_id === userId }, state: 'winner' })),
+      positions: mine.map((w, i) => ({ position: i + 1, prize: w.prize || null, winner: { name: w.user_name as string, me: w.user_id === userId, avatar_url: (w.avatar_url as string | null | undefined) ?? null }, state: 'winner' })),
       ...(mine.length === 0 ? { empty: closed ? 'Ninguém atingiu uma faixa.' : 'Ainda ninguém atingiu uma faixa.' } : {}),
     }
   })

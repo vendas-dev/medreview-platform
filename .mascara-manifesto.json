@@ -1,0 +1,9 @@
+{
+ "criados": [
+  "lib/dashboard/moneyMask.ts",
+  "tests/unit/mascara_dinheiro.test.ts"
+ ],
+ "salvos": [
+  "app/(platform)/dashboard/eventos/shared.tsx"
+ ]
+}

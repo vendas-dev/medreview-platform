@@ -1,8 +1,9 @@
 import { sendNotification, sanitizeLink } from '@/lib/notifications/server'
 import { deleteCampaignCascade, resetCampaignOutcome, syncCampaignNotifications } from './sync'
 import { parseDraft, toRow } from './api'
+import { scopeOf } from './event'
 import { addDays, cancelMessage, phaseOf, prizeFor, ruleSignature, todaySP, validateDraft } from './engine'
-import { draftToDb, evaluateDraft, loadParticipants, publishCampaign, rowToDraft, runCampaignTick } from './server'
+import { avatarsOf, draftToDb, evaluateDraft, loadParticipants, publishCampaign, rowToDraft, runCampaignTick } from './server'
 import { CampaignRow, Team, TEAMS } from './types'
 import { refreshTierWinnerPrizes } from './tiers-server'
 import { tierTeamsView } from './tiers'
@@ -44,7 +45,7 @@ export async function hCreateCampaign(admin: any, userId: string, body: any, now
   const errors = validateDraft(draft, publish)
   if (errors.length) return bad(errors[0], { errors })
   const { data, error } = await admin.from('campaigns').insert({ ...draftToDb(draft), status: 'draft', created_by: userId }).select().single()
-  if (error || !data) { console.error('[campanhas] criar:', error?.message); return bad(/hourly|campaigns_criterion_check/.test(error?.message ?? '') ? 'Falta rodar o SQL do critério POR HORA no banco (migration-campanha-por-hora.sql).' : /notify_result/.test(error?.message ?? '') ? 'Falta rodar o SQL das notificações de campanha no banco (migration-notificacoes-campanha.sql).' : /offer_codes/.test(error?.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : /product_ids|filter_logic/.test(error?.message ?? '') ? 'Falta rodar a migração do produto no banco (migration-produto.sql).' : 'Não consegui salvar a campanha.', {}, 500) }  // MIGRACAO_OFERTAS:criar MIGRACAO_PRODUTO:criar
+  if (error || !data) { console.error('[campanhas] criar:', error?.message); return bad(/'exclude' column|column "exclude"|campaigns\.exclude/.test(error?.message ?? '') ? 'Falta rodar o SQL dos closers de FORA da campanha no banco (migration-campanha-participantes.sql).' : /'event' column|column "event"|campaigns\.event/.test(error?.message ?? '') ? 'Falta rodar o SQL das campanhas de EVENTO no banco (migration-campanha-evento.sql).' : /hourly|campaigns_criterion_check/.test(error?.message ?? '') ? 'Falta rodar o SQL do critério POR HORA no banco (migration-campanha-por-hora.sql).' : /notify_result/.test(error?.message ?? '') ? 'Falta rodar o SQL das notificações de campanha no banco (migration-notificacoes-campanha.sql).' : /offer_codes/.test(error?.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : /product_ids|filter_logic/.test(error?.message ?? '') ? 'Falta rodar a migração do produto no banco (migration-produto.sql).' : 'Não consegui salvar a campanha.', {}, 500) }  // MIGRACAO_OFERTAS:criar MIGRACAO_PRODUTO:criar
   if (publish) {
     const r = await publishCampaign(admin, data.id, now)
     if (!r.ok) return bad(r.errors[0], { errors: r.errors, id: data.id })
@@ -58,6 +59,10 @@ export async function hGetCampaign(admin: any, id: string, now: Date = new Date(
   if (!r) return bad('Campanha não encontrada.', {}, 404)
   const c = toRow(r)
   const [ws, { ev, participants }] = await Promise.all([fetchAllRows((f, t) => admin.from('campaign_winners').select('*').eq('campaign_id', id).order('team').order('position').range(f, t)), evaluateDraft(admin, c, today, now)])
+  // fotos nos resultados (ganhadores, classificação e rodadas)
+  const av = await avatarsOf(admin, [...(ws as any[]).map(w => w.user_id), ...ev.teams.flatMap(t => [...t.standings.map(s => s.userId), ...(t.slots ?? []).map(s => s.winner?.userId)])])
+  for (const w of ws as any[]) w.avatar_url = av.get(String(w.user_id)) ?? null
+  for (const t of ev.teams) { for (const s of [...t.standings, ...t.winners]) s.avatar_url = av.get(s.userId) ?? null; for (const s of t.slots ?? []) if (s.winner) s.winner.avatar_url = av.get(s.winner.userId) ?? null }
   return ok({ campaign: { ...c, phase: phaseOf(c, today) }, winners: ws, evaluation: ev, participants: participants.length })
 }
 
@@ -75,8 +80,8 @@ export async function hPatchCampaign(admin: any, id: string, body: any, now: Dat
   const prev = rowToDraft(r), status: string = r.status, wasFinal = !!r.finalized_at          // guarda ANTES de alterar
   const errors = validateDraft(draft, status !== 'draft')
   if (errors.length) return bad(errors[0], { errors })
-  const { error } = await admin.from('campaigns').update({ ...draftToDb(draft, { offers: !!prev.offer_codes?.length, products: !!prev.product_ids?.length, logic: !!prev.filter_logic, notifyResult: !prev.notify_result, hourly: !!prev.hourly }), updated_at: now.toISOString() }).eq('id', id)
-  if (error) return bad(/hourly|campaigns_criterion_check/.test(error.message ?? '') ? 'Falta rodar o SQL do critério POR HORA no banco (migration-campanha-por-hora.sql).' : /notify_result/.test(error.message ?? '') ? 'Falta rodar o SQL das notificações de campanha no banco (migration-notificacoes-campanha.sql).' : /offer_codes/.test(error.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : /product_ids|filter_logic/.test(error.message ?? '') ? 'Falta rodar a migração do produto no banco (migration-produto.sql).' : 'Não consegui salvar.', {}, 500)   // MIGRACAO_OFERTAS:editar MIGRACAO_PRODUTO:editar
+  const { error } = await admin.from('campaigns').update({ ...draftToDb(draft, { offers: !!prev.offer_codes?.length, products: !!prev.product_ids?.length, logic: !!prev.filter_logic, notifyResult: !prev.notify_result, hourly: !!prev.hourly, event: !!prev.event, exclude: !!prev.exclude?.length }), updated_at: now.toISOString() }).eq('id', id)
+  if (error) return bad(/'exclude' column|column "exclude"|campaigns\.exclude/.test(error.message ?? '') ? 'Falta rodar o SQL dos closers de FORA da campanha no banco (migration-campanha-participantes.sql).' : /'event' column|column "event"|campaigns\.event/.test(error.message ?? '') ? 'Falta rodar o SQL das campanhas de EVENTO no banco (migration-campanha-evento.sql).' : /hourly|campaigns_criterion_check/.test(error.message ?? '') ? 'Falta rodar o SQL do critério POR HORA no banco (migration-campanha-por-hora.sql).' : /notify_result/.test(error.message ?? '') ? 'Falta rodar o SQL das notificações de campanha no banco (migration-notificacoes-campanha.sql).' : /offer_codes/.test(error.message ?? '') ? 'Falta rodar a migração das ofertas no banco (migration-oferta.sql).' : /product_ids|filter_logic/.test(error.message ?? '') ? 'Falta rodar a migração do produto no banco (migration-produto.sql).' : 'Não consegui salvar.', {}, 500)   // MIGRACAO_OFERTAS:editar MIGRACAO_PRODUTO:editar
   if (status === 'draft') return ok({ ok: true, ruleChanged: false, reset: { notifications: 0, winners: 0 }, sync: { updated: 0, removed: 0, recipients: 0 } })
 
   const ruleChanged = ruleSignature(prev) !== ruleSignature(draft), startChanged = prev.starts_on !== draft.starts_on
@@ -118,7 +123,7 @@ export async function hCampaignAction(admin: any, id: string, userId: string, bo
       const wasPublished = r.status === 'published' && r.notify !== false          // guarda ANTES de alterar (não depende da leitura ser uma cópia)
       await admin.from('campaigns').update({ status: 'cancelled', updated_at: now.toISOString() }).eq('id', id)
       if (wasPublished) {          // quem foi avisado do lançamento merece saber que acabou
-        const d = rowToDraft(r), ps = await loadParticipants(admin, Object.keys(d.teams) as Team[])
+        const d = rowToDraft(r), ps = await loadParticipants(admin, Object.keys(d.teams) as Team[], scopeOf(d))
         const m = cancelMessage(d)
         await sendNotification(admin, { title: m.title, body: m.body, kind: 'campanha', link: null, campaign_id: id, created_by: userId, recipients: ps.map(p => p.userId), event_key: 'cancel' })
       }
@@ -128,7 +133,7 @@ export async function hCampaignAction(admin: any, id: string, userId: string, bo
       const shift = Number.isInteger(body?.shiftDays) ? Math.max(-365, Math.min(365, body.shiftDays)) : 7
       const d = rowToDraft(r)
       const { data, error } = await admin.from('campaigns').insert({
-        name: `${d.name} (cópia)`.slice(0, 60), subtitle: d.subtitle, prize: d.prize_mode === 'tiered' ? '' : d.prize, prize_mode: d.prize_mode, prizes: d.prize_mode === 'tiered' ? d.prizes : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams, ...(d.criterion === 'hourly' && d.hourly ? { hourly: d.hourly } : {}),
+        name: `${d.name} (cópia)`.slice(0, 60), subtitle: d.subtitle, prize: d.prize_mode === 'tiered' ? '' : d.prize, prize_mode: d.prize_mode, prizes: d.prize_mode === 'tiered' ? d.prizes : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams, ...(d.criterion === 'hourly' && d.hourly ? { hourly: d.hourly } : {}), ...(d.event ? { event: d.event } : {}), ...(d.exclude?.length ? { exclude: d.exclude } : {}),
         starts_on: addDays(d.starts_on, shift), ends_on: addDays(d.ends_on, shift), count_recurring: d.count_recurring, verticals: d.verticals, ...(d.offer_codes?.length ? { offer_codes: d.offer_codes } : {}), ...(d.product_ids?.length ? { product_ids: d.product_ids } : {}), ...(d.filter_logic && d.offer_codes?.length && d.product_ids?.length ? { filter_logic: d.filter_logic } : {}), notify: d.notify, ...(d.notify_result ? {} : { notify_result: false }), status: 'draft', created_by: userId,
       }).select().single()
       return error || !data ? bad('Não consegui duplicar.', {}, 500) : ok({ ok: true, id: data.id })
@@ -150,9 +155,10 @@ export async function hPreview(admin: any, body: any, now: Date = new Date()): P
   const errors = validateDraft(draft, true)
   const safe = { ...draft, teams: Object.fromEntries(Object.entries(draft.teams).map(([t, r]) => [t, { winners: Math.max(1, Math.min(50, (r as any).winners || 1)), target: (r as any).target, tiers: (r as any).tiers }])) as typeof draft.teams }
   const { ev, participants } = await evaluateDraft(admin, safe, todaySP(now), now)
+  const av = await avatarsOf(admin, ev.teams.flatMap(t => t.standings.slice(0, 5).map(s => s.userId)))
   return ok({
     errors, phase: ev.phase, participants: { OAO: participants.filter(p => p.team === 'OAO').length, R1: participants.filter(p => p.team === 'R1').length },
-    teams: ev.teams.map(t => ({ team: t.team, winners: t.rule.winners, top: t.standings.slice(0, 5).map(s => ({ name: s.name, rank: s.rank, metric: s.metric, count: s.count, revenue: s.revenue, progress: s.progress, qualified: s.qualified, tierPrize: s.tierPrize ?? null })), ...(t.slots ? { hourly: hourlyLiveInfo(t.slots) } : {}) })),
+    teams: ev.teams.map(t => ({ team: t.team, winners: t.rule.winners, top: t.standings.slice(0, 5).map(s => ({ avatar_url: av.get(s.userId) ?? null, name: s.name, rank: s.rank, metric: s.metric, count: s.count, revenue: s.revenue, progress: s.progress, qualified: s.qualified, tierPrize: s.tierPrize ?? null })), ...(t.slots ? { hourly: hourlyLiveInfo(t.slots) } : {}) })),
   })
 }
 
@@ -222,16 +228,20 @@ export async function hCampaignWinnersView(admin: any, userId: string, campaignI
   const { data: r } = await admin.from('campaigns').select('*').eq('id', campaignId).maybeSingle()
   if (!r || r.status === 'draft') return bad('Esta campanha não está mais disponível.', {}, 404)
   const d = rowToDraft(r), inCampaign = TEAMS.filter(t => d.teams[t]), isAdmin = me.role === 'superadmin'
+  if (d.exclude?.length && !isAdmin && d.exclude.includes(String(userId).toLowerCase())) return bad('Você não participa desta campanha.', {}, 403)      // campanha com closers de fora: quem ficou de fora não abre
+  if (d.event && !isAdmin && !d.event.closers.includes(String(userId).toLowerCase())) return bad('Você não participa desta campanha.', {}, 403)      // campanha de evento: só quem vai ao evento
   const allowed = isAdmin ? inCampaign : inCampaign.filter(t => t === me.team)
   if (allowed.length === 0) return bad('Você não participa desta campanha.', {}, 403)
-  const winners = (await fetchAllRows((f, t) => admin.from('campaign_winners').select('*').eq('campaign_id', campaignId).order('team').order('position').range(f, t))) as any[], phase = phaseOf(d, todaySP(now))
+  const winners = (await fetchAllRows((f, t) => admin.from('campaign_winners').select('*').eq('campaign_id', campaignId).order('team').order('position').range(f, t))) as any[]
+  const avs = await avatarsOf(admin, winners.map(w => w.user_id)); for (const w of winners) w.avatar_url = avs.get(String(w.user_id)) ?? null
+  const phase = phaseOf(d, todaySP(now))
   const cancelled = r.status === 'cancelled', finished = !!r.finalized_at
   const state = cancelled ? 'cancelled' : finished ? 'finished' : phase === 'scheduled' ? 'scheduled' : phase === 'ended' ? 'counting' : 'active'
   const teams = d.criterion === 'hourly' ? hourlyTeamsView(d, allowed, winners, userId, finished || cancelled, todaySP(now), spMinutes(now)) : d.criterion === 'tier_revenue' ? tierTeamsView(d, allowed, winners, userId, finished || cancelled) : allowed.map(team => ({
     team,
     positions: Array.from({ length: Math.max(0, Math.min(50, d.teams[team]!.winners)) }, (_, i) => {
       const w = winners.find(x => x.team === team && x.position === i + 1)
-      return { position: i + 1, prize: (w?.prize || prizeFor(d, team, i + 1)) || null, winner: w ? { name: w.user_name as string, me: w.user_id === userId } : null, state: w ? 'winner' : (finished || cancelled) ? 'empty' : 'pending' }
+      return { position: i + 1, prize: (w?.prize || prizeFor(d, team, i + 1)) || null, winner: w ? { name: w.user_name as string, me: w.user_id === userId, avatar_url: (w.avatar_url as string | null) ?? null } : null, state: w ? 'winner' : (finished || cancelled) ? 'empty' : 'pending' }
     }),
   }))
   return ok({

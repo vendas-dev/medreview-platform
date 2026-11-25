@@ -7,6 +7,7 @@ import { CampaignDraft, CampaignRow, criterionInfo, Team, TEAMS } from './types'
 import { finishTierWinners, tickTierWinners } from './tiers-server'
 import { tickHourlyWinners } from './hourly-server'
 import { cleanHourly, slotsOfDay, spMinutes } from './hourly'
+import { cleanEvent, cleanExclude, scopeOf } from './event'
 
 // ══ Apuração, avisos e fechamento das campanhas (servidor) ═══════════════════════
 // Tudo é idempotente: rodar a rotina 10 vezes seguidas dá o mesmo resultado de rodar 1.
@@ -16,6 +17,8 @@ export const rowToDraft = (r: any): CampaignDraft => ({
   teams: r.teams ?? {}, starts_on: String(r.starts_on).slice(0, 10), ends_on: String(r.ends_on).slice(0, 10),
   count_recurring: r.count_recurring === true, verticals: r.verticals && r.verticals.length ? r.verticals : null, offer_codes: Array.isArray(r.offer_codes) && r.offer_codes.length ? r.offer_codes : null, product_ids: Array.isArray(r.product_ids) && r.product_ids.length ? r.product_ids : null, filter_logic: r.filter_logic === 'and' || r.filter_logic === 'or' ? r.filter_logic : null, notify: r.notify !== false,
   hourly: r.criterion === 'hourly' ? cleanHourly(r.hourly) : null,
+  event: cleanEvent(r.event),
+  exclude: cleanExclude(r.exclude),
   notify_result: r.notify_result === undefined || r.notify_result === null ? r.notify !== false : r.notify_result !== false,      // banco sem a coluna (SQL ainda não rodou) ou linha antiga: segue o 'notify' de antes
 })
 
@@ -29,7 +32,7 @@ export function cleanPrizes(d: CampaignDraft): CampaignDraft['prizes'] {
   for (const t of TEAMS) if (d.teams[t]) out[t] = Array.from({ length: hourlyN ?? Math.max(0, Math.min(50, d.teams[t]!.winners || 0)) }, (_, i) => (d.prizes?.[t]?.[i] ?? '').trim().slice(0, 120))
   return out
 }
-export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; products?: boolean; logic?: boolean; notifyResult?: boolean; hourly?: boolean } = false, hadOffers = typeof had === 'object' ? !!had.offers : !!had) => ({
+export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; products?: boolean; logic?: boolean; notifyResult?: boolean; hourly?: boolean; event?: boolean; exclude?: boolean } = false, hadOffers = typeof had === 'object' ? !!had.offers : !!had) => ({
   name: d.name.trim(), subtitle: d.subtitle.trim(), prize: d.prize_mode === 'tiered' ? '' : d.prize.trim(), prize_mode: d.prize_mode === 'tiered' ? 'tiered' : 'single', prizes: d.prize_mode === 'tiered' ? cleanPrizes(d) : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams,
   starts_on: d.starts_on, ends_on: d.ends_on, count_recurring: d.count_recurring, verticals: d.verticals && d.verticals.length ? d.verticals : null, notify: d.notify,
   // só mexe na coluna quando há ofertas (ou havia, para poder LIMPAR): antes da migração, campanha sem oferta salva igual a sempre
@@ -37,16 +40,32 @@ export const draftToDb = (d: CampaignDraft, had: boolean | { offers?: boolean; p
   // só grava a coluna quando é preciso (desligado, ou estava desligado e vai ligar): antes do SQL rodar, salvar com 'ligado' continua funcionando
   ...(!d.notify_result || (typeof had === 'object' && had.notifyResult) ? { notify_result: d.notify_result } : {}),
   // só mexe na coluna do critério POR HORA quando é por hora (ou era, para poder LIMPAR): antes do SQL rodar, as outras campanhas salvam igual a sempre
+  // campanha de evento: só mexe na coluna quando há evento (ou havia, para poder LIMPAR) — antes do SQL rodar, as outras campanhas salvam igual a sempre
+  ...(d.event || (typeof had === 'object' && had.event) ? { event: d.event ?? null } : {}),
+  // closers de fora: idem — só mexe na coluna quando há alguém de fora (ou havia, para poder LIMPAR)
+  ...(d.exclude?.length || (typeof had === 'object' && had.exclude) ? { exclude: d.exclude?.length && !d.event ? d.exclude : null } : {}),
   ...(d.criterion === 'hourly' || (typeof had === 'object' && had.hourly) ? { hourly: d.criterion === 'hourly' ? d.hourly ?? null : null } : {}),
   ...(d.product_ids?.length || (typeof had === 'object' && had.products) ? { product_ids: d.product_ids?.length ? d.product_ids : null } : {}),
   // a condição E/OU só existe quando há produtos E ofertas; senão fica nula (e é limpa se antes existia)
   ...(d.filter_logic || (typeof had === 'object' && had.logic) ? { filter_logic: d.offer_codes?.length && d.product_ids?.length ? d.filter_logic ?? null : null } : {}),
 })
 
-export async function loadParticipants(admin: any, teams: Team[]): Promise<Participant[]> {
+/** `only` = campanha de EVENTO: só estas pessoas (ids de perfil). Sem `only`, é o time inteiro, como sempre. */
+/** Fotos dos closers (profiles.avatar_url) por id — só enfeite dos resultados: se falhar, os resultados saem sem foto. */
+export async function avatarsOf(admin: any, ids: (string | null | undefined)[]): Promise<Map<string, string | null>> {
+  const u = [...new Set(ids.filter((x): x is string => !!x))]
+  if (u.length === 0) return new Map()
+  try {
+    const { data } = await admin.from('profiles').select('id, avatar_url').in('id', u)
+    return new Map(((data ?? []) as any[]).map(p => [String(p.id), (p.avatar_url as string | null) ?? null]))
+  } catch { return new Map() }
+}
+
+export async function loadParticipants(admin: any, teams: Team[], scope?: string[] | null | { only?: string[] | null; skip?: string[] | null }): Promise<Participant[]> {
+  const only = Array.isArray(scope) ? scope : scope?.only ?? null, skip = !Array.isArray(scope) && scope?.skip?.length ? new Set(scope.skip) : null
   const { data } = await admin.from('profiles').select('*')
   return ((data ?? []) as any[])
-    .filter(p => p.role !== 'superadmin' && p.is_active !== false && TEAMS.includes(p.team) && teams.includes(p.team))
+    .filter(p => p.role !== 'superadmin' && p.is_active !== false && TEAMS.includes(p.team) && teams.includes(p.team) && (!only || only.includes(String(p.id).toLowerCase())) && !(skip && skip.has(String(p.id).toLowerCase())))
     .map(p => ({ userId: p.id, name: p.name ?? '?', team: p.team as Team, hubspotId: p.hubspot_id ?? null }))
 }
 export async function loadCloserRefs(admin: any): Promise<CloserRef[]> {
@@ -89,7 +108,7 @@ export async function loadSales(admin: any, from: string, to: string, need: bool
 
 export async function evaluateDraft(admin: any, d: CampaignDraft, today: string, now: Date = new Date()): Promise<{ ev: Evaluation; participants: Participant[] }> {
   const teams = (Object.keys(d.teams) as Team[]).filter(t => TEAMS.includes(t))
-  const participants = await loadParticipants(admin, teams)
+  const participants = await loadParticipants(admin, teams, scopeOf(d))
   const upto = d.ends_on < today ? d.ends_on : today
   const [sales, closers] = upto >= d.starts_on ? await Promise.all([loadSales(admin, d.starts_on, upto, { offers: !!d.offer_codes?.length, products: !!d.product_ids?.length }), loadCloserRefs(admin)]) : [[], [] as CloserRef[]]
   return { ev: evaluate(d, participants, attributeSales(sales, participants, closers), today, spMinutes(now)), participants }
@@ -200,7 +219,7 @@ export async function publishCampaign(admin: any, id: string, now: Date = new Da
   if (errors.length) return { ok: false, errors }
   if (c.status !== 'published') await admin.from('campaigns').update({ status: 'published', launched_at: now.toISOString(), updated_at: now.toISOString() }).eq('id', id)
   if (mayNotify(d, 'launch') && (await claimEvent(admin, id, 'launch'))) {
-    const participants = await loadParticipants(admin, (Object.keys(d.teams) as Team[]))
+    const participants = await loadParticipants(admin, (Object.keys(d.teams) as Team[]), scopeOf(d))
     const m = launchMessage(d)
     await sendNotification(admin, { title: m.title, body: m.body, kind: 'campanha', link: null, campaign_id: id, created_by: c.created_by, recipients: participants.map(p => p.userId), event_key: 'launch' })
   }

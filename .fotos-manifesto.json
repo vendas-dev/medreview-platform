@@ -1,0 +1,15 @@
+{
+ "criados": [],
+ "salvos": [
+  "lib/campaigns/hourly.ts",
+  "lib/campaigns/tiers.ts",
+  "components/campaigns/WinnersModal.tsx",
+  "app/(platform)/dashboard/eventos/shared.tsx",
+  "lib/campaigns/engine.ts",
+  "lib/campaigns/server.ts",
+  "lib/campaigns/handlers.ts",
+  "components/campaigns/CampaignPreview.tsx",
+  "app/(platform)/admin/campanhas/CampanhasClient.tsx",
+  "tests/unit/campanhas_participantes.test.ts"
+ ]
+}
