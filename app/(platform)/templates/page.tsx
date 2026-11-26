@@ -38,7 +38,7 @@ export default async function TemplatesPage() {
   // filtro de "hoje" que rola todo dia). Disparos anteriores a essa data
   // são ignorados na contagem (provavelmente porque o rastreio de
   // resposta só passou a ser confiável a partir daqui).
-  const { start: cutoffStart } = dayBoundsSaoPaulo('2026-09-30')
+  const { start: cutoffStart } = dayBoundsSaoPaulo('2026-11-25')
   // fetchDisparos devolve a LISTA de disparos (não { data }): desestruturar { data } dela dava undefined e zerava todos os números por template.
   const [{ data: templatesRaw }, { data: favRows }, disparosRaw] = await Promise.all([
     query,
