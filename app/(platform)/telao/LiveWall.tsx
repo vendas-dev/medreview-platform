@@ -3,6 +3,7 @@ import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Maximize2, Settings, RefreshCw, SlidersHorizontal, X, Volume2, VolumeX, TrendingUp, Award, Target, Zap, Rocket, Expand, Shrink } from 'lucide-react'
 import Link from 'next/link'
+import { prepararSomGol, tocarSomGol } from '@/lib/telao/somGol'
 import { useLiveData, LiveDataProvider } from '@/hooks/useLiveData'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import { VERTICALS, VERTICAL_LIST, GOLD, VerticalId, FilterState, EMPTY_FILTER, Closer, TelaoEvent, CloserStats } from '@/lib/telao/types'
@@ -31,12 +32,12 @@ function persistCelebratedGoal(key: string, set: Set<string>) {
 
 // ── Áudio ────────────────────────────────────────────────────
 let _ctx: AudioContext | null = null, _ready = false
-function initAudio() { if (_ctx) { _ready = true; return }; _ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); _ready = true }
+function initAudio() { prepararSomGol(); if (_ctx) { _ready = true; return }; _ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); _ready = true }
 function tone(f: number, d: number, type: OscillatorType = 'sine', g = .25) {
   if (!_ctx || !_ready) return
   try { const o = _ctx.createOscillator(), gn = _ctx.createGain(); o.connect(gn); gn.connect(_ctx.destination); o.type = type; o.frequency.setValueAtTime(f, _ctx.currentTime); gn.gain.setValueAtTime(g, _ctx.currentTime); gn.gain.exponentialRampToValueAtTime(.001, _ctx.currentTime + d); o.start(); o.stop(_ctx.currentTime + d) } catch {}
 }
-const playSale = () => [523,659,784,1047].forEach((f,i) => setTimeout(() => tone(f,.18,'triangle',.3), i*75))
+const playSale = () => { if (_ctx && _ready) tocarSomGol(_ctx) }   // venda = som de GOL (lib/telao/somGol.ts; arquivo opcional em public/sons/gol.mp3)
 const playCert = () => [523,523,784,659,784,1047].forEach((f,i) => setTimeout(() => tone(f,.22,'triangle',.28), i*85))
 
 // ── Confete ───────────────────────────────────────────────────

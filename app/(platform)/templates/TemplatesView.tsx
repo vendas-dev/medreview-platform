@@ -6,6 +6,7 @@ import {
   LayoutGrid, List as ListIcon, ArrowUpDown, Star, Eye, EyeOff
 } from 'lucide-react'
 import { MedyTemplateCoach } from './MedyTemplateCoach'
+import { buscaTemplate } from '@/lib/disparos/templateResolve'
 
 // ── Configuração de verticais — paleta suave e padronizada ─────
 // Tons pastéis de baixa saturação, consistentes entre si — nada de cores
@@ -1124,7 +1125,7 @@ export function TemplatesView({ templates: initial, isAdmin, userTeam, favoriteI
 
   const filtered = useMemo(() => {
     const result = templates.filter(t => {
-      if (search     && !t.name.toLowerCase().includes(search.toLowerCase()) && !t.content.toLowerCase().includes(search.toLowerCase())) return false
+      if (search && !buscaTemplate(t, search)) return false   // nome, conteúdo, nome no HubSpot e nome interno da Botmaker
       if (filterTeam !== 'todos' && t.team !== filterTeam) return false
       if (filterVert     !== 'todos' && !(t.vertical ?? []).includes(filterVert)) return false
       if (filterCategoria !== 'todos' && t.categoria !== filterCategoria) return false

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { botmakerDe, carregarTemplates, resolverTemplate } from '@/lib/disparos/templateResolve'
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -43,16 +44,14 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const results: any[] = []
     const errors: any[] = []
+    const catalogo = await carregarTemplates(admin)
 
     for (const raw of items) {
       const r = normalize(raw)
       const id_negocio = r.id_negocio ?? r.deal_id ?? null
-      // ID interno da plataforma de conversação (ex:
-      // 'multi_sales_disp_mkt_leadfrio_abordagem') — bem diferente do nome
-      // "bonito" que fica salvo em disparos.template. Resolvemos pra esse
-      // nome bonito aqui, consultando o de-para em templates.
-      const internal_platform_id = r.internal_platform_id ?? r.id_interno ?? r.template_internal_id ?? null
-      const templateDireto = r.template ?? r.template_name ?? null // ainda aceito, se algum dia vier o nome bonito direto
+      // Nome do template: o do HubSpot (o que fica em disparos.template) OU o nome interno da Botmaker (no campo "template" ou em
+      // campo próprio: nome_interno_botmaker, botmaker_name, internal_platform_id...). Resolvemos para o nome do HubSpot.
+      const rt = resolverTemplate(catalogo, r.template ?? r.template_name ?? null, botmakerDe(r))
       const data_resposta = parsePtbrDate(r.data_resposta ?? r.data ?? r.date ?? '') ?? new Date().toISOString()
 
       if (!id_negocio) {
@@ -60,16 +59,7 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // Resolve o ID interno pro nome bonito do template, se enviado
-      let template: string | null = templateDireto
-      if (!template && internal_platform_id) {
-        const { data: tpl } = await admin.from('templates').select('name')
-          .eq('internal_platform_id', internal_platform_id).maybeSingle()
-        if (tpl) template = tpl.name
-        // Se não achar o de-para, segue sem template (cai no fallback "mais
-        // recente do negócio, sem filtrar") — não bloqueia a resposta só
-        // porque o de-para ainda não foi cadastrado pra esse template.
-      }
+      const template: string | null = rt.template
 
       // Pega a linha de disparo MAIS RECENTE desse negócio — se o mesmo
       // negócio recebeu 3 disparos e só o último foi respondido, marcar
@@ -82,7 +72,7 @@ export async function POST(req: NextRequest) {
         .from('disparos')
         .select('id, respondido_at')
         .eq('id_negocio', id_negocio)
-      if (template) findQuery = findQuery.eq('template', template)
+      if (template) findQuery = rt.candidatos.length > 1 ? findQuery.in('template', rt.candidatos) : findQuery.eq('template', template)
       const { data: latest, error: findError } = await findQuery
         .order('data_disparo', { ascending: false })
         .limit(1)

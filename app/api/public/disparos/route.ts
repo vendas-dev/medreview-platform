@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { botmakerDe, carregarTemplates, resolverTemplate } from '@/lib/disparos/templateResolve'
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const results: any[] = []
     const errors: any[] = []
+    const catalogo = await carregarTemplates(admin)   // nome HubSpot x nome interno Botmaker (uma leitura por requisição)
 
     for (const raw of items) {
       const r = normalize(raw)
@@ -52,10 +54,13 @@ export async function POST(req: NextRequest) {
       const proprietario  = r.proprietario ?? r.owner ?? r.owner_name ?? ''
       const proprietario_hubspot_id = r.proprietario_hubspot_id ?? r.owner_hubspot_id ?? r.owner_id ?? r.hubspot_owner_id ?? r.hubspot_id ?? null
       const nome_lead     = r.nome_lead ?? r.lead ?? r.contact ?? r.nome ?? ''
-      const template      = r.template ?? r.template_name ?? ''
+      // O "template" é o nome no HubSpot. Também aceitamos o nome interno da Botmaker, no próprio campo ou em campo separado
+      // (nome_interno_botmaker, botmaker_name, internal_platform_id...). Quando é o da Botmaker, grava o nome do HubSpot do template.
+      const rt = resolverTemplate(catalogo, r.template ?? r.template_name ?? '', botmakerDe(r))
+      const template = rt.template ?? ''
 
       if (!proprietario || !nome_lead || !template || !data_disparo) {
-        errors.push({ item: raw, reason: 'proprietario, nome_lead, template e data_disparo são obrigatórios' })
+        errors.push({ item: raw, reason: 'proprietario, nome_lead, template (nome no HubSpot ou nome interno da Botmaker) e data_disparo são obrigatórios' })
         continue
       }
 

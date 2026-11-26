@@ -39,7 +39,8 @@ export default async function TemplatesPage() {
   // são ignorados na contagem (provavelmente porque o rastreio de
   // resposta só passou a ser confiável a partir daqui).
   const { start: cutoffStart } = dayBoundsSaoPaulo('2026-09-30')
-  const [{ data: templatesRaw }, { data: favRows }, { data: disparosRaw }] = await Promise.all([
+  // fetchDisparos devolve a LISTA de disparos (não { data }): desestruturar { data } dela dava undefined e zerava todos os números por template.
+  const [{ data: templatesRaw }, { data: favRows }, disparosRaw] = await Promise.all([
     query,
     supabase.from('template_favorites').select('template_id').eq('user_id', user.id),
     fetchDisparos(disparosAdmin, cutoffStart, new Date(Date.now() + 3600000).toISOString()),
