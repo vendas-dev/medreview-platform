@@ -3,9 +3,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { CalendarRange, BarChart3, Layers, AlertTriangle, Flag } from 'lucide-react'
 import {
-  buildPlanoDia, buildRoutes, buildSeries, buildTable, chartScale, fmtAxis, fmtMi, fmtNum, fmtPct, fmtReais, fmtShare, MONTHS_PT, niceScale, STATUS_LABEL,
+  buildPlanoDia, buildRoutes, buildSeries, buildTable, chartScale, fmtAxis, fmtDataBR, fmtMi, fmtNum, fmtPct, fmtReais, fmtShare, MONTHS_PT, niceScale, prevDatesOf, STATUS_LABEL,
   type PlanoDia, type Route, type Series, type Status, type TableRow, type VKey, type YoYData,
 } from '@/lib/dashboard/yoy'
+import { RadarDiario } from './RadarDiario'
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Forecast → "a rota para igualar o ano passado"
@@ -164,7 +165,7 @@ function Picos({ r, d }: { r: Route; d: YoYData }) {
   const [aberto, setAberto] = useState<number | null>(null)
   const plano = useMemo(() => (aberto === null ? null : buildPlanoDia(d, 'total', aberto)), [d, aberto])
   if (!r.picosMes.length) return null
-  const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), n = r.picosMes.length, par = r.picosMes.some(p => p.dayPrev !== p.day)       // dias fortes deste ano que casam com outras datas do ano passado
+  const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), n = r.picosMes.length, par = r.picosMes.some(p => p.refDate !== `${d.yearPrev}-${mm}-${dd2(p.day)}`)       // o dia de régua do ano passado é outra data (mesmo dia da semana)
   return (
     <div className="yy-picos" data-testid="picos-total">
       <div className="yy-picoline">
@@ -175,10 +176,10 @@ function Picos({ r, d }: { r: Route; d: YoYData }) {
         <div className="yy-picgrid">
           {r.picosMes.map(p => (
             <button key={p.day} type="button" className={`yy-pico${aberto === p.day ? ' on' : ''}`} data-day={p.day} data-quando={p.quando} aria-expanded={aberto === p.day} aria-controls="yy-plano-total"
-              title={`${p.dayPrev !== p.day ? `Comparado com ${dd2(p.dayPrev)}/${mm}/${d.yearPrev} (${p.wdPrev}): ` : `Em ${d.yearPrev} o dia ${p.day} `}vendeu ${fmtReais(p.valor)}, ${fmtShare(p.share)} da receita de ${mes} de ${d.yearPrev}. Clique para ver quanto fazer hora a hora.`} onClick={() => setAberto(a => (a === p.day ? null : p.day))}>
+              title={`${p.refDate !== `${d.yearPrev}-${mm}-${dd2(p.day)}` ? `Comparado com ${fmtDataBR(p.refDate)} (${p.wdPrev}): ` : `Em ${d.yearPrev} o dia ${p.day} `}vendeu ${fmtReais(p.valor)}, ${fmtShare(p.share)} da receita de ${mes} de ${d.yearPrev}. Clique para ver quanto fazer hora a hora.`} onClick={() => setAberto(a => (a === p.day ? null : p.day))}>
               <span className="yy-pl">
                 <span className="yy-pl1"><b>{dd2(p.day)}/{mm}</b> {p.wd}{p.quando !== 'vem' && <u>{p.quando === 'hoje' ? 'hoje' : 'já passou'}</u>}</span>
-                <span className="yy-pl2">{p.dayPrev !== p.day ? <span className="yy-par" data-k="par">↔ {dd2(p.dayPrev)}/{mm}/{d.yearPrev}</span> : <span className="yy-par">em {d.yearPrev}</span>}</span>
+                <span className="yy-pl2">{p.refDate !== `${d.yearPrev}-${mm}-${dd2(p.day)}` ? <span className="yy-par" data-k="par">↔ {fmtDataBR(p.refDate)}</span> : <span className="yy-par">em {d.yearPrev}</span>}</span>
               </span>
               <span className="yy-pr"><b data-k="share">{fmtShare(p.share)}</b><i className="yy-caret" aria-hidden>▾</i></span>
             </button>
@@ -215,14 +216,14 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
       <header className="yy-plhead">
         <div style={{ minWidth: 0 }}>
           <h4 className="yy-pltitle">{dd2(p.day)}/{mm}: quanto fazer, hora a hora</h4>
-          <p className="yy-plsub">{p.wdCur} em {d.yearCur} ({p.dayPrev !== p.day ? <>comparado com {dd2(p.dayPrev)}/{mm}/{d.yearPrev}, {p.wdPrev}</> : <>em {d.yearPrev} foi {p.wdPrev}</>}) · {quandoTxt}</p>
+          <p className="yy-plsub">{p.wdCur} em {d.yearCur} ({p.refDate && p.refDate !== `${d.yearPrev}-${mm}-${dd2(p.day)}` ? <>comparado com {fmtDataBR(p.refDate)}, {p.wdPrev}</> : <>em {d.yearPrev} foi {p.wdPrev}</>}) · {quandoTxt}</p>
         </div>
         <button type="button" className="yy-plclose" aria-label="Fechar o gráfico hora a hora" onClick={onClose}>×</button>
       </header>
       <div className="yy-plcards">
-        <div className="yy-plcard" data-k="peso"><span>{p.dayPrev !== p.day ? `Peso de ${dd2(p.dayPrev)}/${mm}` : 'Peso do dia'} em {d.yearPrev}</span><b>{fmtShare(p.share)}</b><small>{fmtReais(p.valorPrev)} de {fmtReais(p.fechPrev)} (receita de {mes} de {d.yearPrev})</small></div>
+        <div className="yy-plcard" data-k="peso"><span>{p.refDate && p.refDate !== `${d.yearPrev}-${mm}-${dd2(p.day)}` ? `Peso de ${fmtDataBR(p.refDate, false)}` : 'Peso do dia'} em {d.yearPrev}</span><b>{fmtShare(p.share)}</b><small>{fmtReais(p.valorPrev)} de {fmtReais(p.fechPrev)} (receita do período equivalente de {d.yearPrev})</small></div>
         <div className="yy-plcard" data-k="meta"><span>Nossa meta de {mes} de {d.yearCur}</span><b>{meta ? fmtMi(p.meta) : '—'}</b><small>{meta ? 'a meta cadastrada (a geral)' : 'sem meta cadastrada para este mês'}</small></div>
-        <div className="yy-plcard yy-plhero" data-k="dia"><span>Meta deste dia</span><b>{meta ? fmtMi(p.alvoDia) : '—'}</b><small>{meta ? `${fmtShare(p.share)} × ${fmtMi(p.meta)} = ${fmtReais(p.alvoDia)}` : 'cadastre a meta do mês para calcular'}</small></div>
+        <div className="yy-plcard yy-plhero" data-k="dia"><span>Meta deste dia</span><b>{meta ? fmtMi(p.alvoDia) : '—'}</b><small>{meta ? `${fmtReais(p.alvoDia)} · a mesma do Radar Diário` : 'cadastre a meta do mês para calcular'}</small></div>
         <div className="yy-plcard" data-k="forte"><span>Hora mais forte</span><b>{forte ? `${hh(forte.h)} às ${hh((forte.h + 1) % 24)}` : '—'}</b><small>{forte ? `${fmtReais(val(forte))}${totalRef > 0 ? ` · ${fmtShare(val(forte) / totalRef * 100)} do dia` : ''}` : 'sem detalhe por hora'}</small></div>
       </div>
       {!p.temHoras ? <p className="yy-plvazio" data-testid="plano-sem-horas">Não há detalhe por hora das vendas de {d.yearPrev} neste dia, então não dá para repartir a meta do dia pelas horas.</p> : (
@@ -276,23 +277,21 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
 
 // ── 2) tabela ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const TIPS = {
-  acc: 'Receita de todas as vendas do dia 1 até hoje, em cada ano.',
-  cresc: 'Acumulado deste ano menos o acumulado do ano passado, até o mesmo dia.',
-  ritmo: 'Acumulado ÷ dias passados × dias do mês: quanto o mês fecharia se o ritmo médio dos dias passados continuasse.',
-  proj: 'Acumulado deste ano + o que o ano passado vendeu do dia seguinte até o fim do mês: se o resto do mês repetir o comportamento do ano passado.',
-  fech: 'Quanto o mesmo mês do ano passado fechou, no mês inteiro.',
+  acc: 'Receita dos dias já FECHADOS (do dia 1 até ontem), em cada ano. O ano passado entra dia da semana com dia da semana. Hoje, em andamento, fica de fora.',
+  cresc: 'Acumulado deste ano menos o acumulado do ano passado, nos mesmos dias fechados.',
+  proj: 'A projeção de fechamento: a única do painel. Realizado + o resto do mês seguindo a forma do ano passado, no ritmo atual (o que vendemos nos dias fechados ÷ o que o ano passado vendeu nesses dias).',
+  fech: 'O que o ano passado vendeu no período equivalente (o mesmo número de dias, dia da semana com dia da semana), mês inteiro.',
   meta: 'Meta do mês como está CADASTRADA (a mesma do resto do Forecast); "Operação" usa a meta geral cadastrada.',
-  gap: 'Ritmo linear deste ano menos a meta: positivo = o ritmo atual bate a meta; negativo = ficaria abaixo.',
+  gap: 'Projeção menos meta: positivo = a projeção bate a meta; negativo = ficaria abaixo.',
 }
 function YoYTable({ rows, d, routes }: { rows: TableRow[]; d: YoYData; routes: Route[] }) {
-  const range = d.dayOfMonth === 1 ? 'DIA 1' : `1 A ${d.dayOfMonth}`
+  const F = Math.max(d.dayOfMonth - 1, 0), range = F <= 1 ? 'DIA 1' : `1 A ${F}`
   const H: { k: string; label: string; tip: string; g?: string }[] = [
     { k: 'area', label: 'ÁREA', tip: '' },
     { k: 'accP', label: `ACUMULADO ${d.yearPrev} (${range})`, tip: TIPS.acc, g: 'a' }, { k: 'accC', label: `ACUMULADO ${d.yearCur} (${range})`, tip: TIPS.acc, g: 'a' },
     { k: 'gP', label: 'CRESCIMENTO %', tip: TIPS.cresc, g: 'b' }, { k: 'gR', label: 'CRESCIMENTO R$', tip: TIPS.cresc, g: 'b' },
-    { k: 'rP', label: `RITMO LINEAR ${d.yearPrev}`, tip: TIPS.ritmo, g: 'c' }, { k: 'rC', label: `RITMO LINEAR ${d.yearCur}`, tip: TIPS.ritmo, g: 'c' },
-    { k: 'proj', label: `PROJEÇÃO PELO COMPORTAMENTO DE ${d.yearPrev}`, tip: TIPS.proj, g: 'd' }, { k: 'fech', label: `FECHAMENTO REAL ${d.yearPrev}`, tip: TIPS.fech, g: 'd' },
-    { k: 'meta', label: `META ${d.yearCur}`, tip: TIPS.meta, g: 'e' }, { k: 'gap', label: `RITMO ${d.yearCur} – META`, tip: TIPS.gap, g: 'e' },
+    { k: 'proj', label: `PROJEÇÃO ${d.yearCur}`, tip: TIPS.proj, g: 'd' }, { k: 'fech', label: `FECHAMENTO ${d.yearPrev} (MESMO PERÍODO)`, tip: TIPS.fech, g: 'd' },
+    { k: 'meta', label: `META ${d.yearCur}`, tip: TIPS.meta, g: 'e' }, { k: 'gap', label: 'PROJEÇÃO – META', tip: TIPS.gap, g: 'e' },
   ]
   const Pill = ({ v, children }: { v: number | null; children: React.ReactNode }) => <span className={`yy-pill yy-${sgn(v)}`}>{children}</span>
   return (
@@ -313,7 +312,6 @@ function YoYTable({ rows, d, routes }: { rows: TableRow[]; d: YoYData; routes: R
                 <td data-c="accP" title={fmtReais(r.accPrev)}>{fmtNum(r.accPrev)}</td><td data-c="accC" className="yy-strong" title={fmtReais(r.accCur)}>{fmtNum(r.accCur)}</td>
                 <td data-c="gP"><Pill v={r.growthPct}>{fmtPct(r.growthPct)}</Pill></td>
                 <td data-c="gR" title={fmtReais(r.growthR)}><Pill v={r.growthR}>{fmtNum(r.growthR, true)}</Pill></td>
-                <td data-c="rP" title={fmtReais(r.ritmoPrev)}>{fmtNum(r.ritmoPrev)}</td><td data-c="rC" className="yy-strong" title={fmtReais(r.ritmoCur)}>{fmtNum(r.ritmoCur)}</td>
                 <td data-c="proj" className="yy-strong" title={fmtReais(r.projecao)}>{fmtNum(r.projecao)}</td><td data-c="fech" title={fmtReais(r.fechPrev)}>{fmtNum(r.fechPrev)}</td>
                 <td data-c="meta" title={hasMeta ? fmtReais(r.meta) : 'Sem meta cadastrada'}>{hasMeta ? fmtNum(r.meta) : '—'}</td>
                 <td data-c="gap" title={hasMeta ? fmtReais(r.gapMeta) : undefined}>{hasMeta ? <Pill v={r.gapMeta}>{fmtNum(r.gapMeta, true)}</Pill> : '—'}</td>
@@ -338,12 +336,12 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
     <div data-testid={`chart-${id}`} style={{ ['--yy-c' as any]: from, ['--yy-c2' as any]: to, ['--yy-pmix' as any]: `${pmix}%` }}>
       <div className="yy-legend" aria-hidden>
         <span><i className="yy-sw" style={{ background: `linear-gradient(180deg,${from},${to})` }} />{d.yearCur} · até hoje</span>
-        <span><i className="yy-sw yy-sw-prev" />{d.yearPrev} · mês inteiro</span>
+        <span><i className="yy-sw yy-sw-prev" />{d.yearPrev} · mesmo dia da semana</span>
         {peaks.size > 0 && <span><i className="yy-starsw">★</i>dia forte que ainda vem</span>}
       </div>
       <div className="yy-chartscroll">
         <div className="yy-chartin" style={{ minWidth: N * 28 + 60 }}>
-          <div className="yy-plot" role="img" aria-label={`${name}: receita por dia de ${mes}, ${d.yearCur} contra ${d.yearPrev}. ${d.yearCur} até hoje: ${fmtReais(s.toDateCur)}; ${d.yearPrev} no mesmo período: ${fmtReais(s.toDatePrev)}.`}>
+          <div className="yy-plot" role="img" aria-label={`${name}: receita por dia de ${mes}, ${d.yearCur} contra ${d.yearPrev}. ${d.yearCur} até ontem: ${fmtReais(s.toDateCur)}; ${d.yearPrev} no mesmo período: ${fmtReais(s.toDatePrev)}.`}>
             <div className="yy-ylab" aria-hidden>{ticks.map(t => <span key={t} style={{ bottom: `${(t / top) * 100}%` }}>{fmtAxis(t)}</span>)}</div>
             <div className="yy-area">
               {ticks.map(t => <div key={t} className="yy-line" style={{ bottom: `${(t / top) * 100}%` }} />)}
@@ -373,7 +371,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
           <>
             <b>{dd2(h.day)}/{m2}{h.day === d.dayOfMonth ? ' · hoje (em andamento)' : ''}{peaks.has(h.day) ? ' · ★ dia forte' : ''}</b>
             <span><i className="yy-sw" style={{ background: `linear-gradient(180deg,${from},${to})` }} />{d.yearCur} ({h.wdCur})<em>{h.cur === null ? (h.day > d.dayOfMonth ? 'ainda não chegou' : '—') : fmtReais(h.cur)}</em></span>
-            <span><i className="yy-sw yy-sw-prev" />{d.yearPrev} ({h.wdPrev || '—'})<em>{h.prev === null ? '—' : fmtReais(h.prev)}</em></span>
+            <span><i className="yy-sw yy-sw-prev" />{h.refDate ? `${fmtDataBR(h.refDate)} (${h.wdPrev})` : d.yearPrev}<em>{h.prev === null ? '—' : fmtReais(h.prev)}</em></span>
             {dif !== null && <span className={`yy-tipdelta yy-${sgn(dif)}`}>{dif >= 0 ? '▲' : '▼'} {fmtMi(dif, true)}{h.prev ? ` (${fmtPct(((h.cur as number) - h.prev) / h.prev * 100)})` : ''}</span>}
           </>
         )
@@ -385,28 +383,15 @@ function Summary({ s, d }: { s: Series; d: YoYData }) {
   const tone = s.growthR > 0 ? 'good' : s.growthR < 0 ? 'bad' : 'neutral'
   return (
     <div className="yy-summary">
-      <Chip title={`Receita de ${d.yearCur} do dia 1 até hoje`}>{d.yearCur}: <b>{fmtMi(s.toDateCur)}</b></Chip>
-      <Chip title={`Receita de ${d.yearPrev} do dia 1 ao mesmo dia`}>{d.yearPrev}: <b>{fmtMi(s.toDatePrev)}</b></Chip>
-      <Chip tone={tone} title="Diferença no acumulado até hoje">{s.growthR >= 0 ? '▲' : '▼'} <b>{fmtMi(s.growthR, true)}</b> · {fmtPct(s.growthPct)}</Chip>
+      <Chip title={`Receita de ${d.yearCur} do dia 1 até ontem (dias fechados)`}>{d.yearCur}: <b>{fmtMi(s.toDateCur)}</b></Chip>
+      <Chip title={`Receita de ${d.yearPrev} nos mesmos dias (dia da semana com dia da semana)`}>{d.yearPrev}: <b>{fmtMi(s.toDatePrev)}</b></Chip>
+      <Chip tone={tone} title="Diferença no acumulado até ontem (dias fechados)">{s.growthR >= 0 ? '▲' : '▼'} <b>{fmtMi(s.growthR, true)}</b> · {fmtPct(s.growthPct)}</Chip>
     </div>
   )
 }
 
-export function ForecastYoY() {
-  const [data, setData] = useState<YoYData | null>(null)
-  const [error, setError] = useState(false)
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch('/api/dashboard/forecast/yoy', { cache: 'no-store' })
-      if (!res.ok) throw new Error(String(res.status))
-      setData(await res.json()); setError(false)
-    } catch { setError(true) }
-  }, [])
-  useEffect(() => {
-    load()
-    const id = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState === 'visible') load() }, 120_000)       // venda nova entra sozinha
-    return () => clearInterval(id)
-  }, [load])
+/** `data` vem da seção Forecast (uma leitura só alimenta o topo, o gráfico, a tabela e o Radar: todos mostram o mesmo número). */
+export function ForecastYoY({ data, error, onRetry }: { data: YoYData | null; error: boolean; onRetry: () => void }) {
   const rows = useMemo(() => (data ? buildTable(data) : []), [data])
   const routes = useMemo(() => (data ? buildRoutes(data) : []), [data])
   const total = useMemo(() => (data ? buildSeries(data, 'total') : null), [data])
@@ -423,7 +408,7 @@ export function ForecastYoY() {
           <div className="yy-panel" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
             <AlertTriangle size={22} color="#d97706" />
             <div style={{ flex: 1, minWidth: 220 }}><p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: 'var(--foreground)' }}>Não consegui carregar o comparativo com o ano passado.</p><p className="yy-sub" style={{ margin: '3px 0 0' }}>Vou tentar de novo sozinho em instantes.</p></div>
-            <button type="button" className="yy-btn" onClick={load}>Tentar agora</button>
+            <button type="button" className="yy-btn" onClick={onRetry}>Tentar agora</button>
           </div>
         ) : <><Skeleton h={360} /><Skeleton h={300} /><Skeleton h={420} /></>}
       </div>
@@ -443,13 +428,14 @@ export function ForecastYoY() {
       </Panel>
 
       <Panel testid="yoy-tabela" icon={CalendarRange} title={`${mes[0].toUpperCase()}${mes.slice(1)} de ${data.yearCur} × ${mes} de ${data.yearPrev}`}
-        subtitle={`Acumulado do dia 1 ao dia ${data.dayOfMonth} em cada ano · receita de todas as vendas (novas e recorrentes) · hoje, dia ${data.dayOfMonth}, ainda está em andamento`}
+        subtitle={`Dia da semana com dia da semana: ${fmtDataBR(prevDatesOf(data)[0])} a ${fmtDataBR(prevDatesOf(data)[data.daysInMonth.cur - 1])} de ${data.yearPrev} · só dias fechados (hoje, dia ${data.dayOfMonth}, está em andamento) · receita de todas as vendas`}
         right={<Chip title="Todos os valores da tabela estão em reais; passe o mouse num valor para ver o número exato">Valores em R$ · mil = milhares · mi = milhões</Chip>}>
         <YoYTable rows={rows} d={data} routes={routes} />
-        <p className="yy-foot">Receita só das 4 verticais ativas; “Operação” é a soma delas. As metas vêm do cadastro de metas do mês. Datas como a plataforma registra cada venda (confirmação do pagamento), nos dois anos. A bolinha ao lado do nome é a situação da rota. Passe o mouse no título de uma coluna para ver como ela é calculada.<span className="yy-hint"> Arraste a tabela para o lado para ver todas as colunas.</span></p>
+        <p className="yy-foot">Receita só das 4 verticais ativas; “Operação” é a soma delas. As metas vêm do cadastro de metas do mês. Datas como a plataforma registra cada venda (confirmação do pagamento), nos dois anos. A projeção é a mesma do topo do Forecast, da página inicial e do KPI de Vendas. A bolinha ao lado do nome é a situação da rota. Passe o mouse no título de uma coluna para ver como ela é calculada.<span className="yy-hint"> Arraste a tabela para o lado para ver todas as colunas.</span></p>
+        <RadarDiario data={data} />
       </Panel>
 
-      <Panel testid="yoy-total" icon={BarChart3} title="Dia a dia — todas as verticais" subtitle={`Receita de cada dia de ${mes}: ${data.yearCur} ao lado de ${data.yearPrev}, na mesma data · ★ = dia forte que ainda vem${algumCorte && ampliada ? ' · ✂ = barra cortada para ampliar os dias menores (o valor está escrito no topo)' : ''}`} right={<div className="yy-rightstack">{algumCorte && <ScaleToggle on={ampliada} set={setAmpliada} />}{total ? <Summary s={total} d={data} /> : null}</div>}>
+      <Panel testid="yoy-total" icon={BarChart3} title="Dia a dia — todas as verticais" subtitle={`Receita de cada dia de ${mes}: ${data.yearCur} ao lado de ${data.yearPrev}, no mesmo dia da semana · ★ = dia forte que ainda vem${algumCorte && ampliada ? ' · ✂ = barra cortada para ampliar os dias menores (o valor está escrito no topo)' : ''}`} right={<div className="yy-rightstack">{algumCorte && <ScaleToggle on={ampliada} set={setAmpliada} />}{total ? <Summary s={total} d={data} /> : null}</div>}>
         {total && <DayBars s={total} d={data} from="#6366f1" to="#4f46e5" id="total" name="Todas as verticais" peaks={peaksOf('total')} ampliada={ampliada} />}
       </Panel>
 

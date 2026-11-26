@@ -13,9 +13,9 @@ export interface FactsInput {
   goal: number                         // meta da EMPRESA no mês (a mesma que a tela mostra)
   goalSource: GoalSource
   dayOfMonth: number; daysInMonth: number
-  forecastClose: number | null         // projeção de fechamento do mês (receita + novas vendas no ritmo + recorrência)
-  pipelineNew: number                  // novas vendas projetadas pro resto do mês, no ritmo atual
-  recurringExpected: number            // recorrência prevista pro resto do mês
+  forecastClose: number | null         // projeção de fechamento do mês (a única do painel: o resto do mês segue a forma do ano passado, no ritmo atual)
+  pipelineNew: number                  // o que ainda se espera vender no resto do mês (projeção − realizado)
+  recurringExpected: number            // recorrência prevista pro resto do mês (já está dentro da projeção)
   prevSamePeriod: number | null        // mês anterior ATÉ O MESMO DIA (comparação justa)
   prevMonthTotal: number               // mês anterior fechado (só contexto)
   moneyLeft: number                    // dinheiro deixado na mesa (descontos)
@@ -76,7 +76,7 @@ export function factLines(f: CompanyFacts): string[] {
     L.push(`Ritmo × calendário: ${f.status === 'atrasada' ? 'ABAIXO do calendário' : f.status === 'adiantada' ? 'ACIMA do calendário' : f.status === 'meta_batida' ? 'meta batida' : 'em linha com o calendário'} (${fmtPct(f.pctGoal)} da meta contra ${fmtPct(f.pctMonthElapsed)} do mês)`)
     if (f.forecastClose !== null) L.push(`Projeção de fechamento do mês: ${fmtMoney(f.forecastClose)} (${fmtPct(f.pctForecast as number)} da meta)`)
   } else L.push(f.goalSource === 'indisponivel' ? 'Meta do mês: INDISPONÍVEL agora (não calcule nem cite % de meta)' : 'Meta do mês: NÃO cadastrada (não calcule nem cite % de meta)')
-  if (f.pipelineNew > 0 || f.recurringExpected > 0) L.push(`Do resto do mês: novas vendas projetadas no ritmo atual ${fmtMoney(f.pipelineNew)}; recorrência prevista ${fmtMoney(f.recurringExpected)}`)
+  if (f.pipelineNew > 0 || f.recurringExpected > 0) L.push(`Do resto do mês: vendas esperadas pela projeção (no ritmo atual, seguindo o ano passado) ${fmtMoney(f.pipelineNew)}, das quais recorrência prevista ${fmtMoney(f.recurringExpected)}`)
   if (f.prevSamePeriod !== null && f.prevSamePeriod > 0) L.push(`Mesmo período do mês anterior (até o dia ${f.dayOfMonth}): ${fmtMoney(f.prevSamePeriod)}${f.deltaVsPrevPct !== null ? ` — receita atual ${f.deltaVsPrevPct >= 0 ? '+' : '-'}${fmtPct(Math.abs(f.deltaVsPrevPct))} em relação a ele` : ''}`)
   if (f.prevMonthTotal > 0) L.push(`Mês anterior fechado: ${fmtMoney(f.prevMonthTotal)} (só contexto: NÃO compare com a receita parcial do mês atual)`)
   L.push(`Dinheiro deixado na mesa (descontos) no mês: ${fmtMoney(f.moneyLeft)}`)
@@ -166,7 +166,7 @@ export function deterministicInsights(f: CompanyFacts): CompanyInsight[] {
     out.push({
       type: p >= 100 ? 'oportunidade' : p >= 90 ? 'destaque' : 'alerta', titulo: `Projeção de fechamento: ${fmtMoney(f.forecastClose)} (${fmtPct(p)} ${daMeta})`,
       motivo: p < 100 ? `Faltariam ${fmtMoney(f.goal - f.forecastClose)} pra meta nesse ritmo` : `Projeção fica ${fmtMoney(f.forecastClose - f.goal)} acima da meta`,
-      sugestao: f.pipelineNew > 0 || f.recurringExpected > 0 ? `Novas vendas no ritmo atual: ${fmtMoney(f.pipelineNew)}; recorrência: ${fmtMoney(f.recurringExpected)}` : null,
+      sugestao: f.pipelineNew > 0 || f.recurringExpected > 0 ? `Ainda se espera vender ${fmtMoney(f.pipelineNew)} no resto do mês (recorrência prevista: ${fmtMoney(f.recurringExpected)})` : null,
     })
   }
   if (f.deltaVsPrevPct !== null && f.prevSamePeriod !== null && Math.abs(f.deltaVsPrevPct) >= 5) {

@@ -1,0 +1,11 @@
+{
+ "criados": [
+  "lib/telao/somGol.ts",
+  "tests/unit/somgol.test.ts",
+  "public/sons/gol.mp3"
+ ],
+ "salvos": [
+  "app/(platform)/telao/LiveWall.tsx",
+  "app/(platform)/telao-completo/animations.tsx"
+ ]
+}

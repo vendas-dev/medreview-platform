@@ -11,6 +11,7 @@ import { computeEventsAnalysis } from '@/lib/dashboard/eventsAnalysis'
 import { todayInSaoPaulo, monthBoundsSaoPaulo, dayBoundsSaoPaulo, addDaysToDateStr, weekdayInSaoPaulo, hourInSaoPaulo } from '@/lib/timezone'
 import { eventMoneyLeftOnTable, eventDiscountPct } from '@/lib/telao/format'
 import { computeForecast, computeRemainingMonthRecurring, computeCurrentMonthRecurringStats, RecurringSale } from '@/lib/telao/forecast'
+import { computeClosingProjection } from '@/lib/dashboard/forecastClosing'
 
 // Mesmo critério de match usado no telão/intel: closer_id OU hubspot_id (com
 // trim), nunca só nome — nome sozinho já causou bug de contagem antes.
@@ -397,18 +398,15 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     const metaGeralMes = companyGoalsMap['geral'] > 0 ? companyGoalsMap['geral'] : totalGoalMonth
     const metaPorVertical: Record<string, number> = Object.fromEntries(ALL_VERTICALS.map(v => [v, companyGoalsMap[v] ?? 0]))
 
-    // ── Forecast de fechamento do mês — o mais importante dos dois pedidos.
-    // Realizado (já ganho, fixo) + duas projeções pro que ainda falta:
-    //  1. Recorrência que ainda deve cair DENTRO do mês (não é a projeção até
-    //     dezembro, é só o que falta receber nos dias que restam desse mês).
-    //  2. Ritmo atual de vendas NOVAS, extrapolado pros dias que faltam —
-    //     "se continuar vendendo no ritmo médio diário de hoje até aqui,
-    //     quanto mais vou fechar até o fim do mês".
-    const diasRestantesMes = Math.max(daysInMonthTotal - dayOfMonth, 0)
-    const ritmoDiarioNovaVenda = dayOfMonth > 0 ? novaRevAll / dayOfMonth : 0
-    const projecaoRestanteNovaVenda = ritmoDiarioNovaVenda * diasRestantesMes
+    // ── Forecast de fechamento do mês — UMA conta só, a mesma do topo do Forecast, da tabela, do Radar e do KPI de Vendas (lib/dashboard/projecao.ts):
+    // realizado + o resto do mês seguindo a forma do mesmo período do ano passado (dia da semana com dia da semana), no ritmo atual.
+    // A recorrência prevista continua sendo calculada à parte: ela já está dentro dessa projeção (é parte do que o ano passado também vendeu), então só aparece como "cobertura".
     const recorrenciaPrevistaMes = computeRemainingMonthRecurring(forecastResult.states, forecastResult.persistenceRate, new Date())
-    const forecastFechamentoMes = totalRevMonth + projecaoRestanteNovaVenda + recorrenciaPrevistaMes
+    let forecastFechamentoMes = totalRevMonth, projecaoRestanteNovaVenda = 0
+    try {
+      const proj = await computeClosingProjection(admin)
+      forecastFechamentoMes = proj.projecao; projecaoRestanteNovaVenda = proj.resto
+    } catch (e: any) { console.error('[dashboard] projeção de fechamento indisponível:', String(e?.message ?? e)) }
     const pctForecastVsMeta = metaGeralMes > 0 ? ((forecastFechamentoMes - metaGeralMes) / metaGeralMes) * 100 : 0
 
     // ── Série diária acumulada do mês (dia 1 até hoje) — pra linha de

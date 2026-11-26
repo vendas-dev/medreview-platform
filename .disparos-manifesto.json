@@ -1,0 +1,11 @@
+{
+ "criados": [
+  "lib/disparos/templateResolve.ts",
+  "tests/unit/disparos_template.test.ts"
+ ],
+ "salvos": [
+  "app/api/public/disparos/route.ts",
+  "app/api/public/disparos/resposta/route.ts",
+  "app/(platform)/templates/TemplatesView.tsx"
+ ]
+}

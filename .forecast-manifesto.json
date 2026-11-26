@@ -1,0 +1,19 @@
+{
+ "criados": [
+  "lib/dashboard/projecao.ts",
+  "app/(platform)/dashboard/ForecastTop.tsx",
+  "app/(platform)/dashboard/RotaChart.tsx",
+  "app/(platform)/dashboard/RadarDiario.tsx",
+  "tests/unit/projecao.test.ts"
+ ],
+ "salvos": [
+  "lib/dashboard/yoy.ts",
+  "lib/dashboard/yoyServer.ts",
+  "lib/dashboard/forecastClosing.ts",
+  "lib/dashboard/companyFacts.ts",
+  "app/(platform)/dashboard/ForecastSection.tsx",
+  "app/(platform)/dashboard/ForecastYoY.tsx",
+  "app/(platform)/dashboard/page.tsx",
+  "tests/unit/dias_fortes.test.ts"
+ ]
+}
