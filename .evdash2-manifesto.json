@@ -1,0 +1,13 @@
+{
+ "criados": [],
+ "salvos": [
+  "app/(platform)/dashboard/eventos/EventLive.tsx",
+  "app/(platform)/dashboard/eventos/HourlyChart.tsx",
+  "app/(platform)/dashboard/eventos/Podium.tsx",
+  "lib/dashboard/eventHourly.ts",
+  "tests/unit/event_hourly.test.ts",
+  "app/(platform)/dashboard/eventos/shared.tsx",
+  "app/(platform)/dashboard/eventos/EventEditor.tsx",
+  "app/(platform)/dashboard/eventos/EventList.tsx"
+ ]
+}

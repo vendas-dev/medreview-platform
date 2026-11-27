@@ -1,0 +1,208 @@
+'use client'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { Clock, TrendingDown, TrendingUp, Minus } from 'lucide-react'
+import { GREEN, PINK, brl, brlCompact, cardStyle, fmtDay, weekday, type LiveData } from './shared'
+import { compara, curvaDia, diaAnterior, estadoDia, horaTxt, janelaHoras, nowX, type Comparacao, type HourlyInput } from '@/lib/dashboard/eventHourly'
+
+// ══ Acumulado por hora: "quanto já tínhamos vendido ontem nesse mesmo horário?" ═════════════════════════════════════════════
+// Conta pura em lib/dashboard/eventHourly.ts. Aqui só o desenho: o gráfico grande (um dia × dia anterior, ou todos os dias) e o mini de cada dia.
+const PREV = '#94a3b8', RED = '#f43f5e', AMBER = '#f59e0b'
+const PALETA = ['#38bdf8', '#a78bfa', '#34d399', '#fb923c', '#f472b6', '#facc15']
+export const toInput = (d: LiveData): HourlyInput => ({ days: d.days, today: d.today, status: d.status, serverTime: d.serverTime, hourly: d.actual.hourly,
+  totals: Object.fromEntries(d.days.map(x => [x, d.actual.byDay[x]?.value ?? 0])) })
+const lbl = (day: string) => `${weekday(day)} ${fmtDay(day)}`
+const tomCor = (t: Comparacao['tom']) => (t === 'acima' ? GREEN : t === 'perto' ? AMBER : t === 'abaixo' ? RED : PREV)
+const sgn = (v: number) => `${v < 0 ? '−' : '+'}${brlCompact(Math.abs(v))}`
+const pctTxt = (p: number | null) => (p === null ? '' : `${p < 0 ? '−' : '+'}${Math.abs(Math.round(p))}%`)
+
+export function useSize<T extends HTMLElement>(): [React.RefObject<T | null>, number, number] {
+  const ref = useRef<T>(null); const [sz, setSz] = useState<[number, number]>([900, 300])
+  useLayoutEffect(() => { const el = ref.current; if (!el) return; const m = () => setSz([el.clientWidth || 900, el.clientHeight || 300]); m()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(m) : null; ro?.observe(el); return () => ro?.disconnect() }, [])
+  return [ref, sz[0], sz[1]]
+}
+const useWidth = <T extends HTMLElement>(): [React.RefObject<T | null>, number] => { const [r, w] = useSize<T>(); return [r, w] }
+function niceMax(max: number): { top: number; ticks: number[] } {
+  if (!(max > 0)) return { top: 1, ticks: [0, 1] }
+  const raw = max / 4, e = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / e, step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e
+  const top = Math.ceil(max / step - 1e-9) * step, ticks: number[] = []; for (let v = 0; v <= top + step / 1e6; v += step) ticks.push(v); return { top, ticks }
+}
+const eixo = (v: number) => (v === 0 ? '0' : v >= 1e6 ? `${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi` : v >= 1e3 ? `${(v / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} mil` : String(Math.round(v)))
+
+/** A frase-resposta: "Agora (11h30): R$ 1.000 · ontem até 11h30: R$ 2.000 · −50%". */
+export function Resposta({ d, day, compact }: { d: LiveData; day: string; compact?: boolean }) {
+  const inp = useMemo(() => toInput(d), [d]), est = estadoDia(inp, day), agora = nowX(d.serverTime)
+  const c = compara(inp, day, est === 'ao-vivo' ? agora : 24)
+  if (est === 'futuro') return <div className="hc-ans hc-flat"><Clock size={15} /> Este dia ainda não começou.</div>
+  if (!c.prevDay || c.prev === null) return <div className="hc-ans hc-flat"><Clock size={15} /> Primeiro dia do evento: ainda não há dia anterior para comparar.</div>
+  const cor = tomCor(c.tom), Icon = c.delta === null || c.delta === 0 ? Minus : c.delta > 0 ? TrendingUp : TrendingDown
+  return (
+    <div className="hc-ans" style={{ ['--tc' as string]: cor }} data-testid="hc-resposta" data-tom={c.tom ?? ''}>
+      <span className="hc-ic"><Icon size={compact ? 16 : 20} /></span>
+      <div className="hc-at">
+        <div className="hc-line"><span className="hc-k">{est === 'ao-vivo' ? `Hoje até ${horaTxt(agora)}` : `${lbl(day)} fechou`}</span><b>{brl(c.cur ?? 0)}</b></div>
+        <div className="hc-line hc-sub"><span className="hc-k">{lbl(c.prevDay)}{est === 'ao-vivo' ? ` até ${horaTxt(agora)}` : ' fechou'}</span><b>{brl(c.prev)}</b></div>
+      </div>
+      {c.delta !== null && <div className="hc-delta"><b>{sgn(c.delta)}</b>{c.pct !== null && <small>{pctTxt(c.pct)} {c.delta >= 0 ? 'à frente' : 'atrás'}</small>}</div>}
+    </div>
+  )
+}
+
+type Serie = { day: string; cor: string; main: boolean; pontos: { x: number; v: number }[]; fim: number; dash?: boolean; label: string }
+
+/** Valor de uma série no horário xv (interpola entre os pontos). */
+function valorEm(pts: { x: number; v: number }[], xv: number): number {
+  if (pts.length === 0) return 0
+  if (xv <= pts[0].x) return pts[0].v
+  for (let i = 1; i < pts.length; i++) if (xv <= pts[i].x) { const a = pts[i - 1], b = pts[i], f = b.x === a.x ? 1 : (xv - a.x) / (b.x - a.x); return a.v + (b.v - a.v) * f }
+  return pts[pts.length - 1].v
+}
+
+export function HourlyChart({ data, scope, goal, fill }: { data: LiveData; scope: string; goal: number | null; fill?: boolean }) {
+  const [wrap, W, hBox] = useSize<HTMLDivElement>(), reduce = useReducedMotion()
+  const [hover, setHover] = useState<number | null>(null), [zoomOn, setZoomOn] = useState(true)
+  // o React Compiler pode pular a otimização aqui (só avisa); a memoização manual abaixo continua valendo
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+  const inp = useMemo(() => toInput(data), [data]), jan = useMemo(() => janelaHoras(inp), [inp]), h0 = jan[0], h1 = jan[1]
+  const dia = scope === 'all' ? null : scope, agora = nowX(data.serverTime), estDia = dia ? estadoDia(inp, dia) : null
+  const series = useMemo<Serie[]>(() => {
+    const mk = (day: string, cor: string, main: boolean, dash?: boolean): Serie => { const c = curvaDia(inp, day, h0, h1); return { day, cor, main, pontos: c.pontos, fim: c.fim, dash, label: lbl(day) } }
+    if (dia) { const p = diaAnterior(data.days, dia); return [...(p ? [mk(p, PREV, false, true)] : []), mk(dia, PINK, true)].filter(x => x.pontos.length > 0) }
+    let k = 0; return data.days.map(x => { const live = estadoDia(inp, x) === 'ao-vivo'; return mk(x, live ? PINK : PALETA[k++ % PALETA.length], live) }).filter(x => x.pontos.length > 0)
+  }, [inp, dia, data.days, h0, h1])
+  // ZOOM: com o dia ao vivo, o eixo X vai de h0 até ~3h depois de agora e o eixo Y se ajusta ao que aparece (as linhas se separam). "Dia inteiro" volta à visão completa.
+  const zoomAvail = estDia === 'ao-vivo', zoom = zoomAvail && zoomOn, xa = h0
+  const xb = zoom ? Math.min(h1, Math.max(Math.ceil(agora) + 3, h0 + 6)) : h1
+  const maxV = Math.max(1, ...series.map(sr => valorEm(sr.pontos, Math.min(xb, sr.fim)))), metaDentro = dia && goal && goal > 0 && goal <= maxV * 1.35 ? goal : null, metaFora = dia && goal && goal > 0 && !metaDentro ? goal : null
+  const sc = useMemo(() => niceMax(Math.max(maxV, metaDentro ?? 0) * 1.08), [maxV, metaDentro])
+  const compact = W < 560, H = fill ? Math.max(hBox, 160) : (compact ? 210 : 245), L = compact ? 42 : 54, R = 18, T = 14, B = 30, pw = Math.max(W - L - R, 120), ph = Math.max(H - T - B, 60)
+  const x = (hx: number) => L + ((hx - xa) / Math.max(xb - xa, 1)) * pw, y = (v: number) => T + ph - (v / sc.top) * ph
+  const path = (p: { x: number; v: number }[]) => p.map((q, i) => `${i ? 'L' : 'M'}${x(q.x).toFixed(1)},${y(q.v).toFixed(1)}`).join(' ')
+  const area = (p: { x: number; v: number }[]) => (p.length ? `${path(p)} L${x(p[p.length - 1].x).toFixed(1)},${y(0)} L${x(p[0].x).toFixed(1)},${y(0)} Z` : '')
+  const horas = Array.from({ length: Math.floor(xb) - Math.ceil(xa) + 1 }, (_, i) => Math.ceil(xa) + i), passo = compact ? 3 : (xb - xa > 14 ? 2 : 1)
+  const onMove = (e: React.PointerEvent<SVGRectElement>) => { const b = e.currentTarget.getBoundingClientRect(), f = (e.clientX - b.left) / b.width; setHover(Math.min(xb, Math.max(xa, Math.round((xa + f * (xb - xa)) * 4) / 4))) }
+  const main = series.find(sr => sr.main) ?? series[series.length - 1], liveDay = data.days.find(d => estadoDia(inp, d) === 'ao-vivo')
+  const hv = hover !== null ? hover : null, clipId = useId().replace(/:/g, '')
+  const rowsHover = hv === null ? [] : series.map(sr => ({ s: sr, c: compara(inp, sr.day, hv) })).filter(r => r.c.cur !== null).sort((a, b) => (b.c.cur ?? 0) - (a.c.cur ?? 0))
+  const tipLeft = hv === null ? 0 : Math.min(Math.max(x(hv) + 14, 8), Math.max(W - 250, 8))
+  const respDay = dia ?? liveDay ?? data.days[data.days.length - 1]
+  return (
+    <div className={`hc${fill ? ' hc-fill' : ''}`} data-testid="hourly-chart" style={{ ...cardStyle, padding: fill ? '12px 16px' : 'clamp(12px,1.6vw,18px)' }}>
+      <style>{HC_CSS}</style>
+      <div className="hc-head">
+        <div><h3>Acumulado por hora</h3><p>{dia ? `${lbl(dia)} × ${diaAnterior(data.days, dia) ? lbl(diaAnterior(data.days, dia) as string) : 'dia anterior'}` : 'todos os dias do evento'}{zoom ? ' · zoom no agora' : ''}</p></div>
+        {zoomAvail && <button type="button" className="hc-zoom" onClick={() => setZoomOn(z => !z)} aria-pressed={zoomOn} data-testid="hc-zoom">{zoomOn ? 'Ver dia inteiro' : 'Zoom no agora'}</button>}
+        {respDay && <Resposta d={data} day={respDay} compact={false} />}
+      </div>
+      <div ref={wrap} className="hc-plot">
+        {series.length === 0 ? <p className="hc-empty">{estDia === 'futuro' ? 'Este dia ainda não começou: o acumulado aparece assim que saírem as primeiras vendas.' : 'As vendas por hora aparecem aqui assim que o evento começar.'}</p> : (
+          <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Acumulado de vendas por hora. ${series.map(sr => `${sr.label}: ${brl(sr.pontos[sr.pontos.length - 1].v)}`).join('; ')}.`} style={fill ? { position: 'absolute', left: 0, top: 0, display: 'block', overflow: 'visible' } : { display: 'block', overflow: 'visible' }}>
+            <defs>
+              <clipPath id={`hc-c-${clipId}`}><rect x={L - 1} y={T - 4} width={pw + 2} height={ph + 8} /></clipPath>
+              {series.filter(sr => sr.main).map(sr => <linearGradient key={sr.day} id={`hc-g-${clipId}-${sr.day}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={sr.cor} stopOpacity=".38" /><stop offset="100%" stopColor={sr.cor} stopOpacity="0" /></linearGradient>)}
+            </defs>
+            {sc.ticks.map(t => <g key={t}><line x1={L} x2={L + pw} y1={y(t)} y2={y(t)} className="hc-grid" /><text x={L - 8} y={y(t) + 4} textAnchor="end" className="hc-ax">{eixo(t)}</text></g>)}
+            {horas.filter((_, i) => i % passo === 0).map(hx => <text key={hx} x={x(hx)} y={H - 8} textAnchor="middle" className="hc-ax">{hx}h</text>)}
+            {metaDentro !== null && <g><line x1={L} x2={L + pw} y1={y(metaDentro)} y2={y(metaDentro)} className="hc-meta" /><text x={L + pw} y={y(metaDentro) - 6} textAnchor="end" className="hc-ax hc-metalbl">meta do dia {brlCompact(metaDentro)}</text></g>}
+            {data.status === 'andamento' && agora >= xa && agora <= xb && <line x1={x(agora)} x2={x(agora)} y1={T} y2={T + ph} className="hc-now" />}
+            <g clipPath={`url(#hc-c-${clipId})`}>
+              {series.filter(sr => sr.main).map(sr => <motion.path key={'a' + sr.day} d={area(sr.pontos)} fill={`url(#hc-g-${clipId}-${sr.day})`} initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .25 }} />)}
+              {series.map(sr => <motion.path key={sr.day + sr.pontos.length + (zoom ? 'z' : '')} d={path(sr.pontos)} fill="none" stroke={sr.cor} strokeWidth={sr.main ? 3 : 2} strokeDasharray={sr.dash ? '6 5' : undefined} strokeLinecap="round" strokeLinejoin="round" opacity={sr.main ? 1 : .8}
+                initial={reduce ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .9, ease: [0.22, 1, 0.36, 1] }} />)}
+            </g>
+            {series.filter(sr => estadoDia(inp, sr.day) === 'ao-vivo').map(sr => { const u = sr.pontos[sr.pontos.length - 1]; return <g key={'l' + sr.day}><circle cx={x(u.x)} cy={y(u.v)} r={5} className="hc-ping" style={{ fill: sr.cor }} /><circle cx={x(u.x)} cy={y(u.v)} r={5.5} style={{ fill: sr.cor, stroke: 'var(--card)', strokeWidth: 2 }} /></g> })}
+            {hv !== null && <g><line x1={x(hv)} x2={x(hv)} y1={T} y2={T + ph} className="hc-cross" />{rowsHover.map(r => <circle key={r.s.day} cx={x(hv)} cy={y(r.c.cur ?? 0)} r={5} style={{ fill: r.s.cor, stroke: 'var(--card)', strokeWidth: 2 }} />)}</g>}
+            <rect x={L} y={T} width={pw} height={ph} fill="transparent" onPointerMove={onMove} onPointerLeave={() => setHover(null)} data-testid="hc-hit" />
+          </svg>
+        )}
+        <AnimatePresence>
+          {hv !== null && rowsHover.length > 0 && (
+            <motion.div key="tip" className="hc-tip" role="status" initial={{ opacity: 0, y: 6, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: .14 }} style={{ left: tipLeft, top: 6 }} data-testid="hc-tip">
+              <div className="hc-th">{horaTxt(hv)}</div>
+              {rowsHover.map((r, i) => (
+                <div key={r.s.day} className="hc-tr">
+                  <i style={{ background: r.s.cor, ...(r.s.dash ? { opacity: .7 } : null) }} /><s>{r.s.label}</s><b>{brl(r.c.cur ?? 0)}</b>
+                  {r.c.delta !== null && (!dia || r.s.main) && <em className="hc-pill" style={{ ['--tc' as string]: tomCor(r.c.tom) }}>{r.c.delta >= 0 ? '▲' : '▼'} {sgn(r.c.delta)}{r.c.pct !== null ? ` · ${pctTxt(r.c.pct)}` : ''}</em>}
+                  {i === 0 && rowsHover.length > 1 && <u>líder</u>}
+                </div>))}
+              {dia && main && !rowsHover.some(r => r.s.main) && <div className="hc-note">{main.label} ainda não chegou nesse horário.</div>}
+              {!dia && rowsHover.length > 1 && <div className="hc-note">▲▼ em relação ao dia anterior, no mesmo horário.</div>}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      <div className="hc-legend" aria-hidden>
+        {series.map(sr => <span key={sr.day}><i style={sr.dash ? { backgroundImage: `repeating-linear-gradient(90deg,${sr.cor} 0 5px,transparent 5px 9px)` } : { background: sr.cor }} />{sr.label}{estadoDia(inp, sr.day) === 'ao-vivo' ? ' · hoje' : ''}</span>)}
+        {metaDentro !== null && <span><i className="hc-ml" />meta do dia</span>}
+        {metaFora !== null && <span title="A meta está acima da escala atual">meta do dia {brlCompact(metaFora)} (acima da escala)</span>}
+      </div>
+    </div>
+  )
+}
+
+/** Mini gráfico de cada dia: o acumulado do dia (área) e o do dia anterior (tracejado), com a leitura "no mesmo horário" embaixo. Passar o mouse mostra o horário. */
+export function DaySpark({ data, day }: { data: LiveData; day: string }) {
+  const [wrap, W] = useWidth<HTMLDivElement>(), reduce = useReducedMotion(), [hover, setHover] = useState<number | null>(null)
+  // o React Compiler pode pular a otimização aqui (só avisa); a memoização manual abaixo continua valendo
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+  const inp = useMemo(() => toInput(data), [data]), jan = useMemo(() => janelaHoras(inp), [inp]), h0 = jan[0], h1 = jan[1]
+  const est = estadoDia(inp, day), prevDay = diaAnterior(data.days, day), agora = nowX(data.serverTime)
+  const cur = useMemo(() => curvaDia(inp, day, h0, h1), [inp, day, h0, h1]), prev = useMemo(() => (prevDay ? curvaDia(inp, prevDay, h0, h1) : null), [inp, prevDay, h0, h1])
+  const maxV = Math.max(1, ...cur.pontos.map(p => p.v), ...(prev?.pontos.map(p => p.v) ?? [0])), H = 62, P = 4
+  const x = (hx: number) => P + ((hx - h0) / Math.max(h1 - h0, 1)) * (W - 2 * P), y = (v: number) => H - P - (v / maxV) * (H - 2 * P)
+  const path = (p: { x: number; v: number }[]) => p.map((q, i) => `${i ? 'L' : 'M'}${x(q.x).toFixed(1)},${y(q.v).toFixed(1)}`).join(' ')
+  const xq = hover ?? (est === 'ao-vivo' ? agora : est === 'fechado' ? 24 : null)
+  const c = xq === null ? null : compara(inp, day, xq), cor = tomCor(c?.tom ?? null), id = `ds-${day}`
+  const u = cur.pontos[cur.pontos.length - 1]
+  const move = (e: React.PointerEvent<SVGSVGElement>) => { const b = e.currentTarget.getBoundingClientRect(), f = (e.clientX - b.left) / b.width, lim = est === 'ao-vivo' ? agora : 24; setHover(Math.min(lim, Math.max(h0, Math.round((h0 + f * (h1 - h0)) * 2) / 2))) }
+  return (
+    <div ref={wrap} className="ds" data-testid="day-spark">
+      <style>{HC_CSS}</style>
+      {est === 'futuro' ? <div className="ds-empty">ainda não começou</div> : (
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden onPointerMove={move} onPointerLeave={() => setHover(null)} style={{ display: 'block', overflow: 'visible' }}>
+          <defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={PINK} stopOpacity=".35" /><stop offset="100%" stopColor={PINK} stopOpacity="0" /></linearGradient></defs>
+          {cur.pontos.length > 0 && <motion.path d={`${path(cur.pontos)} L${x(u.x)},${H - P} L${x(cur.pontos[0].x)},${H - P} Z`} fill={`url(#${id})`} initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .6, delay: .2 }} />}
+          {prev && prev.pontos.length > 0 && <path d={path(prev.pontos)} fill="none" stroke={PREV} strokeWidth={1.8} strokeDasharray="4 4" strokeLinecap="round" opacity={.85} />}
+          {cur.pontos.length > 0 && <motion.path d={path(cur.pontos)} fill="none" stroke={PINK} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" initial={reduce ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .8, ease: [0.22, 1, 0.36, 1] }} />}
+          {est === 'ao-vivo' && <g><circle cx={x(u.x)} cy={y(u.v)} r={4} className="hc-ping" style={{ fill: PINK }} /><circle cx={x(u.x)} cy={y(u.v)} r={3.6} style={{ fill: PINK, stroke: 'var(--card)', strokeWidth: 1.6 }} /></g>}
+          {hover !== null && <g><line x1={x(hover)} x2={x(hover)} y1={P} y2={H - P} className="hc-cross" />{c?.cur != null && <circle cx={x(hover)} cy={y(c.cur)} r={3.6} style={{ fill: PINK }} />}{c?.prev != null && <circle cx={x(hover)} cy={y(c.prev)} r={3.2} style={{ fill: PREV }} />}</g>}
+        </svg>
+      )}
+      {est !== 'futuro' && c && (
+        <div className="ds-cap" style={{ ['--tc' as string]: cor }}>
+          {c.prev !== null && c.prevDay ? <>
+            <span>{hover !== null ? horaTxt(hover) : est === 'ao-vivo' ? `às ${horaTxt(agora)}` : 'no fechamento'}: {lbl(c.prevDay).split(' ')[0]} <b>{brlCompact(c.prev)}</b></span>
+            {c.delta !== null && <em className="hc-pill">{c.delta >= 0 ? '▲' : '▼'} {sgn(c.delta)}{c.pct !== null ? ` · ${pctTxt(c.pct)}` : ''}</em>}
+          </> : <span>{hover !== null ? `${horaTxt(hover)}: ` : ''}<b>{brlCompact(c.cur ?? 0)}</b> · primeiro dia, sem comparação</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const HC_CSS = `
+.hc-head{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.hc-head h3{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em;color:var(--foreground)}.hc-head p{margin:3px 0 0;font-size:12px;color:var(--muted-foreground)}
+.hc-ans{display:flex;align-items:center;gap:14px;padding:11px 16px;border-radius:16px;border:1px solid color-mix(in srgb,var(--tc,#94a3b8) 45%,var(--border));background:color-mix(in srgb,var(--tc,#94a3b8) 11%,var(--card));animation:hcIn .5s cubic-bezier(.22,1,.36,1) both;color:var(--foreground)}
+.hc-flat{--tc:#94a3b8;font-size:13px;color:var(--muted-foreground);gap:8px;padding:9px 14px}
+.hc-ic{width:34px;height:34px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;color:#fff;background:var(--tc);flex:none;box-shadow:0 6px 16px -6px var(--tc)}
+.hc-at{display:flex;flex-direction:column;gap:2px;min-width:0}.hc-line{display:flex;gap:10px;align-items:baseline;justify-content:space-between;font-variant-numeric:tabular-nums}
+.hc-line b{font-size:16px;font-weight:900}.hc-k{font-size:12px;color:var(--muted-foreground);font-weight:600}.hc-sub b{font-size:14px;font-weight:800;opacity:.85}
+.hc-delta{display:flex;flex-direction:column;align-items:flex-end;padding-left:10px;border-left:1px solid color-mix(in srgb,var(--tc) 35%,transparent)}.hc-delta b{font-size:18px;font-weight:900;color:var(--tc);font-variant-numeric:tabular-nums}.hc-delta small{font-size:11px;font-weight:800;color:var(--tc)}
+.hc-plot{position:relative}.hc-fill{display:flex;flex-direction:column;height:100%;min-height:0}.hc-fill .hc-plot{flex:1 1 0;min-height:0;overflow:hidden}.hc-fill .hc-head{margin-bottom:6px}
+.hc-zoom{font:inherit;font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--secondary);color:var(--foreground);cursor:pointer;transition:background .15s,transform .15s}.hc-zoom:hover{background:color-mix(in srgb,var(--ev-a,#ec4899) 18%,var(--secondary));transform:translateY(-1px)}.hc-empty{padding:30px;text-align:center;color:var(--muted-foreground);font-size:13px}
+.hc-grid{stroke:color-mix(in srgb,var(--foreground) 10%,transparent);stroke-dasharray:3 4}.hc-ax{fill:var(--muted-foreground);font-size:11px;font-weight:600}.hc-metalbl{fill:#f59e0b}
+.hc-meta{stroke:#f59e0b;stroke-width:1.6;stroke-dasharray:7 5}.hc-now{stroke:var(--ev-a,#ec4899);stroke-width:1.2;stroke-dasharray:2 4;opacity:.6}.hc-cross{stroke:color-mix(in srgb,var(--foreground) 35%,transparent);stroke-width:1.2}
+.hc-ping{transform-box:fill-box;transform-origin:center;animation:hcPing 1.8s ease-out infinite}
+.hc-tip{position:absolute;z-index:5;pointer-events:none;min-width:210px;padding:11px 13px;border-radius:14px;background:var(--card);border:1px solid color-mix(in srgb,var(--foreground) 16%,transparent);box-shadow:0 16px 40px rgba(2,6,23,.35);display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--foreground)}
+.hc-th{font-size:14px;font-weight:900}.hc-tr{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hc-tr i{width:10px;height:10px;border-radius:3px;flex:none}.hc-tr s{text-decoration:none;color:var(--muted-foreground);font-weight:600}.hc-tr b{margin-left:auto;font-weight:900;font-variant-numeric:tabular-nums}
+.hc-tr u{text-decoration:none;font-size:9.5px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:999px;background:var(--ev-a,#ec4899);color:#fff}
+.hc-pill{font-style:normal;font-size:11px;font-weight:900;padding:2px 8px;border-radius:999px;color:var(--tc);background:color-mix(in srgb,var(--tc) 16%,transparent);font-variant-numeric:tabular-nums;white-space:nowrap}
+.hc-tr .hc-pill{flex-basis:100%;width:fit-content;margin-left:18px}.hc-note{font-size:11px;color:var(--muted-foreground)}
+.hc-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:12px;color:var(--muted-foreground);font-weight:600}.hc-legend span{display:inline-flex;align-items:center;gap:7px}.hc-legend i{width:18px;height:4px;border-radius:2px;display:inline-block}.hc-ml{background:repeating-linear-gradient(90deg,#f59e0b 0 6px,transparent 6px 10px)!important}
+.ds{margin-top:10px;position:relative}.ds-empty{height:62px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted-foreground);border:1px dashed var(--border);border-radius:12px}
+.ds-cap{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;justify-content:space-between;margin-top:6px;font-size:11.5px;color:var(--muted-foreground);font-weight:600;font-variant-numeric:tabular-nums}.ds-cap b{color:var(--foreground)}
+@keyframes hcPing{0%{transform:scale(1);opacity:.55}100%{transform:scale(3.2);opacity:0}}@keyframes hcIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.hc-ping,.hc-ans{animation:none}}
+`

@@ -45,6 +45,7 @@ export function EventList({ list, loading, error, onOpen, onEdit, onDuplicate, o
                 className="ev-card" style={{ ...themeVars(th), ...cardStyle, overflow: 'hidden', display: 'flex', flexDirection: 'column', border: e.status === 'andamento' ? `1px solid ${GREEN}66` : cardStyle.border }}>
                 <div style={{ position: 'relative', overflow: 'hidden', background: th.hero, color: '#fff', padding: '16px 16px 14px', minHeight: 86 }}>
                   <div aria-hidden className="ev-drift" style={{ position: 'absolute', inset: 0, backgroundImage: th.pattern }} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   {th.mascot && <img src={th.mascot} alt="" className="ev-ava" style={{ position: 'absolute', right: 10, bottom: -6, height: 84, objectFit: 'contain', filter: 'drop-shadow(0 6px 14px rgba(0,0,0,.4))' }} />}
                   <div style={{ position: 'relative', paddingRight: th.mascot ? 80 : 0 }}>
                     <div style={{ fontWeight: 800, fontSize: 17, lineHeight: 1.2 }}>{e.name}</div>

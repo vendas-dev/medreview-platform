@@ -1,16 +1,33 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Maximize2, Minimize2, Pencil, Trophy, Sparkles, WifiOff, Crown, Users, ShoppingBag, ChevronDown } from 'lucide-react'
+import { Maximize2, Minimize2, Pencil, Trophy, Sparkles, WifiOff, Crown, Users, ShoppingBag, ChevronDown, Target } from 'lucide-react'
 import {
   Avatar, EV_CSS, GOLD, GREEN, PINK, PURPLE, Money, Ring, StatusChip, brl, brlCompact, btnGhost, cardStyle,
   firstName, fmtDay, fmtRange, mix, pctOf, timeSP, useFlash, weekday, type Closer, type LiveData,
 } from './shared'
 import { themeOf, themeVars, type EventTheme } from './theme'
+import { HourlyChart, DaySpark, useSize } from './HourlyChart'
+import { Podium } from './Podium'
+import { estadoDia } from '@/lib/dashboard/eventHourly'
 
 const POLL_MS = 8000
+const MISS = '#fb7185'
+/** Resultado de um dia que JÁ ACABOU: bateu a meta do dia (troféu) ou não bateu (alvo). Dia em andamento/futuro ou sem meta: nada. */
+function resultadoDia(data: LiveData, d: string): { hit: boolean; v: number; g: number } | null {
+  if (estadoDia(data, d) !== 'fechado') return null
+  const g = data.goals.days[d]; if (!(g > 0)) return null
+  const v = data.actual.byDay[d]?.value ?? 0; return { hit: v >= g, v, g }
+}
 const SPRING = { type: 'spring', stiffness: 380, damping: 32, mass: 0.8 } as const
 type Scope = 'all' | string  // 'all' ou 'YYYY-MM-DD'
+
+/** Tela cheia: o painel é desenhado para 1600×900 e escalado (zoom) para caber exatamente na tela, sem rolagem. */
+function useFit(active: boolean): number {
+  const [z, setZ] = useState(1)
+  useEffect(() => { if (!active) return; const f = () => setZ(Math.min(1.9, Math.max(0.55, Math.min(window.innerWidth / 1600, window.innerHeight / 900)))); f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [active])
+  return z
+}
 
 export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: () => void }) {
   const [data, setData] = useState<LiveData | null>(null)
@@ -50,6 +67,8 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
     } catch { if (my === rid.current) setOffline(true) }
   }, [editionId])
 
+  // busca inicial + atualização periódica: o setState acontece dentro do load() (assíncrono), é o uso correto de efeito para dados externos
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load()
     const t = setInterval(load, POLL_MS); const vis = () => { if (!document.hidden) load() }
     document.addEventListener('visibilitychange', vis)
@@ -80,6 +99,7 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
     return { day, value, count, goal, pct: pctOf(value, goal), rows, products }
   }, [data, scope])
   const heroFlash = useFlash(view?.value ?? 0, scope)
+  const fit = useFit(full)
 
   if (!data && !err) return <LiveSkeleton />
   if (!data || !view) return <div style={{ ...cardStyle, padding: 32, textAlign: 'center', color: 'var(--muted-foreground)' }}>{err}</div>
@@ -88,6 +108,31 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
   const remaining = view.goal !== null ? Math.max(0, view.goal - view.value) : null
   const ticket = view.count ? view.value / view.count : 0
   const maxV = Math.max(1, ...view.rows.map(r => r.v))
+
+  const overlays = (
+    <>
+      <AnimatePresence>
+        {toast && <motion.div key={toast.k} role="status" initial={{ opacity: 0, y: -24, scale: .9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -12 }} transition={SPRING}
+          style={{ position: 'fixed', top: 18, right: 18, zIndex: 80, padding: '12px 18px', borderRadius: 14, color: '#fff', fontWeight: 800, fontSize: 15,
+            background: `linear-gradient(135deg,${PURPLE},${PINK})`, boxShadow: `0 12px 32px ${mix(PINK, 45)}` }}>🎉 {toast.text}</motion.div>}
+      </AnimatePresence>
+      {confetti > 0 && <Confetti key={confetti} colors={[PINK, PURPLE, GOLD, GREEN, '#38bdf8']} />}
+    </>
+  )
+  const tabsNode = (
+    <div role="tablist" className="ev-scroll" style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '4px 2px 8px', marginBottom: full ? 0 : 8, justifyContent: full ? 'center' : undefined }}>
+      <ScopeTab active={scope === 'all'} onClick={() => setScope('all')} top="Evento todo" value={data.actual.total.value} />
+      {data.days.map(d => <ScopeTab key={d} active={scope === d} onClick={() => setScope(d)} live={d === data.today && data.status === 'andamento'} result={resultadoDia(data, d)}
+        top={`${weekday(d)} ${fmtDay(d)}`} value={data.actual.byDay[d]?.value ?? 0} />)}
+    </div>
+  )
+  if (full) return (
+    <div ref={boxRef} style={{ ...themeVars(theme), background: 'var(--background)', position: 'fixed', inset: 0, width: '100vw', height: '100vh', overflow: 'hidden', zIndex: 60 }}>
+      <style>{EV_CSS}</style><style>{FULL_CSS}</style>
+      <FullDash z={fit} data={data} view={view} scope={scope} theme={theme} hit={hit} remaining={remaining} ticket={ticket} heroFlash={heroFlash} offline={offline} err={err} onExit={toggleFull} tabs={tabsNode} />
+      {overlays}
+    </div>
+  )
 
   return (
     <div ref={boxRef} style={{ ...themeVars(theme), position: 'relative', background: full ? 'var(--background)' : undefined, padding: full ? 24 : 0, overflow: full ? 'auto' : undefined, minHeight: full ? '100vh' : undefined }}>
@@ -110,11 +155,7 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
       </div>
 
       {/* abas de dia */}
-      <div role="tablist" style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '4px 2px 8px', marginBottom: 8 }}>
-        <ScopeTab active={scope === 'all'} onClick={() => setScope('all')} top="Evento todo" value={data.actual.total.value} />
-        {data.days.map(d => <ScopeTab key={d} active={scope === d} onClick={() => setScope(d)} live={d === data.today && data.status === 'andamento'}
-          top={`${weekday(d)} ${fmtDay(d)}`} value={data.actual.byDay[d]?.value ?? 0} />)}
-      </div>
+      {tabsNode}
 
       {/* destaque */}
       <div className="ev-rise" style={{ borderRadius: 24, padding: 'clamp(20px,3vw,34px)', color: '#fff', position: 'relative', overflow: 'hidden',
@@ -122,6 +163,7 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
         <div aria-hidden className="ev-drift" style={{ position: 'absolute', inset: 0, backgroundImage: theme.pattern, opacity: .9,
           WebkitMaskImage: 'linear-gradient(100deg,transparent 15%,#000 85%)', maskImage: 'linear-gradient(100deg,transparent 15%,#000 85%)' }} />
         <div aria-hidden style={{ position: 'absolute', right: -80, top: -90, width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,255,255,.2),transparent 70%)' }} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         {theme.mascot && <img src={theme.mascot} alt="" className="ev-mascot ev-float" style={{ position: 'absolute', right: 'clamp(8px,3vw,36px)', bottom: 0, width: 'clamp(130px,17vw,230px)', objectFit: 'contain',
           filter: 'drop-shadow(0 14px 28px rgba(0,0,0,.45))', pointerEvents: 'none' }} />}
         <div style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'clamp(20px,4vw,48px)', paddingRight: theme.mascot ? 'clamp(0px,14vw,200px)' : 0 }}>
@@ -149,10 +191,13 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
         </div>
       </div>
 
+      {/* acumulado por hora: o dia escolhido × o dia anterior (ou todos os dias) */}
+      <div style={{ marginTop: 14 }}><HourlyChart data={data} scope={scope} goal={view.goal} /></div>
+
       {/* dias (só na visão do evento todo) */}
       {scope === 'all' && data.days.length > 1 && (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', marginTop: 14 }}>
-          {data.days.map((d, i) => <DayCard key={d} i={i} d={d} v={data.actual.byDay[d]?.value ?? 0} g={data.goals.days[d] ?? null}
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 14 }}>
+          {data.days.map((d, i) => <DayCard key={d} i={i} d={d} data={data} v={data.actual.byDay[d]?.value ?? 0} g={data.goals.days[d] ?? null} result={resultadoDia(data, d)}
             today={d === data.today && data.status === 'andamento'} onClick={() => setScope(d)} />)}
         </div>
       )}
@@ -173,11 +218,31 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
             </p>)}
         </div>
         <div style={{ minWidth: 0 }}>
-          <SectionTitle icon={<Sparkles size={16} />} title="Últimas vendas" sub="ao vivo" />
-          <div style={{ ...cardStyle, padding: 6, overflow: 'hidden' }}>
+          <SectionTitle icon={<Sparkles size={16} />} title="Últimas vendas" sub={`ao vivo · ${Math.min(data.actual.recent.length, 60)} mais recentes`} />
+          <SalesFeed data={data} />
+        </div>
+      </div>
+
+      {/* produtos */}
+      <ProductRanking scope={scope} items={view.products} total={view.value} dayLabel={view.day ? `${weekday(view.day)} ${fmtDay(view.day)}` : 'evento todo'} theme={theme} />
+
+      <style>{`.ev-split{grid-template-columns:minmax(0,1fr) 340px}@media (max-width: 1000px){.ev-split{grid-template-columns:minmax(0,1fr)}}
+.ev-scroll{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--foreground) 28%,transparent) transparent;overscroll-behavior:contain}.ev-scroll::-webkit-scrollbar{width:8px}.ev-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--foreground) 24%,transparent);border-radius:99px}.ev-scroll::-webkit-scrollbar-track{background:transparent}
+.ev-lift{transition:transform .25s cubic-bezier(.22,1,.36,1),box-shadow .25s ease}.ev-lift:hover{transform:translateY(-3px);box-shadow:var(--shadow-md,0 14px 34px rgba(2,6,23,.28))}
+@media (prefers-reduced-motion:reduce){.ev-lift,.ev-lift:hover{transition:none;transform:none}}`}</style>
+
+      {overlays}
+    </div>
+  )
+}
+
+/** Últimas vendas (as 60 mais recentes) numa caixa com rolagem. `fill`: ocupa a altura do painel (tela cheia). */
+function SalesFeed({ data, fill }: { data: LiveData; fill?: boolean }) {
+  return (
+          <div className="ev-scroll" data-testid="ultimas-vendas" style={{ ...cardStyle, padding: 6, overflowY: 'auto', overflowX: 'hidden', ...(fill ? { height: '100%' } : { maxHeight: 'min(460px, 60vh)' }) }}>
             {data.actual.recent.length === 0 && <div style={{ padding: 22, textAlign: 'center', fontSize: 13, color: 'var(--muted-foreground)' }}>Aguardando a primeira venda do evento…</div>}
             <AnimatePresence initial={false}>
-              {data.actual.recent.slice(0, 8).map(s => {
+              {data.actual.recent.slice(0, 60).map(s => {
                 const who = data.closers.find(c => c.id === s.closer_id)
                 return (
                   <motion.div key={`${s.id ?? s.occurred_at}|${s.value}`} layout="position"
@@ -193,29 +258,14 @@ export function EventLive({ editionId, onEdit }: { editionId: string; onEdit: ()
               })}
             </AnimatePresence>
           </div>
-        </div>
-      </div>
-
-      {/* produtos */}
-      <ProductRanking scope={scope} items={view.products} total={view.value} dayLabel={view.day ? `${weekday(view.day)} ${fmtDay(view.day)}` : 'evento todo'} theme={theme} />
-
-      <style>{`.ev-split{grid-template-columns:minmax(0,1fr) 340px}@media (max-width: 1000px){.ev-split{grid-template-columns:minmax(0,1fr)}}`}</style>
-
-      <AnimatePresence>
-        {toast && <motion.div key={toast.k} role="status" initial={{ opacity: 0, y: -24, scale: .9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -12 }} transition={SPRING}
-          style={{ position: 'fixed', top: 18, right: 18, zIndex: 80, padding: '12px 18px', borderRadius: 14, color: '#fff', fontWeight: 800, fontSize: 15,
-            background: `linear-gradient(135deg,${PURPLE},${PINK})`, boxShadow: `0 12px 32px ${mix(PINK, 45)}` }}>🎉 {toast.text}</motion.div>}
-      </AnimatePresence>
-      {confetti > 0 && <Confetti key={confetti} colors={[PINK, PURPLE, GOLD, GREEN, '#38bdf8']} />}
-    </div>
   )
 }
 
-function DayCard({ i, d, v, g, today, onClick }: { i: number; d: string; v: number; g: number | null; today: boolean; onClick: () => void }) {
+function DayCard({ i, d, v, g, today, onClick, data, result }: { i: number; d: string; v: number; g: number | null; today: boolean; onClick: () => void; data: LiveData; result: { hit: boolean; v: number; g: number } | null }) {
   const p = pctOf(v, g); const f = useFlash(v)
   return (
     <motion.button layout onClick={onClick} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SPRING, delay: i * 0.06 }} whileTap={{ scale: .98 }}
-      className={`ev-card ${f ? 'ev-glow' : ''}`} style={{ ...cardStyle, padding: 16, textAlign: 'left', cursor: 'pointer', outline: today ? `2px solid ${mix(PINK, 35)}` : undefined, position: 'relative' }}>
+      className={`ev-card ev-lift ${f ? 'ev-glow' : ''}`} style={{ ...cardStyle, padding: 16, textAlign: 'left', cursor: 'pointer', outline: today ? `2px solid ${mix(PINK, 35)}` : undefined, position: 'relative', borderColor: result ? (result.hit ? `${GOLD}77` : undefined) : undefined }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted-foreground)', fontWeight: 600 }}>
         <span>{weekday(d)} {fmtDay(d)}{today ? ' · hoje' : ''}</span>
         <span style={{ color: p !== null && p >= 100 ? GREEN : 'var(--foreground)' }}>{p === null ? 'sem meta' : Math.floor(p) + '%'}</span>
@@ -223,18 +273,31 @@ function DayCard({ i, d, v, g, today, onClick }: { i: number; d: string; v: numb
       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--foreground)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}><Money value={v} /></div>
       <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{g !== null ? `meta ${brl(g)}` : '—'}</div>
       <Bar pct={p} />
+      {result && <ResultBadge r={result} i={i} />}
+      <DaySpark data={data} day={d} />
       {f && <span key={f.k} className="ev-delta" style={{ position: 'absolute', right: 12, top: 34, fontSize: 12, fontWeight: 800, color: GREEN }}>+{brl(f.delta)}</span>}
     </motion.button>
   )
 }
 
-function ScopeTab({ active, onClick, top, value, live }: { active: boolean; onClick: () => void; top: string; value: number; live?: boolean }) {
+function ResultBadge({ r, i }: { r: { hit: boolean; v: number; g: number }; i: number }) {
+  const Icon = r.hit ? Trophy : Target, cor = r.hit ? GOLD : MISS
+  return (
+    <motion.div initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} transition={{ ...SPRING, delay: .3 + i * .06 }} data-testid={r.hit ? 'dia-bateu' : 'dia-nao-bateu'}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 10, padding: '5px 11px', borderRadius: 999, fontSize: 12, fontWeight: 800, color: cor, background: `color-mix(in srgb, ${cor} 15%, transparent)`, border: `1px solid color-mix(in srgb, ${cor} 40%, transparent)` }}>
+      <motion.span animate={r.hit ? { rotate: [0, -12, 10, 0] } : undefined} transition={{ duration: 1.2, delay: .8 + i * .06 }} style={{ display: 'flex' }}><Icon size={14} aria-hidden /></motion.span>
+      {r.hit ? `Meta batida · +${brlCompact(r.v - r.g)}` : `Não bateu · faltaram ${brlCompact(r.g - r.v)}`}
+    </motion.div>)
+}
+
+function ScopeTab({ active, onClick, top, value, live, result }: { active: boolean; onClick: () => void; top: string; value: number; live?: boolean; result?: { hit: boolean; v: number; g: number } | null }) {
   return (
     <button role="tab" aria-selected={active} onClick={onClick} className="ev-btn" style={{ flex: 'none', position: 'relative', padding: '9px 16px', borderRadius: 14, cursor: 'pointer', textAlign: 'left', minWidth: 104,
       border: '1px solid ' + (active ? 'transparent' : 'var(--border)'), color: active ? '#fff' : 'var(--foreground)', background: active ? 'transparent' : 'var(--card)', boxShadow: active ? 'none' : 'var(--shadow-xs)' }}>
       {active && <motion.span layoutId="ev-scope-pill" transition={SPRING} style={{ position: 'absolute', inset: 0, borderRadius: 14, background: `linear-gradient(135deg,${PURPLE},${PINK})`, boxShadow: `0 6px 18px ${mix(PINK, 32)}` }} />}
       <span style={{ position: 'relative', display: 'block' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{top}{live && <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? '#fff' : GREEN, animation: 'evPulse 1.6s infinite' }} />}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{top}{live && <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? '#fff' : GREEN, animation: 'evPulse 1.6s infinite' }} />}
+          {result && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={SPRING} title={result.hit ? `Meta do dia batida (+${brl(result.v - result.g)})` : `Meta do dia não batida (faltaram ${brl(result.g - result.v)})`} aria-label={result.hit ? 'meta do dia batida' : 'meta do dia não batida'} data-testid={result.hit ? 'tab-bateu' : 'tab-nao-bateu'} style={{ display: 'flex', color: result.hit ? GOLD : MISS }}>{result.hit ? <Trophy size={13} /> : <Target size={13} />}</motion.span>}</span>
         <span style={{ display: 'block', fontSize: 11, opacity: active ? .85 : .65, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{brlCompact(value)}</span>
       </span>
     </button>
@@ -290,20 +353,25 @@ function CloserCard({ r, rank, maxV, scope }: { scope: string; r: { c: Closer; v
 const MEDAL = ['#fbbf24', '#cbd5e1', '#d97706']
 function ProductRanking({ scope, items, total, dayLabel, theme }: { scope: string; items: { name: string; value: number; count: number }[]; total: number; dayLabel: string; theme: EventTheme }) {
   const [all, setAll] = useState(false)
-  const shown = all ? items : items.slice(0, 8)
-  const max = Math.max(1, ...items.map(i => i.value))
+  const resto = items.slice(3)                                  // 1º, 2º e 3º ficam no pódio; os demais, na lista
+  const shown = all ? resto : resto.slice(0, 7)
+  const max = Math.max(1, ...resto.map(i => i.value))
   return (
     <div style={{ marginTop: 20 }}>
-      <SectionTitle icon={<ShoppingBag size={16} />} title="Produtos mais vendidos" sub={dayLabel} />
+      <SectionTitle icon={<ShoppingBag size={16} />} title="Pódio de produtos" sub={dayLabel} />
       <div style={{ ...cardStyle, padding: 'clamp(12px,2vw,20px)', position: 'relative', overflow: 'hidden' }}>
         <div aria-hidden style={{ position: 'absolute', inset: 0, backgroundImage: theme.pattern, opacity: .35, filter: 'invert(1)', mixBlendMode: 'overlay', pointerEvents: 'none' }} />
-        {items.length === 0 && <div style={{ padding: 22, textAlign: 'center', fontSize: 13, color: 'var(--muted-foreground)', position: 'relative' }}>Os produtos vendidos vão aparecer aqui, do mais vendido pro menos.</div>}
-        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <AnimatePresence initial={false}>
-            {shown.map((p, i) => <ProductRow key={p.name} scope={scope} p={p} i={i} max={max} share={total > 0 ? (p.value / total) * 100 : 0} />)}
-          </AnimatePresence>
-        </div>
-        {items.length > 8 && <button className="ev-btn" onClick={() => setAll(a => !a)} style={{ ...btnGhost, position: 'relative', marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+        {items.length === 0 && <div style={{ padding: 22, textAlign: 'center', fontSize: 13, color: 'var(--muted-foreground)', position: 'relative' }}>O pódio dos produtos mais vendidos aparece aqui.</div>}
+        <div style={{ position: 'relative' }}><Podium items={items} total={total} /></div>
+        {resto.length > 0 && <div style={{ position: 'relative', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted-foreground)', margin: '0 4px 6px' }}>Demais produtos</div>
+          <div className={all ? 'ev-scroll' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: all ? 380 : undefined, overflowY: all ? 'auto' : undefined }}>
+            <AnimatePresence initial={false}>
+              {shown.map((p, i) => <ProductRow key={p.name} scope={scope} p={p} i={i + 3} max={max} share={total > 0 ? (p.value / total) * 100 : 0} />)}
+            </AnimatePresence>
+          </div>
+        </div>}
+        {resto.length > 7 && <button className="ev-btn" onClick={() => setAll(a => !a)} style={{ ...btnGhost, position: 'relative', marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
           <ChevronDown size={14} style={{ transform: all ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }} /> {all ? 'Mostrar menos' : `Ver todos (${items.length})`}</button>}
       </div>
     </div>
@@ -348,3 +416,128 @@ function LiveSkeleton() {
     <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', marginTop: 16 }}>
       {[0, 1, 2].map(i => <div key={i} className="ev-skel" style={{ height: 150 }} />)}</div></div>
 }
+
+// ══ TELA CHEIA: tudo numa tela só, parado, centrado e escalado para o tamanho da tela (sem rolagem) ════════════════════════════
+type FullView = { day: string | null; value: number; count: number; goal: number | null; pct: number | null; rows: { c: Closer; v: number; n: number; g: number | null; pct: number | null }[]; products: { name: string; value: number; count: number }[] }
+function FullDash({ z, data, view, scope, theme, hit, remaining, ticket, heroFlash, offline, err, onExit, tabs }: {
+  z: number; data: LiveData; view: FullView; scope: string; theme: EventTheme; hit: boolean; remaining: number | null; ticket: number
+  heroFlash: { k: number; delta: number } | null | undefined; offline: boolean; err: string | null; onExit: () => void; tabs: React.ReactNode
+}) {
+  const { edition } = data
+  const [listRef, , listH] = useSize<HTMLDivElement>()
+  const fit = Math.max(3, Math.floor((listH - 26) / 64)), shown = view.rows.slice(0, fit), extra = view.rows.length - shown.length
+  const maxV = Math.max(1, ...view.rows.map(r => r.v))
+  const dayLabel = view.day ? `${weekday(view.day)} ${fmtDay(view.day)}` : 'evento todo'
+  return (
+    <div className="fd" style={{ zoom: z, width: `${100 / z}vw`, height: `${100 / z}vh` } as React.CSSProperties} data-testid="tela-cheia">
+      <header className="fd-top">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {theme.mascot && <img src={theme.mascot} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', background: mix(PINK, 18), boxShadow: `0 0 0 2px ${mix(PINK, 55)}` }} />}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{edition.name}</h2>
+            <StatusChip status={data.status} />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>{fmtRange(edition.start_date, edition.end_date)} · horário de Brasília{edition.vertical ? ` · ${theme.label}` : ''}</div>
+        </div>
+        <div style={{ flex: 1 }} />
+        {offline && <span title={err ?? ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: GOLD, fontWeight: 600 }}><WifiOff size={14} /> reconectando…</span>}
+        <button className="ev-btn" onClick={onExit} style={{ ...btnGhost, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Minimize2 size={14} /> Sair</button>
+      </header>
+      <div className="fd-tabs">{tabs}</div>
+      <div className="fd-main">
+        <section className="fd-left">
+          <div className="fd-hero" style={{ background: hit ? theme.heroHit : theme.hero, boxShadow: `0 14px 40px ${mix(PINK, 22)}` }}>
+            <div aria-hidden className="ev-drift" style={{ position: 'absolute', inset: 0, backgroundImage: theme.pattern, opacity: .9, WebkitMaskImage: 'linear-gradient(100deg,transparent 15%,#000 85%)', maskImage: 'linear-gradient(100deg,transparent 15%,#000 85%)' }} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {theme.mascot && <img src={theme.mascot} alt="" className="ev-float" style={{ position: 'absolute', right: 6, bottom: 0, height: '78%', objectFit: 'contain', filter: 'drop-shadow(0 10px 20px rgba(0,0,0,.45))', pointerEvents: 'none', opacity: .95 }} />}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 22 }}>
+              <Ring pct={view.pct} size={128} stroke={12} color={hit ? GOLD : PINK}>
+                {view.pct === null ? <div style={{ fontSize: 12, opacity: .8, textAlign: 'center' }}>defina a<br />meta</div> : <>
+                  <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1 }}>{Math.floor(view.pct)}<span style={{ fontSize: 15 }}>%</span></div>
+                  <div style={{ fontSize: 9.5, opacity: .8, marginTop: 3 }}>{hit ? 'META BATIDA' : 'da meta'}</div></>}
+              </Ring>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.12em', opacity: .75 }}>{view.day ? `VENDIDO · ${dayLabel.toUpperCase()}` : 'VENDIDO NO EVENTO'}</div>
+                <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%' }}>
+                  <div key={heroFlash?.k ?? 0} className={heroFlash ? 'ev-pop' : undefined} style={{ fontSize: 44, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}><Money value={view.value} /></div>
+                  {heroFlash && <span key={'d' + heroFlash.k} className="ev-delta" style={{ position: 'absolute', left: '100%', top: 2, marginLeft: 8, padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap', fontSize: 13, fontWeight: 900, color: '#052e16', background: '#86efac' }}>+{brl(heroFlash.delta)}</span>}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 16px', marginTop: 6, fontSize: 13 }}>
+                  {view.goal !== null && <span style={{ opacity: .9 }}>Meta <b>{brlCompact(view.goal)}</b></span>}
+                  {remaining !== null && !hit && <span style={{ opacity: .9 }}>Faltam <b style={{ color: '#fde68a' }}>{brlCompact(remaining)}</b></span>}
+                  {hit && view.goal !== null && <span style={{ color: '#fde68a', fontWeight: 700 }}><Trophy size={13} style={{ verticalAlign: -2 }} /> +{brlCompact(view.value - view.goal)}</span>}
+                  <span style={{ opacity: .9 }}><b>{view.count}</b> {view.count === 1 ? 'venda' : 'vendas'}</span>
+                  {view.count > 0 && <span style={{ opacity: .9 }}>Ticket <b>{brlCompact(ticket)}</b></span>}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="fd-panel" style={{ flex: 1 }}>
+            <SectionTitle icon={<Users size={15} />} title="Closers" sub={dayLabel} />
+            <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {view.rows.length === 0 && <div style={{ padding: 16, textAlign: 'center', fontSize: 13, color: 'var(--muted-foreground)' }}>Nenhum closer escalado.</div>}
+              {shown.map((r, i) => <CloserLine key={r.c.id} r={r} rank={i + 1} maxV={maxV} scope={scope} />)}
+              {extra > 0 && <div style={{ fontSize: 11, color: 'var(--muted-foreground)', textAlign: 'center', paddingTop: 2 }}>+{extra} {extra === 1 ? 'closer' : 'closers'}</div>}
+            </div>
+          </div>
+        </section>
+        <section className="fd-right">
+          <div className="fd-chart"><HourlyChart data={data} scope={scope} goal={view.goal} fill /></div>
+          <div className="fd-bottom">
+            <div className="fd-panel">
+              <SectionTitle icon={<ShoppingBag size={15} />} title="Pódio de produtos" sub={dayLabel} />
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'flex-end' }}>
+                {view.products.length === 0 ? <div style={{ margin: 'auto', fontSize: 13, color: 'var(--muted-foreground)' }}>O pódio aparece com as primeiras vendas.</div> : <div style={{ width: '100%' }}><Podium items={view.products} total={view.value} compact /></div>}
+              </div>
+            </div>
+            <div className="fd-panel">
+              <SectionTitle icon={<Sparkles size={15} />} title="Últimas vendas" sub="ao vivo" />
+              <div style={{ flex: 1, minHeight: 0 }}><SalesFeed data={data} fill /></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+/** Linha compacta de closer (tela cheia): posição, foto, nome, barra de meta e valor. */
+function CloserLine({ r, rank, maxV, scope }: { r: { c: Closer; v: number; n: number; g: number | null; pct: number | null }; rank: number; maxV: number; scope: string }) {
+  const hit = r.pct !== null && r.pct >= 100, lead = rank === 1 && r.v > 0, f = useFlash(r.v, scope)
+  const barPct = r.g !== null ? Math.min(r.pct ?? 0, 100) : (r.v / maxV) * 100
+  return (
+    <motion.div layout transition={SPRING} className={`fd-closer${f ? ' ev-glow' : ''}`} style={{ borderColor: hit ? `${GREEN}66` : lead ? `${GOLD}66` : undefined }}>
+      <span className="fd-rank" style={{ color: hit ? GREEN : lead ? GOLD : 'var(--muted-foreground)' }}>{lead ? <Crown size={14} fill={GOLD} color={GOLD} /> : `#${rank}`}</span>
+      <Avatar c={r.c} size={34} ring={hit ? GREEN : lead ? GOLD : undefined} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.c.name}</span>
+          <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--foreground)', fontVariantNumeric: 'tabular-nums', flex: 'none' }}>{brlCompact(r.v)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
+          <div style={{ flex: 1, height: 7, borderRadius: 99, background: 'var(--secondary)', overflow: 'hidden' }}>
+            <motion.div initial={{ width: 0 }} animate={{ width: `${barPct}%` }} transition={{ duration: .9, ease: [0.22, 1, 0.36, 1] }} style={{ height: '100%', borderRadius: 99, background: hit ? `linear-gradient(90deg,${GREEN},${GOLD})` : `linear-gradient(90deg,${PURPLE},${PINK})` }} />
+          </div>
+          <span className="fd-pct" style={{ ['--pc' as string]: hit ? GREEN : (r.pct ?? 0) >= 50 ? GOLD : r.pct === null ? 'var(--muted-foreground)' : PINK }}>{r.pct === null ? `${r.n} v.` : hit ? '✓ meta' : Math.floor(r.pct) + '%'}</span>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+const FULL_CSS = `
+.fd{box-sizing:border-box;padding:14px 22px 18px;display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:8px;color:var(--foreground);margin:0 auto}
+.fd-top{display:flex;align-items:center;gap:12px;min-width:0}
+.fd-tabs{display:flex;justify-content:center;min-width:0}.fd-tabs>div{max-width:100%}
+.fd-main{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,8fr);gap:14px;min-height:0}
+.fd-left,.fd-right{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+.fd-chart{flex:1.25 1 0;min-height:0;display:flex;flex-direction:column;overflow:hidden;border-radius:20px}.fd-chart>.hc-fill{flex:1 1 0;height:auto;min-height:0}.fd-bottom{flex:1 1 0;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.fd-hero{position:relative;overflow:hidden;border-radius:22px;padding:18px 22px;color:#fff;flex:none}
+.fd-panel{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;padding:12px 14px;border-radius:20px;border:1px solid var(--border);background:var(--card)}
+.fd-panel .ev-scroll{border:0;background:transparent;box-shadow:none}
+.fd-closer{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:14px;border:1px solid var(--border);background:var(--secondary);flex:none;height:58px;box-sizing:border-box}.fd-pct{flex:none;min-width:44px;text-align:center;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:900;font-variant-numeric:tabular-nums;color:var(--pc);background:color-mix(in srgb,var(--pc) 16%,transparent);border:1px solid color-mix(in srgb,var(--pc) 30%,transparent)}
+.fd-rank{width:24px;text-align:center;font-size:12px;font-weight:800;display:flex;justify-content:center;flex:none}
+.fd .ev-row{padding:6px 8px!important}
+.fd .hc-head h3{font-size:15px}
+`

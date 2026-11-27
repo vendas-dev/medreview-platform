@@ -22,6 +22,8 @@ export interface LiveData {
     byCloser: Record<string, Bucket & { byDay: Record<string, Bucket> }>
     products: ProductRow[]
     recent: { id?: string | number | null; value: number; closer_id: string | null; occurred_at: string; product: string | null }[]
+    /** Receita e nº de vendas por hora de Brasília (24 valores) de cada dia do evento. Ausente = sem detalhe por hora. */
+    hourly?: Record<string, number[]>; hourlyN?: Record<string, number[]>
   }
 }
 export interface EditionSummary {
@@ -132,6 +134,7 @@ export function MoneyInput({ value, onChange, placeholder = '—', width, ariaLa
   const ref = useRef<HTMLInputElement>(null)
   const caret = useRef<number | null>(null)
   useEffect(() => {                                 // valor mudou por fora (ex.: "sugerir distribuição"): atualiza o texto
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (maskMoneyTyped(text).value !== value) setText(moneyFieldText(value))
   }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => { if (caret.current != null && ref.current) { ref.current.setSelectionRange(caret.current, caret.current); caret.current = null } })

@@ -37,9 +37,9 @@ t('venda fora dos dias entra no total e em "outside", não nos dias', () => {
   assert.equal(Object.values(a.byDay).reduce((x, b) => x + b.value, 0), 0)
 })
 t('valor string/nulo', () => { const a = aggregate([s({ value: '12.5' }), s({ value: null })], ed, roster); assert.equal(a.total.value, 12.5); assert.equal(a.total.count, 2) })
-t('recent vem do mais novo pro mais velho, máx 15', () => {
-  const rows = Array.from({ length: 20 }, (_, i) => s({ occurred_at: `2026-11-18T${String(10 + (i % 10)).padStart(2, '0')}:${String(i).padStart(2, '0')}:00Z`, value: i }))
-  const a = aggregate(rows, ed, roster); assert.equal(a.recent.length, 15)
+t('recent vem do mais novo pro mais velho, máx 60', () => {
+  const rows = Array.from({ length: 70 }, (_, i) => s({ occurred_at: `2026-11-18T${String(10 + (i % 10)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00Z`, value: i }))
+  const a = aggregate(rows, ed, roster); assert.equal(a.recent.length, 60)
   for (let i = 1; i < a.recent.length; i++) assert.ok(a.recent[i - 1].occurred_at >= a.recent[i].occurred_at)
 })
 t('buildGoals', () => {

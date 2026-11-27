@@ -1,0 +1,57 @@
+// Acumulado por hora do evento (puro): "quanto já tínhamos vendido ontem nesse mesmo horário?".
+// Cada dia tem 24 valores (receita por hora de Brasília). O acumulado em um horário fracionário x (ex.: 11,5 = 11h30) interpola dentro da hora.
+// O dia ao vivo vai até "agora" (com o total exato do dia); o dia anterior entra inteiro e é lido no mesmo horário.
+export interface HourlyInput {
+  days: string[]; today: string; status: 'proximo' | 'andamento' | 'encerrado'; serverTime: string
+  hourly?: Record<string, number[]>; totals?: Record<string, number>
+}
+const SPF = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+/** Horário de Brasília de um instante, em horas fracionárias (11h30 = 11,5). */
+export function nowX(iso: string): number { const [h, m] = SPF.format(new Date(iso)).split(':').map(Number); return (h || 0) + (m || 0) / 60 }
+
+/** Acumulado do dia no horário x (0 a 24), interpolando dentro da hora. */
+export function cumAt(h: number[] | undefined, x: number): number {
+  if (!h) return 0
+  const xx = Math.min(Math.max(x, 0), 24), k = Math.min(Math.floor(xx), 23)
+  let s = 0; for (let i = 0; i < k; i++) s += h[i] || 0
+  return s + (h[k] || 0) * (xx - k)
+}
+export type EstadoDia = 'futuro' | 'ao-vivo' | 'fechado'
+export const estadoDia = (d: Pick<HourlyInput, 'today' | 'status'>, day: string): EstadoDia =>
+  d.status === 'encerrado' ? 'fechado' : d.status === 'proximo' ? 'futuro' : day < d.today ? 'fechado' : day === d.today ? 'ao-vivo' : 'futuro'
+/** O dia anterior do evento (o dia da lista logo antes), se houver. */
+export const diaAnterior = (days: string[], day: string): string | null => { const i = days.indexOf(day); return i > 0 ? days[i - 1] : null }
+
+export interface PontoDia { x: number; v: number }
+/** A curva do dia: um ponto por hora cheia e, se ao vivo, o ponto final em "agora" com o total exato. */
+export function curvaDia(d: HourlyInput, day: string, h0 = 0, h1 = 24): { pontos: PontoDia[]; estado: EstadoDia; fim: number } {
+  const estado = estadoDia(d, day), h = d.hourly?.[day]
+  if (estado === 'futuro' || !h) return { pontos: [], estado, fim: h0 }
+  const agora = estado === 'ao-vivo' ? Math.min(nowX(d.serverTime), 24) : 24, pontos: PontoDia[] = []
+  for (let x = h0; x <= h1; x++) { if (x >= agora) break; pontos.push({ x, v: cumAt(h, x) }) }
+  const total = d.totals?.[day]
+  pontos.push({ x: agora, v: estado === 'ao-vivo' && total !== undefined ? Math.max(total, pontos[pontos.length - 1]?.v ?? 0) : cumAt(h, agora) })
+  return { pontos, estado, fim: agora }
+}
+/** A faixa de horas do gráfico: da primeira hora com venda (menos 1) até a última (mais 1); se ao vivo, vai pelo menos até a hora de agora + 1. */
+export function janelaHoras(d: HourlyInput): [number, number] {
+  let lo = 24, hi = 0
+  for (const day of d.days) { const h = d.hourly?.[day]; if (!h) continue; h.forEach((v, i) => { if (v > 0) { lo = Math.min(lo, i); hi = Math.max(hi, i + 1) } }) }
+  if (hi === 0) return d.status === 'andamento' ? [8, Math.max(20, Math.min(24, Math.ceil(nowX(d.serverTime)) + 1))] : [8, 20]
+  if (d.status === 'andamento') hi = Math.max(hi, Math.min(24, Math.ceil(nowX(d.serverTime)) + 1))
+  lo = Math.max(0, lo - 1); hi = Math.min(24, hi + 1)
+  if (hi - lo < 6) { const f = Math.ceil((6 - (hi - lo)) / 2); lo = Math.max(0, lo - f); hi = Math.min(24, hi + f) }
+  return [lo, hi]
+}
+export interface Comparacao { x: number; cur: number | null; prev: number | null; prevDay: string | null; delta: number | null; pct: number | null; tom: 'acima' | 'perto' | 'abaixo' | 'igual' | null }
+export function tomDe(cur: number, ref: number): 'acima' | 'perto' | 'abaixo' | 'igual' { return ref <= 0 ? (cur > 0 ? 'acima' : 'igual') : cur >= ref ? (cur === ref ? 'igual' : 'acima') : cur >= ref * 0.9 ? 'perto' : 'abaixo' }
+/** Dia × dia anterior no mesmo horário x. cur = null se o dia ainda não chegou nesse horário. */
+export function compara(d: HourlyInput, day: string, x: number): Comparacao {
+  const estado = estadoDia(d, day), prevDay = diaAnterior(d.days, day), h = d.hourly?.[day]
+  const lim = estado === 'ao-vivo' ? nowX(d.serverTime) : estado === 'fechado' ? 24 : -1
+  const cur = estado === 'futuro' || !h || x > lim + 1e-9 ? null : (estado === 'ao-vivo' && Math.abs(x - lim) < 1e-9 && d.totals?.[day] !== undefined ? d.totals[day] : cumAt(h, x))
+  const prev = prevDay && d.hourly?.[prevDay] ? cumAt(d.hourly[prevDay], x) : null
+  const delta = cur !== null && prev !== null ? cur - prev : null
+  return { x, cur, prev, prevDay, delta, pct: delta !== null && prev !== null && prev > 0 ? delta / prev * 100 : null, tom: cur !== null && prev !== null ? tomDe(cur, prev) : null }
+}
+export const horaTxt = (x: number): string => { const h = Math.floor(x + 1e-9), m = Math.round((x - h) * 60); return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}` }

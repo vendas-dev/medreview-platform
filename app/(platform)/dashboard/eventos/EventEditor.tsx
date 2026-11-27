@@ -74,6 +74,7 @@ export function EventEditor({ editionId, initial, duplicatedFrom, onCancel, onSa
   async function save() {
     if (problems.length) return
     setSaving(true); setErr(null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const goals: any[] = []
     if (d.total !== undefined) goals.push({ scope: 'total', amount: d.total })
     days.forEach((day, i) => { const v = d.days[i]; if (v !== undefined) goals.push({ scope: 'day', day, amount: v }) })

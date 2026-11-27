@@ -90,7 +90,12 @@ export interface Actuals {
   others: Bucket                        // self-checkout / closer fora da escalação (entra no geral)
   products: ProductRow[]               // ranking de produtos (todo o evento), do mais vendido pro menos
   recent: { id: string | number | null; value: number; closer_id: string | null; occurred_at: string; product: string | null }[]
+  /** Receita (hourly) e nº de vendas (hourlyN) de cada HORA de Brasília (0 a 23), por dia do evento: alimenta o acumulado por hora. */
+  hourly: Record<string, number[]>; hourlyN: Record<string, number[]>
 }
+export const RECENT_MAX = 60
+const SPH = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' })
+export const hourInSaoPaulo = (iso: string): number => { const h = +SPH.format(new Date(iso)); return h >= 0 && h <= 23 ? h : 0 }
 
 export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCloser[], allEditions: EditionRow[] = []): Actuals {
   const days = eventDays(edition.start_date, edition.end_date)
@@ -98,9 +103,9 @@ export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCl
   const hub = new Map<string, string>(); const ids = new Map<string, string>()
   for (const c of roster) { if (c.hubspot_id?.trim()) hub.set(c.hubspot_id.trim(), c.id); ids.set(c.id, c.id) }
 
-  const a: Actuals = { total: empty(), byDay: {}, outside: empty(), byCloser: {}, others: empty(), products: [], recent: [] }
+  const a: Actuals = { total: empty(), byDay: {}, outside: empty(), byCloser: {}, others: empty(), products: [], recent: [], hourly: {}, hourlyN: {} }
   const prod = new Map<string, ProductRow>()
-  for (const d of days) a.byDay[d] = empty()
+  for (const d of days) { a.byDay[d] = empty(); a.hourly[d] = new Array(24).fill(0); a.hourlyN[d] = new Array(24).fill(0) }
   for (const c of roster) { a.byCloser[c.id] = { ...empty(), byDay: Object.fromEntries(days.map(d => [d, empty()])) } }
 
   const counted: { r: SaleRow; v: number; cid: string | null }[] = []
@@ -115,7 +120,7 @@ export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCl
       cid = (h && hub.get(h)) || (r.closer_id && ids.get(r.closer_id)) || null
     }
     add(a.total, v)
-    if (daySet.has(day)) add(a.byDay[day], v); else add(a.outside, v)
+    if (daySet.has(day)) { add(a.byDay[day], v); const hh = hourInSaoPaulo(r.occurred_at); a.hourly[day][hh] += v; a.hourlyN[day][hh] += 1 } else add(a.outside, v)
     if (cid) { add(a.byCloser[cid], v); if (daySet.has(day)) add(a.byCloser[cid].byDay[day], v) }
     else add(a.others, v)
     const pname = (r.product ?? '').trim() || NO_PRODUCT
@@ -127,8 +132,9 @@ export function aggregate(rows: SaleRow[], edition: EditionRow, roster: RosterCl
     counted.push({ r, v, cid })
   }
   a.products = [...prod.values()].sort((x, y) => y.value - x.value || y.count - x.count || x.product.localeCompare(y.product))
+  for (const d of days) a.hourly[d] = a.hourly[d].map(v => Math.round(v * 100) / 100)
   counted.sort((x, y) => (x.r.occurred_at < y.r.occurred_at ? 1 : -1))
-  a.recent = counted.slice(0, 15).map(x => ({ id: x.r.id ?? null, value: x.v, closer_id: x.cid, occurred_at: x.r.occurred_at, product: x.r.product ?? null }))
+  a.recent = counted.slice(0, RECENT_MAX).map(x => ({ id: x.r.id ?? null, value: x.v, closer_id: x.cid, occurred_at: x.r.occurred_at, product: x.r.product ?? null }))
   return a
 }
 
