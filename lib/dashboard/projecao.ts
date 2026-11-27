@@ -105,10 +105,17 @@ export interface RotaChart {
   curFechado: number; curHoje: number; rotaNoFechado: number | null; refNoFechado: number
   projecao: number; ritmo: number
 }
-export function buildRota(s: SerieDia, meta = 0): RotaChart {
+/** Se vier o `radar`, a rota SEGUE O RADAR: a partir da segunda-feira do plano ela acumula a meta planejada de cada dia (e fecha exatamente na meta); antes disso é a curva do ano passado, escalada para chegar ao que já tinha sido vendido. */
+export function buildRota(s: SerieDia, meta = 0, radar?: Radar): RotaChart {
   const N = Math.max(s.N, 1), D = clampD(s), p = projetar(s, meta), refTotal = p.refTotal
   const fator = meta > 0 && refTotal > 0 ? meta / refTotal : null
   const pontos: PontoRota[] = []; let cc = 0, cr = 0, cp = 0
+  const usaRadar = !!radar?.ok && radar.linhas.length > 0, A = usaRadar ? radar!.inicio : 1, refAntesA = usaRadar ? sum(s.ref, 0, A - 1) : 0
+  const rotaDe = (d: number, crd: number): number | null => {
+    if (!usaRadar) return fator === null ? null : fator * crd
+    if (d >= A) return radar!.linhas[d - A]?.metaAcum ?? radar!.meta
+    return refAntesA > 0 ? radar!.realAntes * crd / refAntesA : 0
+  }
   const curFech = sum(s.cur, 0, D - 1), curHoje = sum(s.cur, 0, D)
   for (let d = 1; d <= N; d++) {
     cr += s.ref[d - 1] || 0
@@ -116,10 +123,10 @@ export function buildRota(s: SerieDia, meta = 0): RotaChart {
     if (d <= D) { cc += s.cur[d - 1] || 0; cur = cc }
     if (d === D) { cp = curFech + Math.max(s.cur[d - 1] || 0, p.ritmo * (s.ref[d - 1] || 0)); proj = cp }
     else if (d > D) { cp += p.ritmo * (s.ref[d - 1] || 0); proj = cp }
-    pontos.push({ day: d, cur, ref: cr, rota: fator === null ? null : fator * cr, proj })
+    pontos.push({ day: d, cur, ref: cr, rota: rotaDe(d, cr), proj })
   }
   const refFech = sum(s.ref, 0, D - 1)
-  return { pontos, N, D, ultimoFechado: D - 1, meta, refTotal, fatorRota: fator, curFechado: curFech, curHoje, rotaNoFechado: fator === null ? null : fator * refFech, refNoFechado: refFech, projecao: p.projecao, ritmo: p.ritmo }
+  return { pontos, N, D, ultimoFechado: D - 1, meta, refTotal, fatorRota: radar?.ok ? radar.fator : fator, curFechado: curFech, curHoje, rotaNoFechado: D - 1 >= 1 ? pontos[D - 2].rota : (fator === null && !radar?.ok ? null : 0), refNoFechado: refFech, projecao: p.projecao, ritmo: p.ritmo }
 }
 
 // ══ 3) RADAR DIÁRIO ═══════════════════════════════════════════════════════════════════════════════════════════════════════

@@ -1,7 +1,7 @@
 'use client'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { buildRota } from '@/lib/dashboard/projecao'
-import { fmtDataBR, fmtReais, metaOf, MONTHS_PT, niceScale, serieDe, type YoYData } from '@/lib/dashboard/yoy'
+import { fmtDataBR, fmtReais, metaRadarOf, MONTHS_PT, niceScale, radarOf, serieDe, type YoYData } from '@/lib/dashboard/yoy'
 import { wdLabel } from '@/lib/dashboard/projecao'
 
 // ══ Receita acumulada do mês: ano passado × este ano × rota para a meta ═══════════════════════════════════════════════════
@@ -35,8 +35,8 @@ function espalha(itens: { id: string; y: number }[], min: number, topo: number, 
 export function RotaChart({ data }: { data: YoYData }) {
   const [wrap, W] = useWidth<HTMLDivElement>()
   const [hover, setHover] = useState<number | null>(null)
-  const s = useMemo(() => serieDe(data, 'total'), [data]), meta = metaOf(data, 'total')
-  const r = useMemo(() => buildRota(s, meta), [s, meta])
+  const s = useMemo(() => serieDe(data, 'total'), [data]), meta = metaRadarOf(data, 'total')
+  const r = useMemo(() => buildRota(s, meta, radarOf(data, 'total')), [s, meta, data])
   const mes = MONTHS_PT[+data.month.slice(5) - 1], N = r.N, D = r.D, F = r.ultimoFechado, rd = data.prevDates ?? []
   const temRota = r.fatorRota !== null, semBase = !(r.refTotal > 0)
   const maxV = Math.max(meta, r.refTotal, r.projecao, r.curHoje, 1), sc = useMemo(() => niceScale(maxV * 1.02), [maxV])
@@ -120,7 +120,7 @@ export function RotaChart({ data }: { data: YoYData }) {
       </div>
       <div className="ft-legend" aria-hidden>
         <span><i className="ft-sw" style={{ background: C26 }} />{data.yearCur} realizado</span>
-        {temRota && <span><i className="ft-sw ft-sw-dash" style={{ ['--c' as any]: CROTA }} />Rota para R$ {mmCurto(meta)} (curva de {data.yearPrev} escalada)</span>}
+        {temRota && <span><i className="ft-sw ft-sw-dash" style={{ ['--c' as any]: CROTA }} />Rota para R$ {mmCurto(meta)} (a meta planejada do Radar)</span>}
         <span><i className="ft-sw" style={{ background: '#8b8f98' }} />{data.yearPrev} realizado</span>
         <span><i className="ft-sw ft-sw-dot" style={{ ['--c' as any]: CPROJ }} />Projeção de fechamento</span>
       </div>

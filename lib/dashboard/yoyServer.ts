@@ -46,9 +46,19 @@ async function lerMetas(admin: any, month: string): Promise<YoYMetas> {
   return { anest: by[GOAL_SCOPE.anest] ?? 0, oft: by[GOAL_SCOPE.oft] ?? 0, ortop: by[GOAL_SCOPE.ortop] ?? 0, r1: by[GOAL_SCOPE.r1] ?? 0, geral: by['geral'] > 0 ? by['geral'] : closers }
 }
 
+// "Meta do Radar" do mês (tabela forecast_radar_meta, editada pelo superadmin): a meta que o Radar, a rota e o hora a hora usam. Sem a tabela/linha: 0 (cai na meta cadastrada).
+export async function lerMetaRadar(admin: any, month: string): Promise<number> {
+  try {
+    const { data, error } = await admin.from('forecast_radar_meta').select('meta').eq('month', month).maybeSingle()
+    if (error) return 0
+    const v = Number((data as any)?.meta); return Number.isFinite(v) && v > 0 ? v : 0
+  } catch { return 0 }
+}
+
 export async function computeYoY(admin: any, now: Date = new Date()): Promise<YoYData> {
   const today = spDate(now.toISOString()), yearCur = +today.slice(0, 4), m1 = +today.slice(5, 7), month = today.slice(0, 7), N = daysIn(yearCur, m1)
   const mesAtual = Array.from({ length: N }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`), regua = refDates(month)         // regua[i] = o dia do ano passado que vale para o dia i+1 (mesmo dia da semana)
   const [cur, prev, metas] = await Promise.all([lerDatas(admin, mesAtual), lerDatas(admin, regua), lerMetas(admin, month)])
-  return { metas, today, month, dayOfMonth: +today.slice(8, 10), yearCur, yearPrev: +regua[0].slice(0, 4), daysInMonth: { cur: N, prev: N }, prevDates: regua, cur: cur.dia, prev: prev.dia, prevH: prev.h, prevHN: prev.n }       // hora a hora só do ano passado (é o perfil do dia forte)
+  const metaRadar = await lerMetaRadar(admin, month)
+  return { metas, metaRadar, horaAgora: spHour(now.toISOString()), curH: cur.h, curHN: cur.n, today, month, dayOfMonth: +today.slice(8, 10), yearCur, yearPrev: +regua[0].slice(0, 4), daysInMonth: { cur: N, prev: N }, prevDates: regua, cur: cur.dia, prev: prev.dia, prevH: prev.h, prevHN: prev.n }       // hora a hora só do ano passado (é o perfil do dia forte)
 }

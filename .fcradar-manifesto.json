@@ -1,0 +1,16 @@
+{
+ "criados": [
+  "sql/migration-forecast-radar-meta.sql",
+  "app/api/dashboard/radar-meta/route.ts",
+  "app/(platform)/dashboard/MetaRadarEditor.tsx",
+  "tests/unit/forecast_radar_meta.test.ts"
+ ],
+ "salvos": [
+  "lib/dashboard/yoy.ts",
+  "lib/dashboard/yoyServer.ts",
+  "lib/dashboard/projecao.ts",
+  "app/(platform)/dashboard/ForecastYoY.tsx",
+  "app/(platform)/dashboard/RotaChart.tsx",
+  "app/(platform)/dashboard/RadarDiario.tsx"
+ ]
+}

@@ -197,17 +197,18 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
   const [wrapRef, w] = useWidth<HTMLDivElement>()
   const mes = MONTHS_PT[+d.month.slice(5) - 1], mm = d.month.slice(5), meta = p.temMeta
   const val = (x: { alvo: number; prev: number }) => (meta ? x.alvo : x.prev)
-  const valores = p.horas.map(val), maxV = Math.max(0, ...valores), sc = useMemo(() => niceScale(maxV), [maxV])
+  const real = p.temReal, valores = p.horas.map(val), reais = p.horas.map(x => x.real ?? 0), maxV = Math.max(0, ...valores, ...reais), sc = useMemo(() => niceScale(maxV), [maxV])
   const acum = useMemo(() => { let a = 0; return p.horas.map(x => (a += val(x))) }, [p, meta])           // sem meta: o acumulado de 2025
-  const totalRef = meta ? p.alvoDia : p.valorPrev
+  const totalRef = meta ? p.alvoDia : p.valorPrev, ultReal = [...p.horas].reverse().find(x => x.realAcum !== null), feitoAcum = ultReal?.realAcum ?? 0, totalAx = Math.max(totalRef, feitoAcum)
   const W = Math.max(w, 660), H = 300, L = 62, R = 70, T = 34, B = 42, pw = W - L - R, ph = H - T - B, bw = pw / 24
-  const xc = (h: number) => L + bw * h + bw / 2, yv = (v: number) => T + ph - (sc.top > 0 ? v / sc.top : 0) * ph, yc = (v: number) => T + ph - (totalRef > 0 ? v / totalRef : 0) * ph
+  const xc = (h: number) => L + bw * h + bw / 2, yv = (v: number) => T + ph - (sc.top > 0 ? v / sc.top : 0) * ph, yc = (v: number) => T + ph - (totalAx > 0 ? v / totalAx : 0) * ph
   const agora = p.quando === 'hoje' ? horaAgoraSP() : null
   const top3 = useMemo(() => new Set([...p.horas].sort((a, b) => val(b) - val(a) || a.h - b.h).slice(0, 3).filter(x => val(x) > 0).map(x => x.h)), [p, meta])
   const forte = p.horaForte === null ? null : p.horas[p.horaForte]
   // no celular o gráfico é mais largo que a tela: abre já com a hora mais forte à vista (a pessoa ainda pode arrastar; se já arrastou, não mexe)
   useEffect(() => { const el = wrapRef.current; if (!el || !forte || el.scrollWidth <= el.clientWidth || el.scrollLeft > 0) return; el.scrollLeft = Math.max(0, xc(forte.h) - el.clientWidth / 2) }, [p.day, p.key, w, meta])       // eslint-disable-line react-hooks/exhaustive-deps
-  const gid = `yy-pg-${id}`, line = p.horas.map((x, i) => `${xc(x.h).toFixed(1)},${yc(acum[i]).toFixed(1)}`).join(' ')
+  const gid = `yy-pg-${id}`, line = p.horas.map((x, i) => `${xc(x.h).toFixed(1)},${yc(acum[i]).toFixed(1)}`).join(' '), lineReal = p.horas.filter(x => x.realAcum !== null).map(x => `${xc(x.h).toFixed(1)},${yc(x.realAcum as number).toFixed(1)}`).join(' ')
+  const feitoPct = real && p.alvoDia > 0 && p.realDia !== null ? p.realDia / p.alvoDia * 100 : null, devAteAgora = real && agora !== null ? p.horas[agora]?.alvoAcum ?? null : null
   const quandoTxt = p.quando === 'hoje' ? 'hoje: a faixa marca a hora de agora (Brasília)' : p.quando === 'passou' ? 'este dia já passou: a curva mostra quanto teria sido preciso fazer em cada hora' : 'este dia ainda vem'
   const show = (h: number, el: Element) => { const r = el.getBoundingClientRect(), bh = Math.min(r.height, Math.max(2, (sc.top > 0 ? val(p.horas[h]) / sc.top : 0) * r.height)); setHover({ h, a: { x: r.left, y: r.bottom - bh, w: r.width, h: bh } }) }
   const hv = hover ? p.horas[hover.h] : null
@@ -222,8 +223,10 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
       </header>
       <div className="yy-plcards">
         <div className="yy-plcard" data-k="peso"><span>{p.refDate && p.refDate !== `${d.yearPrev}-${mm}-${dd2(p.day)}` ? `Peso de ${fmtDataBR(p.refDate, false)}` : 'Peso do dia'} em {d.yearPrev}</span><b>{fmtShare(p.share)}</b><small>{fmtReais(p.valorPrev)} de {fmtReais(p.fechPrev)} (receita do período equivalente de {d.yearPrev})</small></div>
-        <div className="yy-plcard" data-k="meta"><span>Nossa meta de {mes} de {d.yearCur}</span><b>{meta ? fmtMi(p.meta) : '—'}</b><small>{meta ? 'a meta cadastrada (a geral)' : 'sem meta cadastrada para este mês'}</small></div>
+        <div className="yy-plcard" data-k="meta"><span>Meta do Radar de {mes} de {d.yearCur}</span><b>{meta ? fmtMi(p.meta) : '—'}</b><small>{meta ? 'a mesma meta do Radar Diário e da rota' : 'sem meta cadastrada para este mês'}</small></div>
         <div className="yy-plcard yy-plhero" data-k="dia"><span>Meta deste dia</span><b>{meta ? fmtMi(p.alvoDia) : '—'}</b><small>{meta ? `${fmtReais(p.alvoDia)} · a mesma do Radar Diário` : 'cadastre a meta do mês para calcular'}</small></div>
+        {real && p.realDia !== null && <div className="yy-plcard yy-plfeito" data-k="feito"><span>Já fizemos</span><b data-testid="plano-feito">{fmtMi(p.realDia)}</b><small>{fmtReais(p.realDia)}{feitoPct !== null ? ` · ${Math.round(feitoPct)}% da meta do dia` : ''}{p.vendasDia ? ` · ${p.vendasDia} vendas` : ''}{devAteAgora !== null ? ` · até ${hh(agora as number)}h a meta pedia ${fmtMi(devAteAgora)}` : ''}</small></div>}
+        {meta && p.projDia !== null && p.quando !== 'passou' && <div className="yy-plcard" data-k="proj"><span>Projeção do dia</span><b data-testid="plano-proj">{fmtMi(p.projDia)}</b><small>no ritmo atual do mês ({p.projDia >= p.alvoDia ? 'acima' : 'abaixo'} da meta do dia em {fmtMi(Math.abs(p.projDia - p.alvoDia))})</small></div>}
         <div className="yy-plcard" data-k="forte"><span>Hora mais forte</span><b>{forte ? `${hh(forte.h)} às ${hh((forte.h + 1) % 24)}` : '—'}</b><small>{forte ? `${fmtReais(val(forte))}${totalRef > 0 ? ` · ${fmtShare(val(forte) / totalRef * 100)} do dia` : ''}` : 'sem detalhe por hora'}</small></div>
       </div>
       {!p.temHoras ? <p className="yy-plvazio" data-testid="plano-sem-horas">Não há detalhe por hora das vendas de {d.yearPrev} neste dia, então não dá para repartir a meta do dia pelas horas.</p> : (
@@ -231,24 +234,29 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
           {!meta && <p className="yy-plaviso" role="note" data-testid="plano-sem-meta">Sem meta cadastrada para {mes} de {d.yearCur}: as barras mostram como {d.yearPrev} vendeu em cada hora. Cadastre a meta do mês para ver quanto fazer.</p>}
           <div className="yy-legend" aria-hidden>
             <span><i className="yy-sw" style={{ background: 'linear-gradient(180deg,#818cf8,#4f46e5)' }} />{meta ? 'Meta de cada hora' : `Como ${d.yearPrev} vendeu em cada hora`}</span>
+            {real && <span><i className="yy-sw" style={{ background: 'linear-gradient(180deg,#34d399,#059669)' }} />Já fizemos em cada hora</span>}
+            {real && <span><i className="yy-swline yy-swfeito" />Acumulado feito (até agora {fmtMi(feitoAcum)})</span>}
             <span><i className="yy-swline" />{meta ? `Acumulado até a hora (termina na meta do dia: ${fmtMi(p.alvoDia)})` : `Acumulado de ${d.yearPrev} (termina em ${fmtMi(p.valorPrev)})`}</span>
           </div>
           <p className="yy-plhint" data-testid="plano-dica">Arraste o gráfico para o lado para ver as outras horas.</p>
           <div className="yy-plscroll" ref={wrapRef} data-testid="plano-chart">
             <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${meta ? 'Meta' : 'Receita de ' + d.yearPrev} por hora do dia ${dd2(p.day)}/${mm}: ${forte ? `a hora mais forte é ${hh(forte.h)} às ${hh((forte.h + 1) % 24)} com ${fmtReais(val(forte))}` : ''}. Total do dia ${fmtReais(totalRef)}.`}>
-              <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#4f46e5" /></linearGradient></defs>
+              <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#4f46e5" /></linearGradient><linearGradient id={`${gid}-f`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#34d399" /><stop offset="100%" stopColor="#059669" /></linearGradient></defs>
               {sc.ticks.map(t => <g key={t}><line className="yy-gridline" x1={L} x2={W - R} y1={yv(t)} y2={yv(t)} /><text className="yy-axis" x={L - 8} y={yv(t) + 4} textAnchor="end">{fmtAxis(t)}</text></g>)}
-              {[0, 0.25, 0.5, 0.75, 1].map(f => <text key={f} className="yy-axis yy-axis-r" x={W - R + 8} y={yc(totalRef * f) + 4}>{f === 1 ? fmtAxis(totalRef) : `${Math.round(f * 100)}%`}</text>)}
+              {[0, 0.25, 0.5, 0.75, 1].map(f => <text key={f} className="yy-axis yy-axis-r" x={W - R + 8} y={yc(totalAx * f) + 4}>{f === 1 ? fmtAxis(totalAx) : `${Math.round(f * 100)}%`}</text>)}
               {agora !== null && <rect className="yy-agora" data-testid="plano-agora" x={L + bw * agora} y={T} width={bw} height={ph} />}
-              {p.horas.map((x, i) => { const v = valores[i], hgt = sc.top > 0 ? (v / sc.top) * ph : 0; return (
+              {p.horas.map((x, i) => { const v = valores[i], hgt = sc.top > 0 ? (v / sc.top) * ph : 0, bwid = real ? bw * 0.38 : bw * 0.68, bx = real ? L + bw * x.h + bw * 0.08 : L + bw * x.h + bw * 0.16, rv = x.real ?? 0, rh = sc.top > 0 ? (rv / sc.top) * ph : 0; return (
                 <g key={x.h}>
-                  <rect className={`yy-plbar${top3.has(x.h) ? ' yy-top' : ''}${v <= 0 ? ' yy-zero' : ''}`} data-testid="plano-bar" data-h={x.h} data-v={v} x={L + bw * x.h + bw * 0.16} width={bw * 0.68} y={T + ph - hgt} height={hgt} rx={3} fill={`url(#${gid})`} />
+                  <rect className={`yy-plbar${top3.has(x.h) ? ' yy-top' : ''}${v <= 0 ? ' yy-zero' : ''}`} data-testid="plano-bar" data-h={x.h} data-v={v} x={bx} width={bwid} y={T + ph - hgt} height={hgt} rx={3} fill={`url(#${gid})`} />
+                  {real && x.real !== null && <rect className={`yy-plbar yy-top yy-plreal${rv <= 0 ? ' yy-zero' : ''}`} data-testid="plano-bar-feito" data-h={x.h} data-v={rv} x={bx + bwid + bw * 0.04} width={bwid} y={T + ph - rh} height={rh} rx={3} fill={`url(#${gid}-f)`} />}
                   <text className={`yy-axis${agora === x.h ? ' yy-axis-today' : ''}`} x={xc(x.h)} y={H - B + 18} textAnchor="middle">{bw >= 28 || x.h % 2 === 0 ? hh(x.h) : ''}</text>
                 </g>) })}
               <polyline className="yy-plline" data-testid="plano-linha" points={line} fill="none" />
               {p.horas.map((x, i) => <circle key={x.h} className="yy-pldot" cx={xc(x.h)} cy={yc(acum[i])} r={hover?.h === x.h ? 5 : 2.6} />)}
+              {real && lineReal && <polyline className="yy-plline yy-plline-f" data-testid="plano-linha-feito" points={lineReal} fill="none" />}
+              {real && p.horas.map(x => x.realAcum === null ? null : <circle key={x.h} className="yy-pldot yy-pldot-f" cx={xc(x.h)} cy={yc(x.realAcum)} r={hover?.h === x.h ? 5 : 2.6} />)}
               {p.horas.map(x => <rect key={x.h} className="yy-plhit" data-testid="plano-hit" data-h={x.h} x={L + bw * x.h} y={T} width={bw} height={ph} fill="transparent" tabIndex={0}
-                aria-label={`${hh(x.h)} às ${hh((x.h + 1) % 24)}: ${meta ? 'meta' : 'receita de ' + d.yearPrev} ${fmtReais(val(x))}, acumulado ${fmtReais(acum[x.h])}`}
+                aria-label={`${hh(x.h)} às ${hh((x.h + 1) % 24)}: ${meta ? 'meta' : 'receita de ' + d.yearPrev} ${fmtReais(val(x))}, acumulado ${fmtReais(acum[x.h])}${x.real !== null ? `; feito ${fmtReais(x.real)}, acumulado feito ${fmtReais(x.realAcum ?? 0)}` : ''}`}
                 onMouseEnter={e => show(x.h, e.currentTarget)} onFocus={e => show(x.h, e.currentTarget)} onBlur={clear} onMouseLeave={clear} />)}
               <text className="yy-axis" x={L} y={T - 14} textAnchor="start">{meta ? 'por hora' : `${d.yearPrev}, por hora`}</text><text className="yy-axis yy-axis-r" x={W - R} y={T - 14} textAnchor="end">acumulado</text>
             </svg>
@@ -256,8 +264,8 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
           <details className="yy-pltab" data-testid="plano-tabela">
             <summary>Ver em tabela</summary>
             <div className="yy-plscroll2"><table className="yy-pltable">
-              <thead><tr><th scope="col">Hora</th><th scope="col">{meta ? 'Meta da hora' : `Receita de ${d.yearPrev}`}</th><th scope="col">Acumulado</th><th scope="col">% do dia</th>{meta && <th scope="col">Em {d.yearPrev}</th>}<th scope="col">Vendas em {d.yearPrev}</th></tr></thead>
-              <tbody>{p.horas.map((x, i) => <tr key={x.h} data-h={x.h}><th scope="row">{hh(x.h)} às {hh((x.h + 1) % 24)}</th><td>{fmtReais(val(x))}</td><td>{fmtReais(acum[i])}</td><td>{fmtShare(totalRef > 0 ? val(x) / totalRef * 100 : 0)}</td>{meta && <td>{fmtReais(x.prev)}</td>}<td>{x.prevN}</td></tr>)}</tbody>
+              <thead><tr><th scope="col">Hora</th><th scope="col">{meta ? 'Meta da hora' : `Receita de ${d.yearPrev}`}</th><th scope="col">Acumulado</th><th scope="col">% do dia</th>{real && <th scope="col">Feito</th>}{real && <th scope="col">Feito acumulado</th>}{meta && <th scope="col">Em {d.yearPrev}</th>}<th scope="col">Vendas em {d.yearPrev}</th></tr></thead>
+              <tbody>{p.horas.map((x, i) => <tr key={x.h} data-h={x.h}><th scope="row">{hh(x.h)} às {hh((x.h + 1) % 24)}</th><td>{fmtReais(val(x))}</td><td>{fmtReais(acum[i])}</td><td>{fmtShare(totalRef > 0 ? val(x) / totalRef * 100 : 0)}</td>{real && <td data-c="feito">{x.real === null ? '—' : fmtReais(x.real)}</td>}{real && <td>{x.realAcum === null ? '—' : fmtReais(x.realAcum)}</td>}{meta && <td>{fmtReais(x.prev)}</td>}<td>{x.prevN}</td></tr>)}</tbody>
             </table></div>
           </details>
         </>
@@ -267,6 +275,8 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
           <b>{hh(hv.h)} às {hh((hv.h + 1) % 24)}{agora === hv.h ? ' · agora' : ''}</b>
           <span>{meta ? 'Meta da hora' : `Receita de ${d.yearPrev}`}<em>{fmtReais(val(hv))}</em></span>
           <span>Acumulado até {hh((hv.h + 1) % 24)}<em>{fmtReais(acum[hv.h])}{totalRef > 0 ? ` · ${fmtShare(acum[hv.h] / totalRef * 100)}` : ''}</em></span>
+          {hv.real !== null && <span>Já fizemos<em>{fmtReais(hv.real)}{hv.realN ? ` · ${hv.realN} vendas` : ''}</em></span>}
+          {hv.realAcum !== null && <span>Acumulado feito<em>{fmtReais(hv.realAcum)}{hv.realAcum >= acum[hv.h] ? ' · à frente' : ' · atrás'} da meta</em></span>}
           {meta && <span>Em {d.yearPrev} nessa hora<em>{fmtReais(hv.prev)}</em></span>}
           <span>Vendas em {d.yearPrev}<em>{hv.prevN}</em></span>
         </>
@@ -337,6 +347,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
       <div className="yy-legend" aria-hidden>
         <span><i className="yy-sw" style={{ background: `linear-gradient(180deg,${from},${to})` }} />{d.yearCur} · até hoje</span>
         <span><i className="yy-sw yy-sw-prev" />{d.yearPrev} · mesmo dia da semana</span>
+        {s.days.some(x => x.metaDia) && <span><i className="yy-metasw" />Meta do dia (Radar)</span>}
         {peaks.size > 0 && <span><i className="yy-starsw">★</i>dia forte que ainda vem</span>}
       </div>
       <div className="yy-chartscroll">
@@ -352,6 +363,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
                     onMouseEnter={e => show(i, e.currentTarget)} onFocus={e => show(i, e.currentTarget)} onBlur={clear}>
                     {peaks.has(p.day) && !cut.has(p.day) && <i className="yy-star" data-star={p.day} style={{ bottom: `calc(${pct(Math.max(p.prev ?? 0, p.cur ?? 0))} + 6px)` }} title="Dia forte">★</i>}
                     {cut.has(p.day) && <em className={`yy-cutlbl${i >= N - 2 ? ' yy-cutr' : i <= 1 ? ' yy-cutl' : ''}`} data-cut={p.day} data-nivel={nivel.get(p.day) ?? 0} style={{ bottom: `calc(100% + 3px + ${(nivel.get(p.day) ?? 0) * 22}px)` }}>{peaks.has(p.day) && <b className="yy-lstar">★</b>}{fmtNum(Math.max(p.prev ?? 0, p.cur ?? 0))}</em>}
+                    {p.metaDia ? <i className="yy-metamark" data-meta={p.day} style={{ bottom: pct(p.metaDia) }} title={`Meta do Radar: ${fmtReais(p.metaDia)}`} /> : null}
                     <span className={`yy-bar yy-cur${(p.cur ?? 0) > top ? ' yy-cutbar' : ''}`} data-bar="cur" style={{ height: pct(p.cur), minHeight: p.cur && p.cur > 0 ? 4 : 0 }} />
                     <span className={`yy-bar yy-prev${p.prev && p.prev > 0 ? '' : ' yy-zero'}${(p.prev ?? 0) > top ? ' yy-cutbar' : ''}`} data-bar="prev" style={{ height: pct(p.prev), minHeight: p.prev && p.prev > 0 ? 4 : 0 }} />
                   </div>
@@ -372,6 +384,7 @@ function DayBars({ s, d, from, to, id, name, peaks, ampliada, pmix = 45 }: { s: 
             <b>{dd2(h.day)}/{m2}{h.day === d.dayOfMonth ? ' · hoje (em andamento)' : ''}{peaks.has(h.day) ? ' · ★ dia forte' : ''}</b>
             <span><i className="yy-sw" style={{ background: `linear-gradient(180deg,${from},${to})` }} />{d.yearCur} ({h.wdCur})<em>{h.cur === null ? (h.day > d.dayOfMonth ? 'ainda não chegou' : '—') : fmtReais(h.cur)}</em></span>
             <span><i className="yy-sw yy-sw-prev" />{h.refDate ? `${fmtDataBR(h.refDate)} (${h.wdPrev})` : d.yearPrev}<em>{h.prev === null ? '—' : fmtReais(h.prev)}</em></span>
+            {h.metaDia ? <span><i className="yy-metasw" />Meta do Radar<em>{fmtReais(h.metaDia)}{h.cur !== null ? ` · ${Math.round((h.cur / h.metaDia) * 100)}% feito` : ''}</em></span> : null}
             {dif !== null && <span className={`yy-tipdelta yy-${sgn(dif)}`}>{dif >= 0 ? '▲' : '▼'} {fmtMi(dif, true)}{h.prev ? ` (${fmtPct(((h.cur as number) - h.prev) / h.prev * 100)})` : ''}</span>}
           </>
         )
@@ -432,7 +445,7 @@ export function ForecastYoY({ data, error, onRetry }: { data: YoYData | null; er
         right={<Chip title="Todos os valores da tabela estão em reais; passe o mouse num valor para ver o número exato">Valores em R$ · mil = milhares · mi = milhões</Chip>}>
         <YoYTable rows={rows} d={data} routes={routes} />
         <p className="yy-foot">Receita só das 4 verticais ativas; “Operação” é a soma delas. As metas vêm do cadastro de metas do mês. Datas como a plataforma registra cada venda (confirmação do pagamento), nos dois anos. A projeção é a mesma do topo do Forecast, da página inicial e do KPI de Vendas. A bolinha ao lado do nome é a situação da rota. Passe o mouse no título de uma coluna para ver como ela é calculada.<span className="yy-hint"> Arraste a tabela para o lado para ver todas as colunas.</span></p>
-        <RadarDiario data={data} />
+        <RadarDiario data={data} onSaved={onRetry} />
       </Panel>
 
       <Panel testid="yoy-total" icon={BarChart3} title="Dia a dia — todas as verticais" subtitle={`Receita de cada dia de ${mes}: ${data.yearCur} ao lado de ${data.yearPrev}, no mesmo dia da semana · ★ = dia forte que ainda vem${algumCorte && ampliada ? ' · ✂ = barra cortada para ampliar os dias menores (o valor está escrito no topo)' : ''}`} right={<div className="yy-rightstack">{algumCorte && <ScaleToggle on={ampliada} set={setAmpliada} />}{total ? <Summary s={total} d={data} /> : null}</div>}>
@@ -535,7 +548,7 @@ const CSS = `
 .yy-plhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
 .yy-pltitle{margin:0;font-size:clamp(17px,1.9vw,21px);font-weight:900;letter-spacing:-.02em}.yy-plsub{margin:3px 0 0;font-size:13.5px;color:var(--yy-mute);font-weight:600}
 .yy-plclose{flex-shrink:0;width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--foreground);font-size:22px;line-height:1;cursor:pointer}.yy-plclose:hover{background:color-mix(in srgb,var(--yy-bad) 12%,var(--card))}.yy-plclose:focus-visible{outline:3px solid color-mix(in srgb,${ACCENT} 55%,transparent);outline-offset:2px}
-.yy-plcards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.yy-plcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px}
 .yy-plcard{display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:14px;background:var(--card);border:1px solid var(--border);min-width:0}.yy-plcard span{font-size:12px;font-weight:800;color:var(--yy-mute);letter-spacing:.02em}.yy-plcard b{font-size:clamp(20px,2vw,26px);font-weight:900;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1;overflow-wrap:anywhere}.yy-plcard small{font-size:12px;color:var(--yy-mute);font-weight:600;line-height:1.35;overflow-wrap:anywhere}
 .yy-plhero{background:linear-gradient(135deg,${BRAND_A},${BRAND_B});border-color:transparent;color:#fff}.yy-plhero span,.yy-plhero small{color:rgba(255,255,255,.85)}.yy-plhero b{color:#fff}
 .yy-plaviso{margin:0 0 12px;padding:10px 14px;border-radius:12px;font-size:13.5px;font-weight:700;background:color-mix(in srgb,var(--yy-warn) 13%,var(--card));border:1px solid color-mix(in srgb,var(--yy-warn) 45%,transparent);color:var(--yy-warn-ink)}
@@ -545,6 +558,7 @@ const CSS = `
 .yy-plscroll{overflow-x:auto;overflow-y:hidden;border-radius:12px;-webkit-overflow-scrolling:touch}.yy-plscroll svg{display:block;max-width:none}
 .yy-plbar{opacity:.62;transition:opacity .15s}.yy-plbar.yy-top{opacity:1}.yy-plbar.yy-zero{opacity:0}.yy-plhit:hover,.yy-plhit:focus-visible{fill:color-mix(in srgb,${ACCENT} 14%,transparent);outline:none}
 .yy-plhit:hover~.yy-plbar{opacity:1}
+.yy-plreal{opacity:1}.yy-plline-f{stroke:#059669}.yy-pldot-f{fill:#059669}.yy-swfeito{border-top-color:#059669}.yy-swfeito::after{background:#059669}.yy-plfeito{border-color:color-mix(in srgb,#059669 45%,var(--border))}
 .yy-plline{stroke:#f59e0b;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.yy-pldot{fill:#f59e0b;stroke:var(--card);stroke-width:1.5;pointer-events:none}
 .yy-agora{fill:color-mix(in srgb,${ACCENT} 14%,transparent);stroke:${ACCENT};stroke-width:1;stroke-dasharray:3 3}
 .yy-axis-r{fill:color-mix(in srgb,#b45309 80%,var(--foreground))}.dark .yy-axis-r{fill:#fbbf24}
@@ -612,6 +626,7 @@ const CSS = `
 .yy-bar{display:block;flex:1;border-radius:5px 5px 0 0;transition:height .35s ease}
 .yy-bar.yy-cur{background:linear-gradient(180deg,var(--yy-c),var(--yy-c2,var(--yy-c)));box-shadow:0 6px 16px -5px color-mix(in srgb,var(--yy-c2,var(--yy-c)) 75%,transparent)}
 .yy-bar.yy-prev{border-bottom:0}.yy-bar.yy-zero{border-width:0!important;box-shadow:none}
+.yy-metamark{position:absolute;left:4%;right:4%;height:0;border-top:2.5px solid #e8743b;z-index:2;pointer-events:auto;border-radius:2px}.yy-metasw{display:inline-block;width:16px;height:0;border-top:3px solid #e8743b;border-radius:2px;vertical-align:middle;margin-right:6px}
 .yy-star{position:absolute;left:50%;transform:translateX(-50%);font-style:normal;font-size:15px;line-height:1;color:#f59e0b;text-shadow:0 1px 6px rgba(245,158,11,.55);pointer-events:none}
 .yy-cutbar{clip-path:polygon(0 7px,16% 0,33% 7px,50% 0,66% 7px,83% 0,100% 7px,100% 100%,0 100%)}
 .yy-cutlbl{position:absolute;left:50%;transform:translateX(-50%);font-style:normal;font-size:12px;font-weight:900;white-space:nowrap;color:var(--yy-c);background:var(--card);border:1px solid color-mix(in srgb,var(--yy-c) 55%,transparent);border-radius:7px;padding:1px 6px;pointer-events:none;z-index:1}
@@ -646,7 +661,7 @@ const CSS = `
 @container yyt (max-width:960px){.yy-table thead th{padding:9px 2px}.yy-table td{padding:10px 2px}.yy-table tbody th{padding:10px 2px 10px 6px;font-size:12px}.yy-pill{padding:2px 4px;font-size:11px}.yy-area{gap:5px}}
 @media(max-width:1180px){.yy-hint{display:inline}}
 @media(max-width:900px){.yy-hero-grid{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:900px){.yy-plcards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.yy-plcards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
 @media(max-width:700px){.yy-plhint{display:block}.yy-plcards{gap:8px}.yy-plcard{padding:10px 12px}.yy-pico{min-height:56px}.yy-picgrid{grid-template-columns:1fr}.yy-panel{padding:18px 14px;border-radius:22px}.yy-hero{padding:20px 16px}.yy-card{padding:16px 12px}.yy-title{font-size:19px}.yy-picoline small{margin-left:0}.yy-plot{height:320px}}
 @media(max-width:560px){.yy-hero-h{font-size:24px}.yy-hero-day b{font-size:34px}.yy-chip{white-space:normal}.yy-rightstack{justify-content:flex-start}.yy-seg button{padding:7px 10px}}
 @media(prefers-reduced-motion:reduce){.yy-bar,.yy-fill,.yy-shimmer,.yy-plano,.yy-plbar,.yy-caret{transition:none;animation:none}}

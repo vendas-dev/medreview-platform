@@ -1,7 +1,8 @@
 'use client'
 import { useMemo, useState } from 'react'
 import { ChevronDown, Radar as RadarIcon } from 'lucide-react'
-import { fmtDataBR, fmtMi, fmtReais, radarOf, VLABEL, type VKey, type YoYData } from '@/lib/dashboard/yoy'
+import { MetaRadarEditor } from './MetaRadarEditor'
+import { fmtDataBR, fmtMi, fmtReais, metaOf, radarOf, VLABEL, type VKey, type YoYData } from '@/lib/dashboard/yoy'
 
 // ══ Radar Diário: a meta de cada dia, o que foi feito e o ajuste automático do dia seguinte ═══════════════════════════════
 // Conta em lib/dashboard/projecao.ts (buildRadar): meta planejada = curva do ano passado (dia da semana com dia da semana) × um fator que fecha a meta; refeita toda segunda-feira.
@@ -12,7 +13,7 @@ const sgn = (v: number) => `${v < 0 ? '−' : '+'}${fmtReais(Math.abs(v))}`
 const fator3 = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 const CHIPS: { k: 'total' | VKey; label: string }[] = [{ k: 'total', label: 'Operação' }, { k: 'r1', label: VLABEL.r1 }, { k: 'anest', label: VLABEL.anest }, { k: 'oft', label: VLABEL.oft }, { k: 'ortop', label: VLABEL.ortop }]
 
-export function RadarDiario({ data }: { data: YoYData }) {
+export function RadarDiario({ data, onSaved }: { data: YoYData; onSaved?: () => void }) {
   const [aberto, setAberto] = useState(false)
   const [vert, setVert] = useState<'total' | VKey>('total')
   const r = useMemo(() => radarOf(data, vert), [data, vert])
@@ -37,6 +38,7 @@ export function RadarDiario({ data }: { data: YoYData }) {
       </button>
       {aberto && (
         <div id="ft-radar-corpo" className="ft-rbody" data-testid="radar-corpo">
+          <MetaRadarEditor meta={data.metaRadar ?? 0} cadastrada={metaOf(data, 'total')} onSaved={onSaved ?? (() => {})} />
           <div className="ft-rchips" role="group" aria-label="Escolher a área do Radar">
             {CHIPS.map(c => <button key={c.k} type="button" aria-pressed={vert === c.k} className={vert === c.k ? 'on' : ''} onClick={() => setVert(c.k)}>{c.label}</button>)}
           </div>
@@ -94,6 +96,7 @@ const RADAR_CSS = `
 .ft-rsum{font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;background:var(--secondary);border:1px solid var(--border);white-space:nowrap}
 .ft-rchev{transition:transform .2s ease;color:var(--muted-foreground);flex:none}.ft-rchev.on{transform:rotate(180deg)}
 .ft-rbody{padding:4px 18px 18px;border-top:1px solid var(--border)}
+.ft-rmeta{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0 0;font-size:13px}.ft-rmeta small{color:var(--muted-foreground);font-size:12px}.ft-rmeta button{font:inherit;font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);cursor:pointer;color:var(--foreground)}.ft-rmeta input{font:inherit;font-size:13px;padding:5px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--foreground);width:150px}.ft-rmeta-f{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}.ft-rmeta em{color:#c0392b;font-style:normal;font-size:12px}
 .ft-rchips{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 10px}
 .ft-rchips button{font:inherit;font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted-foreground);cursor:pointer}
 .ft-rchips button.on{background:#4f46e5;border-color:#4f46e5;color:#fff}
