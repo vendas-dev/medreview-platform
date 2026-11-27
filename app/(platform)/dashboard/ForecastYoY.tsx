@@ -270,17 +270,35 @@ function HourPlan({ p, d, id, onClose }: { p: PlanoDia; d: YoYData; id: string; 
           </details>
         </>
       )}
-      <Tip anchor={hover?.a ?? null}>{hv && (
-        <>
-          <b>{hh(hv.h)} às {hh((hv.h + 1) % 24)}{agora === hv.h ? ' · agora' : ''}</b>
-          <span>{meta ? 'Meta da hora' : `Receita de ${d.yearPrev}`}<em>{fmtReais(val(hv))}</em></span>
-          <span>Acumulado até {hh((hv.h + 1) % 24)}<em>{fmtReais(acum[hv.h])}{totalRef > 0 ? ` · ${fmtShare(acum[hv.h] / totalRef * 100)}` : ''}</em></span>
-          {hv.real !== null && <span>Já fizemos<em>{fmtReais(hv.real)}{hv.realN ? ` · ${hv.realN} vendas` : ''}</em></span>}
-          {hv.realAcum !== null && <span>Acumulado feito<em>{fmtReais(hv.realAcum)}{hv.realAcum >= acum[hv.h] ? ' · à frente' : ' · atrás'} da meta</em></span>}
-          {meta && <span>Em {d.yearPrev} nessa hora<em>{fmtReais(hv.prev)}</em></span>}
-          <span>Vendas em {d.yearPrev}<em>{hv.prevN}</em></span>
-        </>
-      )}</Tip>
+      <Tip anchor={hover?.a ?? null}>{hv && (() => {
+        const aM = acum[hv.h], tom = (feito: number, alvo: number) => (alvo <= 0 ? 'flat' : feito >= alvo ? 'up' : feito >= alvo * 0.9 ? 'mid' : 'down')
+        const pill = (feito: number, alvo: number, ref: string) => { const dif = feito - alvo, t = tom(feito, alvo); return <div className={`yy-tp yy-tp-${t}`}>{dif >= 0 ? '▲' : '▼'} {fmtMi(Math.abs(dif))} {dif >= 0 ? 'acima' : 'abaixo'} {ref}{alvo > 0 ? ` · ${Math.round(feito / alvo * 100)}%` : ''}</div> }
+        const temR = hv.real !== null, fim = hh((hv.h + 1) % 24)
+        return (
+          <>
+            <div className="yy-th"><strong>{hh(hv.h)} às {fim}</strong>{agora === hv.h && <u>agora</u>}</div>
+            <div className="yy-tg">
+              <div className="yy-tl">Nesta hora</div>
+              <div className="yy-tr"><i className="yy-td yy-tdm" /><s>{meta ? 'Meta' : `Receita de ${d.yearPrev}`}</s><strong>{fmtReais(val(hv))}</strong></div>
+              {temR ? <div className="yy-tr"><i className="yy-td yy-tdf" /><s>Já fizemos</s><strong>{fmtReais(hv.real as number)}</strong>{hv.realN ? <small>{hv.realN} {hv.realN === 1 ? 'venda' : 'vendas'}</small> : null}</div> : null}
+              {temR && meta ? pill(hv.real as number, val(hv), 'da meta') : !temR && real ? <div className="yy-tp yy-tp-flat">ainda não chegou</div> : null}
+            </div>
+            <div className="yy-tg">
+              <div className="yy-tl">Acumulado até {fim}</div>
+              <div className="yy-tr"><i className="yy-td yy-tdl" /><s>{meta ? 'Meta' : `Receita de ${d.yearPrev}`}</s><strong>{fmtReais(aM)}</strong>{totalRef > 0 ? <small>{fmtShare(aM / totalRef * 100)} do dia</small> : null}</div>
+              {hv.realAcum !== null ? <div className="yy-tr"><i className="yy-td yy-tdfl" /><s>Já fizemos</s><strong>{fmtReais(hv.realAcum)}</strong></div> : null}
+              {hv.realAcum !== null && meta ? pill(hv.realAcum, aM, 'da meta') : null}
+            </div>
+            {meta && (
+              <div className="yy-tg yy-tg-ano">
+                <div className="yy-tl">Em {d.yearPrev}, nessa hora</div>
+                <div className="yy-tr"><i className="yy-td yy-tda" /><s>Vendeu</s><strong>{fmtReais(hv.prev)}</strong><small>{hv.prevN} {hv.prevN === 1 ? 'venda' : 'vendas'}</small></div>
+                {temR ? pill(hv.real as number, hv.prev, `de ${d.yearPrev}`) : null}
+              </div>
+            )}
+          </>
+        )
+      })()}</Tip>
     </section>
   )
 }
@@ -648,6 +666,14 @@ const CSS = `
 .yy-tip b{font-size:14.5px;font-weight:900;margin-bottom:2px;letter-spacing:-0.01em}
 .yy-tip span{display:flex;align-items:center;gap:8px}.yy-tip em{font-style:normal;font-weight:900;margin-left:auto;padding-left:18px;font-variant-numeric:tabular-nums}
 .yy-tip .yy-sw{width:12px;height:12px}
+.yy-th{display:flex;align-items:center;gap:8px;margin-bottom:2px}.yy-th strong{font-size:15px;font-weight:900;letter-spacing:-.01em}.yy-th u{text-decoration:none;font-size:10.5px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:#4f46e5;color:#fff}
+.yy-tg{display:flex;flex-direction:column;gap:5px;padding:9px 0 0;border-top:1px solid color-mix(in srgb,var(--foreground,#111) 12%,transparent)}.yy-tg-ano{opacity:.92}
+.yy-tl{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground,#64748b)}
+.yy-tr{display:flex;align-items:center;gap:8px;font-size:13px}.yy-tr s{text-decoration:none;color:var(--muted-foreground,#64748b);font-weight:600}.yy-tr strong{margin-left:auto;font-weight:900;font-variant-numeric:tabular-nums}.yy-tr small{font-size:11px;font-weight:700;color:var(--muted-foreground,#64748b);min-width:62px;text-align:right}
+.yy-td{width:12px;height:12px;border-radius:4px;flex:none}.yy-tdm{background:linear-gradient(180deg,#818cf8,#4f46e5)}.yy-tdf{background:linear-gradient(180deg,#34d399,#059669)}.yy-tdl{background:#f59e0b;height:4px;border-radius:2px}.yy-tdfl{background:#059669;height:4px;border-radius:2px}.yy-tda{background:#94a3b8}
+.yy-tp{padding:5px 10px;border-radius:9px;font-size:12px;font-weight:900;text-align:center;font-variant-numeric:tabular-nums}
+.yy-tp-up{color:#15803d;background:color-mix(in srgb,#22c55e 20%,transparent)}.yy-tp-mid{color:#b45309;background:color-mix(in srgb,#f59e0b 22%,transparent)}.yy-tp-down{color:#be123c;background:color-mix(in srgb,#f43f5e 20%,transparent)}.yy-tp-flat{color:var(--muted-foreground,#64748b);background:color-mix(in srgb,var(--foreground,#111) 8%,transparent)}
+.dark .yy-tp-up{color:#86efac}.dark .yy-tp-mid{color:#fcd34d}.dark .yy-tp-down{color:#fda4af}
 .yy-tipdelta{margin-top:3px;padding:5px 10px;border-radius:9px;font-weight:900;justify-content:center}
 .yy-tipdelta.yy-up{color:#15803d;background:#dcfce7}.yy-tipdelta.yy-down{color:#be123c;background:#ffe4e6}.yy-tipdelta.yy-flat{background:#f1f5f9;color:#475569}
 .dark .yy-tipdelta.yy-up{color:#86efac;background:rgba(34,197,94,.2)}.dark .yy-tipdelta.yy-down{color:#fda4af;background:rgba(244,63,94,.22)}.dark .yy-tipdelta.yy-flat{background:rgba(148,163,184,.2);color:#cbd5e1}
