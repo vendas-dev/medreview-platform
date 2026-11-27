@@ -219,7 +219,7 @@ export async function hResumoAdmin(ctx: Ctx, sp: URLSearchParams): Promise<R> {
   const [cl, pr] = await Promise.all([ctx.admin.from('closers').select('id, name, normalized_name, hubspot_id, avatar_url'), ctx.admin.from('profiles').select('id, name, team, hubspot_id, role, is_active')])
   if (cl.error) return dbErr(cl.error); if (pr.error) return dbErr(pr.error)
   const profiles: any[] = pr.data ?? []
-  const profileOf = (c: any): any => (c.hubspot_id && profiles.find(x => x.hubspot_id === c.hubspot_id)) || profiles.find(x => normName(x.name) === c.normalized_name) || null
+  const profileOf = (c: any): any => (c.hubspot_id && profiles.find(x => x.hubspot_id === c.hubspot_id)) || profiles.find(x => normName(x.name) === normName(c.normalized_name) || normName(x.name) === normName(c.name)) || null
   // Metas (R$) do MÊS: só quando o período é exatamente um mês (do dia 1 até dentro do mesmo mês). Se a tabela de metas falhar, a tela segue sem metas.
   const mesMeta = mesDaMeta(p.f); const metas = new Map<string, { total: number; por_vertical: Record<string, number> }>()
   if (mesMeta) {

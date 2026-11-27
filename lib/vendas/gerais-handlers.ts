@@ -36,7 +36,7 @@ async function carregarRefs(ctx: Ctx): Promise<{ refs: Refs } | { error: any }> 
   const [cl, pr] = await Promise.all([ctx.admin.from('closers').select('id, name, normalized_name, hubspot_id, avatar_url'), ctx.admin.from('profiles').select('id, name, team, hubspot_id, avatar_url')])
   if (cl.error) return { error: cl.error }; if (pr.error) return { error: pr.error }
   const profiles: any[] = pr.data ?? []
-  const profileOf = (c: any) => (hub(c.hubspot_id) && profiles.find(x => hub(x.hubspot_id) === hub(c.hubspot_id))) || profiles.find(x => normName(x.name) === (c.normalized_name ?? normName(c.name))) || null
+  const profileOf = (c: any) => (hub(c.hubspot_id) && profiles.find(x => hub(x.hubspot_id) === hub(c.hubspot_id))) || profiles.find(x => normName(x.name) === normName(c.normalized_name) || normName(x.name) === normName(c.name)) || null
   return { refs: { profiles, closers: (cl.data ?? []).map((c: any) => ({ id: c.id, hubspot_id: c.hubspot_id ?? null, name: c.name, avatar_url: c.avatar_url ?? profileOf(c)?.avatar_url ?? null, team: profileOf(c)?.team ?? null })) } }
 }
 

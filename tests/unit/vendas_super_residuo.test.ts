@@ -17,13 +17,13 @@ function fake(tables: Record<string, any[]>) {
 }
 const profiles = [
   { id: 'p1', name: 'Ana Souza', team: 'OAO', hubspot_id: '111', role: 'closer', is_active: true },
-  { id: 'p2', name: 'João Oliveira', team: null, hubspot_id: '222', role: 'superadmin', is_active: true },
+  { id: 'p2', name: 'João Oliveira', team: null, hubspot_id: null, role: 'superadmin', is_active: true },
   { id: 'p3', name: 'Matheus Borges', team: null, hubspot_id: null, role: 'superadmin', is_active: true },      // casa só pelo nome
   { id: 'p4', name: 'Carla Dias', team: 'R1', hubspot_id: '444', role: 'superadmin', is_active: true },        // superadmin que VENDEU: continua
   { id: 'p5', name: 'Bia Lima', team: 'OAO', hubspot_id: '555', role: 'closer', is_active: true },             // closer sem venda: continua (zerado é normal)
 ]
 const closers = [
-  { id: 'c1', name: 'Ana Souza', normalized_name: 'ana souza', hubspot_id: '111' }, { id: 'c2', name: 'João Oliveira', normalized_name: 'joao oliveira', hubspot_id: '222' },
+  { id: 'c1', name: 'Ana Souza', normalized_name: 'ana souza', hubspot_id: '111' }, { id: 'c2', name: 'João Oliveira', normalized_name: 'joão oliveira', hubspot_id: null },
   { id: 'c3', name: 'Matheus Borges', normalized_name: 'matheus borges', hubspot_id: null }, { id: 'c4', name: 'Carla Dias', normalized_name: 'carla dias', hubspot_id: '444' },
   { id: 'c5', name: 'Bia Lima', normalized_name: 'bia lima', hubspot_id: '555' },
 ]
@@ -36,6 +36,7 @@ const sp = (extra = '') => new URLSearchParams('from=2026-11-01&to=2026-11-30' +
   const r = await hResumoAdmin(ctx(), sp()); assert.equal(r.status, 200, JSON.stringify(r.json))
   const nomes = r.json.closers.map((c: any) => c.name)
   await t('superadmin sem vendas (João e Matheus) NÃO aparece na lista', () => { assert.ok(!nomes.includes('João Oliveira')); assert.ok(!nomes.includes('Matheus Borges'), nomes.join()) })
+  await t('nome com ACENTO guardado em closers.normalized_name ("joão oliveira") ainda casa com o perfil e some', () => assert.ok(!nomes.includes('João Oliveira')))
   await t('o que casa só pelo nome (sem HubSpot) também some', () => assert.ok(!nomes.includes('Matheus Borges')))
   await t('closer de verdade aparece, com e sem venda', () => { assert.ok(nomes.includes('Ana Souza')); assert.ok(nomes.includes('Bia Lima')) })
   await t('superadmin que TEM venda continua aparecendo (nenhuma venda some)', () => { const c = r.json.closers.find((x: any) => x.name === 'Carla Dias'); assert.equal(c?.vendas, 1); assert.equal(c?.valor, 300) })

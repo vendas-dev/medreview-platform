@@ -1,0 +1,8 @@
+{
+ "criados": [],
+ "salvos": [
+  "lib/vendas/handlers.ts",
+  "lib/vendas/gerais-handlers.ts",
+  "tests/unit/vendas_super_residuo.test.ts"
+ ]
+}
