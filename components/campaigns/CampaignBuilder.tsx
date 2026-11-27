@@ -10,7 +10,7 @@ import { HourlyPrizes, HourlySchedule } from './HourlyEditor'
 import { EventPicker } from './EventPicker'
 import { ExcludePicker } from './ExcludePicker'
 import { BuilderStyles } from './BuilderStyles'
-import { defaultHourly, HOURLY_MAX_DAYS, slotsOfDay, validateHourly } from '@/lib/campaigns/hourly'
+import { defaultHourly, exactSpan, fmtH, HOURLY_MAX_DAYS, isExactHourly, slotsOfDay, validateHourly } from '@/lib/campaigns/hourly'
 import { tiersValid } from '@/lib/campaigns/tiers'
 import type { EventCfg, TeamRule } from '@/lib/campaigns/types'
 import { Btn, CampaignStyles } from './ui'
@@ -353,7 +353,7 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
           </div>
         </div>
       ))}
-      {info.hourly && d.hourly && <HourlySchedule cfg={d.hourly} days={durationDays(d)} onChange={h => patch({ hourly: h })} />}
+      {info.hourly && d.hourly && <HourlySchedule cfg={d.hourly} days={durationDays(d)} baseDay={d.starts_on} onChange={h => patch({ hourly: h, ...(exactSpan(h) ?? {}) })} />}
       <div className="cw-adv" data-filters>
         <button type="button" data-filters-toggle aria-expanded={filtersOpen} onClick={() => setFiltersOpen(o => !o)}>
           <span style={{ fontSize: 17 }}>🏷️</span>
@@ -465,7 +465,25 @@ export function CampaignBuilder({ initial, editingId, status = 'draft', hasOutco
     </>
   )
 
-  const stepDates = (
+  const exactDates = !!info.hourly && isExactHourly(d.hourly), exactRanges = exactDates ? d.hourly!.ranges.filter(r => r.day && r.endDay) : []
+  const stepDates = exactDates ? (
+    <Card>
+      <div data-dates-auto style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--muted-foreground)' }}>As datas desta campanha são <strong style={{ color: 'var(--foreground)' }}>definidas automaticamente pelos intervalos de horário</strong> (início do primeiro e fim do último), no horário de São Paulo.</p>
+        {exactRanges.length === 0 ? <Note tone="warn">Defina os intervalos (com data e hora) no passo &ldquo;Regra&rdquo; para a campanha ganhar as datas.</Note> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {exactRanges.map((r, i) => <div key={i} data-dates-range={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--secondary)', fontSize: 13.5, fontWeight: 800, color: 'var(--foreground)', fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ width: 24, height: 24, borderRadius: 8, background: 'rgba(99,102,241,.14)', color: '#6366f1', fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+              <span>{fmtDM(r.day!)} às {fmtH(r.from)}</span><span style={{ color: 'var(--muted-foreground)' }}>→</span><span>{fmtDM(r.endDay!)} às {fmtH(r.to)}</span>
+            </div>)}
+          </div>)}
+        <div><Btn size="sm" data-dates-edit onClick={() => goStep(1)}>Editar intervalos</Btn></div>
+      </div>
+      <Note data-duration>{durationDays(d) > 0 ? <>Duração: <strong style={{ color: 'var(--foreground)' }}>{durationDays(d)} {durationDays(d) === 1 ? 'dia' : 'dias'}</strong> ({fmtDM(d.starts_on)}{d.starts_on !== d.ends_on ? ` a ${fmtDM(d.ends_on)}` : ''}).</> : 'Informe as datas.'}</Note>
+      {info.hourly && d.hourly && <Note tone={durationDays(d) > HOURLY_MAX_DAYS ? 'warn' : 'info'} data-hourly-days>{durationDays(d) > HOURLY_MAX_DAYS ? `⚠ Campanha por hora pode durar no máximo ${HOURLY_MAX_DAYS} dias.` : `⏰ ${slotsOfDay(d.hourly).length} ${slotsOfDay(d.hourly).length === 1 ? 'rodada' : 'rodadas'} no total, no horário de São Paulo.`}</Note>}
+      {past && <Note tone="warn" data-past>⚠ O início é no passado: a campanha será apurada com as vendas que já aconteceram.</Note>}
+    </Card>
+  ) : (
     <Card>
       <Field label="Atalhos">
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

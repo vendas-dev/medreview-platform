@@ -7,7 +7,7 @@ import { fmtBRL } from '@/lib/telao/format'
 import { offersLabel } from '@/lib/telao/offer'
 import { NotificationCard } from '@/components/notifications/NotificationBell'
 import { TierTeamBlock } from './TierViews'
-import { slotPrize, slotRange, slotsOfDay } from '@/lib/campaigns/hourly'
+import { isExactHourly, slotPrize, slotRange, slotsOfDay } from '@/lib/campaigns/hourly'
 
 // ══ Prévia da campanha — o que o superadmin vê enquanto preenche (e nos cards da lista) ══
 
@@ -58,7 +58,7 @@ function TeamBlock({ d, team }: { d: CampaignDraft; team: Team }) {
   const r = d.teams[team]!, info = criterionInfo(d.criterion), n = r.winners > 0 ? r.winners : 0
   if (info.tiers) return <TierTeamBlock team={team} tiers={r.tiers ?? []} />
   if (info.hourly) {
-    const per = slotsOfDay(d.hourly).length, tot = per * durationDays(d)
+    const per = slotsOfDay(d.hourly).length, tot = isExactHourly(d.hourly) ? per : per * durationDays(d)
     return (
       <div data-team-block={team} style={{ flex: 1, minWidth: 150, padding: '10px 12px', borderRadius: 14, background: 'var(--secondary)', border: '1px solid var(--border)' }}>
         <span style={{ display: 'block', marginBottom: 6, fontSize: 10, fontWeight: 900, letterSpacing: '.12em', color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>TIME {team}</span>
@@ -138,7 +138,7 @@ export function CampaignPreview({ d, today, eligible, live, liveLoading = false 
             {teams.length === 0 ? <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Escolha os times para definir os prêmios.</p> : (() => {
               const per = slotsOfDay(d.hourly), t0 = teams[0], shown = per.slice(0, 8)
               return (<div>
-                {shown.map(s => { const p = slotPrize(d, t0, s.idx); return <p key={s.idx} data-prize-line={`h-${s.idx}`} style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 800, color: 'var(--foreground)', wordBreak: 'break-word' }}><span style={{ display: 'inline-block', width: 84, fontVariantNumeric: 'tabular-nums', color: 'var(--muted-foreground)', fontWeight: 700 }}>{slotRange(s)}</span>{p || <span style={{ opacity: 0.45, fontWeight: 600 }}>defina o prêmio</span>}</p> })}
+                {shown.map(s => { const p = slotPrize(d, t0, s.idx); return <p key={s.idx} data-prize-line={`h-${s.idx}`} style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 800, color: 'var(--foreground)', wordBreak: 'break-word' }}><span style={{ display: 'inline-block', width: s.day ? 132 : 84, fontVariantNumeric: 'tabular-nums', color: 'var(--muted-foreground)', fontWeight: 700 }}>{s.day ? `${s.day.slice(8, 10)}/${s.day.slice(5, 7)} ${slotRange(s)}` : slotRange(s)}</span>{p || <span style={{ opacity: 0.45, fontWeight: 600 }}>defina o prêmio</span>}</p> })}
                 {per.length > shown.length && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--muted-foreground)', fontWeight: 700 }}>+ {per.length - shown.length} {per.length - shown.length === 1 ? 'horário' : 'horários'}</p>}
                 {per.length === 0 && <p style={{ margin: 0, fontSize: 12, opacity: 0.55 }}>Defina os horários.</p>}
               </div>)

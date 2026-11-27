@@ -30,12 +30,13 @@ import type { EventCfg } from './event'
 export type { EventCfg } from './event'
 export interface Tier { target: number | null; prize: string }
 /** Critério POR HORA. Horários em MINUTOS desde 00:00 de São Paulo (0..1440; 1440 = meia-noite do fim do dia). */
-export interface HourlyRange { from: number; to: number }
+export interface HourlyRange { from: number; to: number; day?: string; endDay?: string }      // day/endDay (AAAA-MM-DD): só nos intervalos de DATAS EXATAS (início = day+from · fim = endDay+to)
 export interface HourlyCfg {
   mode: 'full' | 'ranges'          // full = dia completo (24h, uma rodada por hora) · ranges = só nos intervalos definidos
   split: 'hour' | 'whole'          // ranges: 'hour' = uma rodada por hora dentro do intervalo · 'whole' = uma rodada por intervalo
   metric: 'revenue' | 'count'      // quem ganha a rodada: maior valor vendido · mais vendas
   ranges: HourlyRange[]
+  exact?: boolean                  // ranges com DATAS EXATAS (data+hora de início e de fim, pode virar a meia-noite); as datas da campanha saem dos intervalos
 }
 export interface TeamRule { winners: number; target: number | null; tiers?: Tier[] }
 

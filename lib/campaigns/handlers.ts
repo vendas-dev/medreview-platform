@@ -7,7 +7,7 @@ import { avatarsOf, draftToDb, evaluateDraft, loadParticipants, publishCampaign,
 import { CampaignRow, Team, TEAMS } from './types'
 import { refreshTierWinnerPrizes } from './tiers-server'
 import { tierTeamsView } from './tiers'
-import { hourlyLiveInfo, hourlyTeamsView, spMinutes } from './hourly'
+import { hourlyLiveInfo, hourlyTeamsView, shiftHourly, spMinutes } from './hourly'
 import { fetchAllRows } from './paged'
 
 // ══ Regras das rotas (sem HTTP, sem login): cada função devolve { status, json } ═════════
@@ -133,7 +133,7 @@ export async function hCampaignAction(admin: any, id: string, userId: string, bo
       const shift = Number.isInteger(body?.shiftDays) ? Math.max(-365, Math.min(365, body.shiftDays)) : 7
       const d = rowToDraft(r)
       const { data, error } = await admin.from('campaigns').insert({
-        name: `${d.name} (cópia)`.slice(0, 60), subtitle: d.subtitle, prize: d.prize_mode === 'tiered' ? '' : d.prize, prize_mode: d.prize_mode, prizes: d.prize_mode === 'tiered' ? d.prizes : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams, ...(d.criterion === 'hourly' && d.hourly ? { hourly: d.hourly } : {}), ...(d.event ? { event: d.event } : {}), ...(d.exclude?.length ? { exclude: d.exclude } : {}),
+        name: `${d.name} (cópia)`.slice(0, 60), subtitle: d.subtitle, prize: d.prize_mode === 'tiered' ? '' : d.prize, prize_mode: d.prize_mode, prizes: d.prize_mode === 'tiered' ? d.prizes : {}, emoji: d.emoji, theme: d.theme, criterion: d.criterion, teams: d.teams, ...(d.criterion === 'hourly' && d.hourly ? { hourly: shiftHourly(d.hourly, shift) } : {}), ...(d.event ? { event: d.event } : {}), ...(d.exclude?.length ? { exclude: d.exclude } : {}),
         starts_on: addDays(d.starts_on, shift), ends_on: addDays(d.ends_on, shift), count_recurring: d.count_recurring, verticals: d.verticals, ...(d.offer_codes?.length ? { offer_codes: d.offer_codes } : {}), ...(d.product_ids?.length ? { product_ids: d.product_ids } : {}), ...(d.filter_logic && d.offer_codes?.length && d.product_ids?.length ? { filter_logic: d.filter_logic } : {}), notify: d.notify, ...(d.notify_result ? {} : { notify_result: false }), status: 'draft', created_by: userId,
       }).select().single()
       return error || !data ? bad('Não consegui duplicar.', {}, 500) : ok({ ok: true, id: data.id })

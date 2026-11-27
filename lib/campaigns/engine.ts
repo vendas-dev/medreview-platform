@@ -1,7 +1,7 @@
 import { fmtBRL, normalizeName } from '@/lib/telao/format'
 import { MAX_OFFER_CODES, MAX_PRODUCT_IDS, isValidOfferCode, offerKey, offerMatches, offersLabel, saleMatchesFilter } from '@/lib/telao/offer'
 import { eventConfigKey, eventText, excludeConfigKey, validateEvent, validateExclude } from './event'
-import { evalHourly, finishMessagesHourly, hourlyConfigKey, hourlyMetricText, hourlyPrizeLine, howToWinHourly, SlotResult, slotPrizeForPos, spMinutes, validateHourly } from './hourly'
+import { evalHourly, exactSpan, finishMessagesHourly, hourlyConfigKey, isExactHourly, hourlyMetricText, hourlyPrizeLine, howToWinHourly, SlotResult, slotPrizeForPos, spMinutes, validateHourly } from './hourly'
 import { finishMessagesTiers, howToWinTiers, tierStanding, tierTargetsKey, tiersText, TierStanding, validateTiers } from './tiers'
 import { CampaignDraft, Criterion, CRITERIA, criterionInfo, Phase, Team, TEAMS, TeamRule } from './types'
 
@@ -95,6 +95,7 @@ export function validateDraft(d: CampaignDraft, strict = true): string[] {
   }
   if (tierCrit) e.push(...validateTiers(d, teams, strict))
   if (hourlyCrit) e.push(...validateHourly(d, strict))
+  if (hourlyCrit && isExactHourly(d.hourly)) { const sp = exactSpan(d.hourly); if (sp && (sp.starts_on !== d.starts_on || sp.ends_on !== d.ends_on)) e.push('As datas da campanha precisam ser as dos intervalos de horário (início do primeiro e fim do último).') }
   e.push(...validateEvent(d, strict), ...validateExclude(d))
   if (!DAY_RE.test(d.starts_on) || !DAY_RE.test(d.ends_on)) e.push('Informe a data de início e a de fim.')
   else if (d.ends_on < d.starts_on) e.push('A data final não pode ser antes da inicial.')

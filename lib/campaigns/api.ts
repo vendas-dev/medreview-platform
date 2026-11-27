@@ -1,7 +1,7 @@
 import { CampaignDraft, CampaignRow, Team, TEAMS, THEMES, CRITERIA, EMOJIS } from './types'
 import { rowToDraft } from './server'
 import { cleanTiers } from './tiers'
-import { cleanHourly } from './hourly'
+import { cleanHourly, exactSpan } from './hourly'
 import { cleanEvent, cleanExclude } from './event'
 import { parseOfferCodes } from '@/lib/telao/offer'
 
@@ -20,7 +20,7 @@ export function parseDraft(b: any): CampaignDraft | null {
     prize_mode: b.prize_mode === 'tiered' ? 'tiered' : 'single', prizes,
     emoji: EMOJIS.includes(b.emoji) ? b.emoji : '🏁', theme: b.theme in THEMES ? b.theme : 'roxo',
     criterion: CRITERIA.some(c => c.id === b.criterion) ? b.criterion : 'revenue_rank',
-    teams, starts_on: String(b.starts_on ?? ''), ends_on: String(b.ends_on ?? ''),
+    teams, ...(() => { const sp = b.criterion === 'hourly' ? exactSpan(cleanHourly(b.hourly)) : null; return { starts_on: sp?.starts_on ?? String(b.starts_on ?? ''), ends_on: sp?.ends_on ?? String(b.ends_on ?? '') } })(),
     hourly: b.criterion === 'hourly' ? cleanHourly(b.hourly) : null,
     event: cleanEvent(b.event),
     exclude: cleanEvent(b.event) ? [] : cleanExclude(b.exclude),

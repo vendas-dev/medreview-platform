@@ -9,11 +9,17 @@ import { CampaignDraft, HourlyCfg, HourlyRange, Team, TEAMS } from './types'
 //  qual era o DIA e o MINUTO no relógio de São Paulo (Intl, America/Sao_Paulo) — e comparo com o horário da rodada, também em relógio de SP.
 //  Assim funciona igual em qualquer servidor (UTC, Vercel, notebook) e mesmo que o Brasil volte a ter horário de verão.
 //  Minutos: 0..1440 (1440 = meia-noite do fim do dia). Rodada = [de, até): 14h–15h pega 14:00:00 até 14:59:59.999.
+//  DOIS jeitos de definir os intervalos (cfg.mode === 'ranges'):
+//   • REPETE TODO DIA (padrão antigo): hora de início/fim valem em cada dia entre starts_on e ends_on.
+//   • DATAS EXATAS (cfg.exact === true): cada intervalo tem data+hora de início e data+hora de fim (ex.: 27/11 16h → 28/11 01h, pode virar a meia-noite).
+//     Aí as rodadas são numeradas em ordem cronológica (pos = idx + 1) e starts_on/ends_on da campanha são DERIVADOS dos intervalos (exactSpan).
 //  Este arquivo é puro (sem banco e sem tela) e NÃO importa o engine (o engine é que importa este).
 
 export const DAY_MIN = 1440
 export const HOURLY_MAX_DAYS = 31
 export const HOURLY_MAX_RANGES = 24
+/** Teto de rodadas de uma campanha por hora (31 dias × 24h + folga). */
+export const HOURLY_MAX_SLOTS = 800
 /** A rodada só é "fechada" (ganhador definido) alguns minutos depois do fim: dá tempo de vendas que chegam atrasadas (webhook) entrarem na conta. */
 export const SLOT_GRACE_MIN = 5
 
@@ -31,6 +37,9 @@ export function spParts(at: string | Date): { day: string; min: number } | null 
 export const spMinutes = (at: string | Date): number => spParts(at)?.min ?? 0
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+/** Data de verdade (AAAA-MM-DD que existe no calendário: 2026-02-31 não vale). */
+const isRealDay = (v: unknown): v is string => typeof v === 'string' && DAY_RE.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v
+const dayStr = (n: number): string => addDay('1970-01-01', n)
 const dayNum = (day: string): number => Math.round(Date.parse(`${day}T00:00:00Z`) / 86400000)
 const addDay = (day: string, n: number): string => new Date((dayNum(day) + n) * 86400000).toISOString().slice(0, 10)
 const fmtDM = (day: string): string => `${day.slice(8, 10)}/${day.slice(5, 7)}`
@@ -45,17 +54,44 @@ const toMin = (v: unknown): number => { const n = Number(v); return v === null |
 export function cleanHourly(raw: unknown): HourlyCfg | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
-  const ranges = Array.isArray(r.ranges) ? (r.ranges as unknown[]).slice(0, HOURLY_MAX_RANGES).map(x => ({ from: toMin((x as Record<string, unknown>)?.from), to: toMin((x as Record<string, unknown>)?.to) })) : []
-  return { mode: r.mode === 'ranges' ? 'ranges' : 'full', split: r.split === 'whole' ? 'whole' : 'hour', metric: r.metric === 'count' ? 'count' : 'revenue', ranges }
+  const exact = r.mode === 'ranges' && r.exact === true
+  const dOk = (v: unknown): string | undefined => (isRealDay(v) ? v : undefined)
+  const ranges = Array.isArray(r.ranges) ? (r.ranges as unknown[]).slice(0, HOURLY_MAX_RANGES).map(x => {
+    const o = x as Record<string, unknown>, out: HourlyRange = { from: toMin(o?.from), to: toMin(o?.to) }
+    if (exact) { const a = dOk(o?.day), b = dOk(o?.endDay); if (a) out.day = a; if (b) out.endDay = b }
+    return out
+  }) : []
+  return { mode: r.mode === 'ranges' ? 'ranges' : 'full', split: r.split === 'whole' ? 'whole' : 'hour', metric: r.metric === 'count' ? 'count' : 'revenue', ranges, ...(exact ? { exact: true } : {}) }
 }
 const validRange = (r: HourlyRange): boolean => Number.isInteger(r.from) && Number.isInteger(r.to) && r.from >= 0 && r.to <= DAY_MIN && r.from < r.to
+/** Intervalo de DATAS EXATAS: início = (day, from) · fim = (endDay, to). `to` é o minuto do dia do fim (0..1440; 28/11 00h = fim exatamente à meia-noite). */
+export const isExactHourly = (cfg: HourlyCfg | null | undefined): boolean => !!cfg && cfg.mode === 'ranges' && cfg.exact === true
+const absOf = (day: string, min: number): number => dayNum(day) * DAY_MIN + min
+const validAbs = (r: HourlyRange): boolean => isRealDay(r.day) && isRealDay(r.endDay) && Number.isInteger(r.from) && Number.isInteger(r.to) && r.from >= 0 && r.from < DAY_MIN && r.to >= 0 && r.to <= DAY_MIN && absOf(r.endDay, r.to) > absOf(r.day, r.from)
+const sortedAbs = (cfg: HourlyCfg): HourlyRange[] => cfg.ranges.filter(validAbs).slice().sort((a, b) => absOf(a.day!, a.from) - absOf(b.day!, b.from))
+/** Datas da campanha (início e fim) que os intervalos de datas exatas pedem; null se não há intervalo válido. */
+export function exactSpan(cfg: HourlyCfg | null | undefined): { starts_on: string; ends_on: string } | null {
+  if (!isExactHourly(cfg)) return null
+  const rs = cfg!.ranges.filter(validAbs); if (!rs.length) return null
+  return { starts_on: rs.map(r => r.day!).reduce((a, b) => (b < a ? b : a)), ends_on: rs.map(r => (r.to === 0 ? addDay(r.endDay!, -1) : r.endDay!)).reduce((a, b) => (b > a ? b : a)) }
+}
 const FULL: HourlyRange[] = [{ from: 0, to: DAY_MIN }]
 const sortedRanges = (cfg: HourlyCfg): HourlyRange[] => (cfg.mode === 'full' ? FULL : cfg.ranges.filter(validRange).slice().sort((a, b) => a.from - b.from))
 
-export interface Slot { idx: number; from: number; to: number }
+/** `day` só vem nos intervalos de datas exatas; `to` pode passar de 1440 (a rodada vira a meia-noite: 23h30 → 00h30 = from 1410, to 1470). */
+export interface Slot { idx: number; from: number; to: number; day?: string }
 /** As rodadas de UM dia (iguais em todos os dias da campanha). */
 export function slotsOfDay(cfg: HourlyCfg | null | undefined): Slot[] {
   if (!cfg) return []
+  if (isExactHourly(cfg)) {
+    const eh: { from: number; to: number; day: string }[] = []
+    for (const r of sortedAbs(cfg)) {
+      const a0 = absOf(r.day!, r.from), a1 = absOf(r.endDay!, r.to)
+      const push = (x: number, y: number) => { const dn = Math.floor(x / DAY_MIN); eh.push({ day: dayStr(dn), from: x - dn * DAY_MIN, to: y - dn * DAY_MIN }) }
+      if (cfg.split === 'hour') { for (let t = a0; t + 60 <= a1 && eh.length < HOURLY_MAX_SLOTS; t += 60) push(t, t + 60) } else if (eh.length < HOURLY_MAX_SLOTS) push(a0, a1)
+    }
+    return eh.map((x, i) => ({ idx: i, ...x }))
+  }
   const split = cfg.mode === 'full' || cfg.split === 'hour', out: { from: number; to: number }[] = []
   for (const r of sortedRanges(cfg)) {
     if (split) { for (let t = r.from; t + 60 <= r.to; t += 60) out.push({ from: t, to: t + 60 }) }
@@ -67,11 +103,13 @@ export interface DaySlot extends Slot { pos: number; day: string }
 const spanDays = (d: Pick<CampaignDraft, 'starts_on' | 'ends_on'>): number => DAY_RE.test(d.starts_on) && DAY_RE.test(d.ends_on) && d.ends_on >= d.starts_on ? Math.min(dayNum(d.ends_on) - dayNum(d.starts_on) + 1, 92) : 0
 /** TODAS as rodadas da campanha em ordem de horário. `pos` (1, 2, 3…) é o número da rodada — é ele que vai em campaign_winners.position. */
 export function allSlots(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hourly'>): DaySlot[] {
+  if (isExactHourly(d.hourly)) return slotsOfDay(d.hourly).map(s => ({ ...s, pos: s.idx + 1, day: s.day! }))
   const per = slotsOfDay(d.hourly), days = spanDays(d), out: DaySlot[] = []
   for (let di = 0; di < days; di++) for (const s of per) out.push({ ...s, pos: di * per.length + s.idx + 1, day: addDay(d.starts_on, di) })
   return out
 }
 export function slotByPos(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hourly'>, pos: number): DaySlot | null {
+  if (isExactHourly(d.hourly)) return Number.isInteger(pos) && pos >= 1 ? allSlots(d)[pos - 1] ?? null : null
   const per = slotsOfDay(d.hourly); if (!per.length || !Number.isInteger(pos) || pos < 1) return null
   const di = Math.floor((pos - 1) / per.length)
   if (di >= spanDays(d)) return null
@@ -80,10 +118,12 @@ export function slotByPos(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hour
 
 // ── formatação ─────────────────────────────────────────────────────────────────
 /** 540 → "09h" · 570 → "09h30" · 1440 → "24h" */
-export const fmtH = (m: number): string => { const h = Math.floor(m / 60), mm = m % 60; return mm ? `${String(h).padStart(2, '0')}h${String(mm).padStart(2, '0')}` : `${String(h).padStart(2, '0')}h` }
+export const fmtH = (m: number): string => { const x = m > DAY_MIN ? m % DAY_MIN : m, h = Math.floor(x / 60), mm = x % 60; return mm ? `${String(h).padStart(2, '0')}h${String(mm).padStart(2, '0')}` : `${String(h).padStart(2, '0')}h` }
 export const slotRange = (s: { from: number; to: number }): string => `${fmtH(s.from)}–${fmtH(s.to)}`
 export const slotAs = (s: { from: number; to: number }): string => `das ${fmtH(s.from)} às ${fmtH(s.to)}`
-export const slotLabel = (d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hourly'>, pos: number): string => { const s = slotByPos(d, pos); return s ? `${fmtDM(s.day)} · ${slotRange(s)}` : `Rodada ${pos}` }
+/** Quando a rodada acontece: "27/11 · 16h–17h" — e, se passa da meia-noite, com as duas datas: "27/11 16h → 28/11 01h". */
+export const slotWhen = (s: { day: string; from: number; to: number }): string => (s.to > DAY_MIN ? `${fmtDM(s.day)} ${fmtH(s.from)} → ${fmtDM(addDay(s.day, Math.floor((s.to - 1) / DAY_MIN)))} ${fmtH(s.to)}` : `${fmtDM(s.day)} · ${slotRange(s)}`)
+export const slotLabel = (d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hourly'>, pos: number): string => { const s = slotByPos(d, pos); return s ? slotWhen(s) : `Rodada ${pos}` }
 export const hourlyMetricText = (cfg: HourlyCfg | null | undefined, v: number): string => (cfg?.metric === 'count' ? `${v} ${v === 1 ? 'venda' : 'vendas'}` : fmtBRL(v))
 
 // ── validação (a tela e a API usam a MESMA) ──────────────────────────────────────
@@ -91,7 +131,19 @@ export function validateHourly(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 
   const e: string[] = [], cfg = d.hourly
   if (!cfg) { if (strict) e.push('Configure o horário da campanha por hora (dia completo ou intervalos).'); return e }
   if (spanDays(d) > HOURLY_MAX_DAYS) e.push(`Campanha por hora pode durar no máximo ${HOURLY_MAX_DAYS} dias.`)
-  if (cfg.mode === 'ranges') {
+  if (isExactHourly(cfg)) {
+    if (cfg.ranges.length === 0) { if (strict) e.push('Adicione pelo menos um intervalo, com data e hora de início e de fim.') }
+    if (cfg.ranges.length > HOURLY_MAX_RANGES) e.push(`Use no máximo ${HOURLY_MAX_RANGES} intervalos.`)
+    cfg.ranges.forEach((r, i) => {
+      const n = i + 1
+      if (!isRealDay(r.day) || !isRealDay(r.endDay)) { e.push(`Intervalo ${n}: informe a data de início e a de fim.`); return }
+      if (!validAbs(r)) { e.push(`Intervalo ${n}: o fim precisa ser depois do início.`); return }
+      if (cfg.split === 'hour' && (absOf(r.endDay, r.to) - absOf(r.day, r.from)) % 60 !== 0) e.push(`Intervalo ${n} (${fmtDM(r.day)} ${fmtH(r.from)} → ${fmtDM(r.endDay)} ${fmtH(r.to)}): para premiar por hora, a duração precisa ser em horas fechadas. Ajuste o fim ou escolha "um prêmio por intervalo".`)
+    })
+    const ok = sortedAbs(cfg)
+    for (let i = 1; i < ok.length; i++) if (absOf(ok[i].day!, ok[i].from) < absOf(ok[i - 1].endDay!, ok[i - 1].to)) { e.push(`Os intervalos ${fmtDM(ok[i - 1].day!)} ${fmtH(ok[i - 1].from)}–${fmtDM(ok[i - 1].endDay!)} ${fmtH(ok[i - 1].to)} e ${fmtDM(ok[i].day!)} ${fmtH(ok[i].from)}–${fmtDM(ok[i].endDay!)} ${fmtH(ok[i].to)} se sobrepõem.`); break }
+    const sp = exactSpan(cfg); if (sp && dayNum(sp.ends_on) - dayNum(sp.starts_on) + 1 > HOURLY_MAX_DAYS) e.push(`Campanha por hora pode durar no máximo ${HOURLY_MAX_DAYS} dias.`)
+  } else if (cfg.mode === 'ranges') {
     if (cfg.ranges.length === 0) { if (strict) e.push('Adicione pelo menos um intervalo de horário.') }
     if (cfg.ranges.length > HOURLY_MAX_RANGES) e.push(`Use no máximo ${HOURLY_MAX_RANGES} intervalos.`)
     cfg.ranges.forEach((r, i) => {
@@ -122,8 +174,8 @@ export function slotPrize(d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prize
 }
 /** Prêmio da rodada de número `pos` (o mesmo número gravado em campaign_winners.position). */
 export function slotPrizeForPos(d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes' | 'hourly'>, team: Team, pos: number): string {
-  const n = slotsOfDay(d.hourly).length
-  return n && Number.isInteger(pos) && pos >= 1 ? slotPrize(d, team, (pos - 1) % n) : ''
+  const n = slotsOfDay(d.hourly).length, exact = isExactHourly(d.hourly)
+  return n && Number.isInteger(pos) && pos >= 1 && (!exact || pos <= n) ? slotPrize(d, team, exact ? pos - 1 : (pos - 1) % n) : ''
 }
 export function hourlyPrizeLine(d: Pick<CampaignDraft, 'prize' | 'prize_mode' | 'prizes' | 'hourly' | 'teams'>): string {
   if (d.prize_mode !== 'tiered') return `Prêmio: ${d.prize.trim()} (por rodada).`
@@ -149,12 +201,13 @@ export function evalHourly(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hou
   const byName = new Map(people.map(p => [p.userId, p.name]))
   const buckets = new Map<number, Map<string, { revenue: number; count: number; last: string }>>()
   const perUser = new Map<string, { won: number; revenue: number; count: number }>(people.map(p => [p.userId, { won: 0, revenue: 0, count: 0 }]))
+  // cada rodada vira um trecho [a, b) em minutos ABSOLUTOS (desde o dia de início): a venda cai no trecho que a contém (as rodadas são cronológicas e não se sobrepõem)
+  const abs = all.map(s => ({ a: (dayNum(s.day) - base) * DAY_MIN + s.from, b: (dayNum(s.day) - base) * DAY_MIN + s.to, pos: s.pos })).sort((x, y) => x.a - y.a)
+  const slotAt = (m: number): number => { let lo = 0, hi = abs.length - 1, hit = -1; while (lo <= hi) { const mid = (lo + hi) >> 1; if (abs[mid].a <= m) { hit = mid; lo = mid + 1 } else hi = mid - 1 } return hit >= 0 && m < abs[hit].b ? abs[hit].pos : -1 }
   if (per.length) for (const c of credits) {
     if (!byName.has(c.userId)) continue
     const sp = spParts(c.at); if (!sp) continue
-    const idx = per.findIndex(s => sp.min >= s.from && sp.min < s.to); if (idx < 0) continue
-    const di = dayNum(sp.day) - base; if (di < 0 || di >= spanDays(d)) continue
-    const pos = di * per.length + idx + 1
+    const pos = slotAt((dayNum(sp.day) - base) * DAY_MIN + sp.min); if (pos < 0) continue
     const b = buckets.get(pos) ?? buckets.set(pos, new Map()).get(pos)!
     const x = b.get(c.userId) ?? { revenue: 0, count: 0, last: '' }
     x.revenue += c.value; x.count += 1; if (c.at > x.last) x.last = c.at; b.set(c.userId, x)
@@ -163,9 +216,9 @@ export function evalHourly(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hou
   const absNow = (dayNum(today) - base) * DAY_MIN + nowMin
   const byCount = cfg?.metric === 'count'
   const slots: SlotResult[] = all.map(s => {
-    const endAbs = (dayNum(s.day) - base) * DAY_MIN + s.to
+    const startAbs = (dayNum(s.day) - base) * DAY_MIN + s.from, endAbs = (dayNum(s.day) - base) * DAY_MIN + s.to
     const closed = absNow >= endAbs + SLOT_GRACE_MIN
-    const current = s.day === today && nowMin >= s.from && nowMin < s.to
+    const current = absNow >= startAbs && absNow < endAbs
     let best: SlotWinner | null = null
     for (const [uid, x] of buckets.get(s.pos) ?? []) {
       const cand: SlotWinner = { userId: uid, name: byName.get(uid) ?? '?', metric: byCount ? x.count : round2(x.revenue), revenue: round2(x.revenue), count: x.count, at: x.last }
@@ -184,6 +237,10 @@ export function evalHourly(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' | 'hou
 // ── textos ──────────────────────────────────────────────────────────────────────
 /** "em cada hora do dia (24h)" · "em cada hora entre 09h e 12h e entre 14h e 18h" · "em cada intervalo (09h–12h e 14h–18h)" */
 export function hourlyScopeText(cfg: HourlyCfg): string {
+  if (isExactHourly(cfg)) {
+    const l = sortedAbs(cfg).map(r => `${fmtDM(r.day!)} ${fmtH(r.from)} até ${fmtDM(r.endDay!)} ${fmtH(r.to)}`), join = (x: string[]) => (x.length <= 1 ? (x[0] ?? '') : `${x.slice(0, -1).join(', ')} e ${x[x.length - 1]}`)
+    return cfg.split === 'hour' ? `em cada hora de ${join(l)}` : `em cada intervalo (${join(l)})`
+  }
   if (cfg.mode === 'full') return 'em cada hora do dia (24h)'
   const rs = sortedRanges(cfg), join = (l: string[]) => (l.length <= 1 ? (l[0] ?? '') : `${l.slice(0, -1).join(', ')} e ${l[l.length - 1]}`)
   if (cfg.split === 'hour') return `em cada hora ${join(rs.map(slotAs))}`
@@ -230,7 +287,7 @@ export function hourlyTeamsView(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' |
       team,
       positions: rows.map(s => {
         const w = win.get(s.pos), isClosed = closed || absNow >= (dayNum(s.day) - base) * DAY_MIN + s.to + SLOT_GRACE_MIN
-        return { position: s.pos, label: `${fmtDM(s.day)} · ${slotRange(s)}`, prize: (w?.prize || slotPrize(d, team, s.idx)) || null, winner: w ? { name: w.user_name, me: w.user_id === userId, avatar_url: w.avatar_url ?? null } : null, state: w ? 'winner' : isClosed ? 'empty' : 'pending' }
+        return { position: s.pos, label: slotWhen(s), prize: (w?.prize || slotPrize(d, team, s.idx)) || null, winner: w ? { name: w.user_name, me: w.user_id === userId, avatar_url: w.avatar_url ?? null } : null, state: w ? 'winner' : isClosed ? 'empty' : 'pending' }
       }),
     }
   })
@@ -239,6 +296,11 @@ export function hourlyTeamsView(d: Pick<CampaignDraft, 'starts_on' | 'ends_on' |
 /** Para a prévia: a rodada de agora (e quem lidera nela) — ou a próxima. */
 export function hourlyLiveInfo(slots: SlotResult[]): { current: { label: string; leader: string | null } | null; next: string | null; total: number; closed: number } {
   const cur = slots.find(s => s.current) ?? null, nxt = slots.find(s => !s.closed && !s.current && (!cur || s.pos > cur.pos)) ?? null
-  return { current: cur ? { label: `${fmtDM(cur.day)} · ${slotRange(cur)}`, leader: cur.winner ? cur.winner.name : null } : null, next: nxt ? `${fmtDM(nxt.day)} · ${slotRange(nxt)}` : null, total: slots.length, closed: slots.filter(s => s.closed).length }
+  return { current: cur ? { label: slotWhen(cur), leader: cur.winner ? cur.winner.name : null } : null, next: nxt ? slotWhen(nxt) : null, total: slots.length, closed: slots.filter(s => s.closed).length }
 }
-export const hourlyConfigKey = (cfg: HourlyCfg | null | undefined): string => (cfg ? JSON.stringify([cfg.mode, cfg.mode === 'full' ? 'hour' : cfg.split, cfg.metric, slotsOfDay(cfg).map(s => [s.from, s.to])]) : 'null')
+/** Duplicar a campanha mudando as datas: nos intervalos de DATAS EXATAS, as datas de cada intervalo andam junto. */
+export function shiftHourly(cfg: HourlyCfg | null | undefined, n: number): HourlyCfg | null | undefined {
+  if (!cfg || !isExactHourly(cfg)) return cfg
+  return { ...cfg, ranges: cfg.ranges.map(r => ({ ...r, ...(r.day && DAY_RE.test(r.day) ? { day: addDay(r.day, n) } : {}), ...(r.endDay && DAY_RE.test(r.endDay) ? { endDay: addDay(r.endDay, n) } : {}) })) }
+}
+export const hourlyConfigKey = (cfg: HourlyCfg | null | undefined): string => (cfg && isExactHourly(cfg) ? JSON.stringify(['exact', cfg.split, cfg.metric, slotsOfDay(cfg).map(s => [s.day, s.from, s.to])]) : cfg ? JSON.stringify([cfg.mode, cfg.mode === 'full' ? 'hour' : cfg.split, cfg.metric, slotsOfDay(cfg).map(s => [s.from, s.to])]) : 'null')

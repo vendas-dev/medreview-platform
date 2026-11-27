@@ -1,0 +1,15 @@
+{
+ "criados": [
+  "tests/unit/campanhas_por_hora_exato.test.ts"
+ ],
+ "salvos": [
+  "lib/campaigns/types.ts",
+  "lib/campaigns/engine.ts",
+  "lib/campaigns/api.ts",
+  "lib/campaigns/handlers.ts",
+  "components/campaigns/CampaignBuilder.tsx",
+  "components/campaigns/CampaignPreview.tsx",
+  "lib/campaigns/hourly.ts",
+  "components/campaigns/HourlyEditor.tsx"
+ ]
+}
