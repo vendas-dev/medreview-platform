@@ -231,7 +231,7 @@ export async function hResumoAdmin(ctx: Ctx, sp: URLSearchParams): Promise<R> {
       if (total > 0 || Object.keys(por).length) metas.set(x.user_id, { total, por_vertical: por })
     }
   }
-  let closers = (cl.data ?? []).map((c: any) => { const pf = profileOf(c); return { id: c.id as string, hubspot_id: (c.hubspot_id ?? null) as string | null, name: c.name as string, team: (pf?.team ?? null) as string | null, avatar_url: (c.avatar_url ?? null) as string | null, ativo: pf ? pf.is_active !== false : true, meta: (pf && metas.get(pf.id)) || null } })
+  let closers = (cl.data ?? []).map((c: any) => { const pf = profileOf(c); return { id: c.id as string, hubspot_id: (c.hubspot_id ?? null) as string | null, name: c.name as string, team: (pf?.team ?? null) as string | null, avatar_url: (c.avatar_url ?? null) as string | null, ativo: pf ? pf.is_active !== false : true, role: (pf?.role ?? null) as string | null, meta: (pf && metas.get(pf.id)) || null } })
   if (p.f.team) closers = closers.filter((c: any) => c.team === p.f.team)
   if (p.f.closerId) closers = closers.filter((c: any) => c.id === p.f.closerId)
   let rows: any[] = []; let truncated = false
@@ -259,7 +259,10 @@ export async function hResumoAdmin(ctx: Ctx, sp: URLSearchParams): Promise<R> {
   const r2 = (n: number) => Math.round(n * 100) / 100
   // Usuário INATIVO: some SÓ A LINHA (e dos filtros). Nada sai de SOMA: o total abaixo inclui tudo que ele vendeu. Para conferir/editar vendas dele: inativos=1 (interruptor "Mostrar inativos") ou pedir o closer pelo id.
   const lista0 = closers.map((c: any) => { const a = agg.get(c.id); return { id: c.id, name: c.name, team: c.team, avatar_url: c.avatar_url, ativo: c.ativo, meta: c.meta, vendas: a?.vendas ?? 0, valor: r2(a?.valor ?? 0), co_vendas: a?.co_vendas ?? 0, co_valor: r2(a?.co_valor ?? 0), por_vertical: Object.fromEntries(Object.entries(a?.por ?? {}).map(([k, v]) => [k, { vendas: v.vendas, valor: r2(v.valor) }])) } })
-  const lista = lista0.filter((c: any) => c.ativo || p.f.inativos || !!p.f.closerId)
+  // Quem foi cadastrado como closer e depois virou SUPERADMIN deixa um registro antigo em "closers": se não vendeu nada no período (nem como co-closer), não é closer e não aparece. Se vendeu, continua aparecendo (nada de venda some).
+  const supers = new Set(closers.filter((c: any) => c.role === 'superadmin').map((c: any) => c.id))
+  const ehResiduoDeSuper = (c: any) => supers.has(c.id) && c.vendas === 0 && c.co_vendas === 0
+  const lista = lista0.filter((c: any) => (c.ativo || p.f.inativos || !!p.f.closerId) && (!ehResiduoDeSuper(c) || !!p.f.closerId))
   const ocultos = lista0.filter((c: any) => !lista.includes(c) && c.vendas > 0)
   lista.sort((a: any, b: any) => b.valor - a.valor || a.name.localeCompare(b.name, 'pt-BR'))
   return ok({ closers: lista, total: { vendas: totVendas, valor: r2(totValor) }, ocultos: { closers: ocultos.length, vendas: ocultos.reduce((s: number, c: any) => s + c.vendas, 0), valor: Math.round(ocultos.reduce((s: number, c: any) => s + c.valor, 0) * 100) / 100 }, truncated, meta_mes: mesMeta })
