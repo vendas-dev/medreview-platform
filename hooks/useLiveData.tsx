@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { TelaoEvent, Closer, Goal, MonthRevenue, VerticalId } from '@/lib/telao/types'
 import { todayStart, monthStart, monthKey, todayKey } from '@/lib/telao/format'
 import { todayInSaoPaulo } from '@/lib/timezone'
+import { aplicarMetaRadarHoje, usaMetaRadarHoje } from '@/lib/telao/metaRadarHoje'
 
 interface LiveDataContext {
   events:       TelaoEvent[]
@@ -28,6 +29,24 @@ const Ctx = createContext<LiveDataContext>({
 // de entrega — é esse polling que alimenta a celebração de venda hoje,
 // já que o realtime não estava entregando os eventos de INSERT.
 const POLL_MS = 15_000
+
+// Meta de hoje do Radar (só nas datas de lib/telao/metaRadarHoje.ts): busca no servidor no máximo 1x por minuto e guarda o último valor bom,
+// então uma falha de rede nunca derruba a meta (cai no cálculo de sempre se nunca deu certo).
+let radarCache: { dia: string; em: number; valor: number | null } = { dia: '', em: 0, valor: null }
+async function metaRadarDeHoje(hojeSP: string): Promise<number | null> {
+  if (radarCache.dia === hojeSP && Date.now() - radarCache.em < 60_000) return radarCache.valor
+  try {
+    const res = await fetch('/api/telao/meta-radar', { cache: 'no-store', signal: AbortSignal.timeout(8000) })
+    if (!res.ok) throw new Error(String(res.status))
+    const j = await res.json()
+    const valor = j?.date === hojeSP && typeof j?.meta === 'number' && j.meta > 0 ? j.meta : null
+    radarCache = { dia: hojeSP, em: Date.now(), valor }
+    return valor
+  } catch {
+    radarCache = { dia: hojeSP, em: Date.now() - 45_000, valor: radarCache.dia === hojeSP ? radarCache.valor : null }       // tenta de novo em ~15s, mantendo o último valor bom
+    return radarCache.valor
+  }
+}
 
 export function LiveDataProvider({ children }: { children: React.ReactNode }) {
   const [events,       setEvents]       = useState<TelaoEvent[]>([])
@@ -159,7 +178,7 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
 
     setEvents(evs)
     setClosers((closersData ?? []) as Closer[])
-    setGoals(synthGoals)
+    setGoals(usaMetaRadarHoje(todaySP) ? aplicarMetaRadarHoje(synthGoals, todaySP, await metaRadarDeHoje(todaySP)) : synthGoals)
     setMonthRevenue(mr)
     setLoading(false)
   }, [])

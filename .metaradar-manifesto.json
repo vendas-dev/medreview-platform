@@ -1,0 +1,10 @@
+{
+ "criados": [
+  "lib/telao/metaRadarHoje.ts",
+  "app/api/telao/meta-radar/route.ts",
+  "tests/unit/telao_meta_radar_hoje.test.ts"
+ ],
+ "salvos": [
+  "hooks/useLiveData.tsx"
+ ]
+}
