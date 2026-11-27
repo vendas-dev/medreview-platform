@@ -5,7 +5,7 @@
 //    do ano passado que vale de régua para o dia i+1 deste ano, e `prevDates[i]` diz qual data é essa. Por isso 27/11/2026 (sex) casa com 28/11/2025 (sex).
 //  • A PROJEÇÃO, a rota e o Radar saem todos de lib/dashboard/projecao.ts: uma conta só. Aqui ficam as visões (tabela, cartas, gráficos).
 //  Colunas da tabela:  Acumulado A-1 / A (1 a D-1, só dias FECHADOS)  · Crescimento % e R$  · Projeção de fechamento (a única)  · Fechamento do período de A-1  · Meta de A  · Projeção − Meta
-import { projetar, buildRadar, refDates as refDatesDe, reparte, wdLabel, type SerieDia, type Radar } from './projecao'
+import { projetar, buildRadar, refDates as refDatesDe, reparte, wdLabel, type SerieDia, type Radar, type AjusteRadar } from './projecao'
 export { reparte }
 export type VKey = 'anest' | 'oft' | 'ortop' | 'r1'
 export const VKEYS: VKey[] = ['anest', 'oft', 'ortop', 'r1']
@@ -20,6 +20,10 @@ export interface YoYData {
   metas: YoYMetas
   /** "Meta do Radar" do mês (total das 4 verticais): é a meta que o Radar, a rota e o hora a hora usam. Ausente/0 = usa a meta cadastrada. */
   metaRadar?: number
+  /** Ajustes manuais do plano do Radar (Operação): uma meta planejada fixada à mão e para onde vai a diferença. */
+  ajustes?: AjusteRadar[]
+  /** Ano passado das vendas que NÃO são das 4 verticais (ex.: Vasc-Review): entra só na régua do Radar da Operação, igual ao telão. Por dia (índice 0 = dia 1) e por hora. */
+  prevExtra?: number[]; prevExtraH?: number[][]
   today: string; month: string; dayOfMonth: number; yearCur: number; yearPrev: number
   daysInMonth: { cur: number; prev: number }                         // a janela do ano passado tem o MESMO nº de dias (prev = cur)
   /** A data do ano passado que vale de régua para cada dia (índice 0 = dia 1). Ausente = calcula pela regra dos 364 dias. */
@@ -59,7 +63,12 @@ export function metaRadarOf(d: YoYData, key: 'total' | VKey = 'total'): number {
   const soma = VKEYS.reduce((a, k) => a + (d.metas[k] || 0), 0)
   return soma > 0 ? Math.round(mr * (d.metas[key] || 0) / soma * 100) / 100 : mr / VKEYS.length
 }
-export const radarOf = (d: YoYData, key: 'total' | VKey = 'total'): Radar => buildRadar(serieDe(d, key), metaRadarOf(d, key), { month: d.month, today: d.today, refDates: prevDatesOf(d) })
+/** A série do Radar: igual à serieDe, mas na Operação a régua de 2025 soma também as vendas de fora das 4 verticais (como o telão). */
+export function serieRadar(d: YoYData, key: 'total' | VKey = 'total'): SerieDia {
+  const s = serieDe(d, key)
+  return key === 'total' && d.prevExtra ? { ...s, ref: s.ref.map((v, i) => v + (d.prevExtra?.[i] || 0)) } : s
+}
+export const radarOf = (d: YoYData, key: 'total' | VKey = 'total'): Radar => buildRadar(serieRadar(d, key), metaRadarOf(d, key), { month: d.month, today: d.today, refDates: prevDatesOf(d), ajustes: key === 'total' ? d.ajustes : undefined })
 
 export function buildTable(d: YoYData): TableRow[] {
   const D = d.dayOfMonth, F = Math.max(D - 1, 0)         // só os dias FECHADOS entram na comparação (hoje, em andamento, não pesa contra o dia inteiro do ano passado)
@@ -163,12 +172,13 @@ export function buildPlanoDia(d: YoYData, key: 'total' | VKey, day: number): Pla
   const keys = key === 'total' ? VKEYS : [key], D = d.dayOfMonth, rd = prevDatesOf(d), dia = (n: number) => `${d.month}-${String(n).padStart(2, '0')}`
   if (!(day >= 1 && day <= d.daysInMonth.cur)) return null
   const rf = rd[day - 1] ?? ''
-  const valorPrev = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0), fechPrev = keys.reduce((s, k) => s + sum(d.prev[k]), 0)
+  const extraD = key === 'total' ? d.prevExtra ?? [] : [], extraH = key === 'total' ? d.prevExtraH ?? [] : []
+  const valorPrev = keys.reduce((s, k) => s + (d.prev[k][day - 1] || 0), 0) + (extraD[day - 1] || 0), fechPrev = keys.reduce((s, k) => s + sum(d.prev[k]), 0) + sum(extraD)
   if (!(valorPrev > 0) || !(fechPrev > 0)) return null
   const meta = metaRadarOf(d, key), temMeta = meta > 0
   const linha = temMeta ? radarOf(d, key).linhas.find(l => l.day === day) : undefined
   const alvoDia = !temMeta ? 0 : linha ? (day >= D ? linha.ajustada : linha.planejada) : Math.round(meta * valorPrev / fechPrev * 100) / 100
-  const hv = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevH?.[k]?.[day - 1]?.[h] || 0), 0)), hn = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevHN?.[k]?.[day - 1]?.[h] || 0), 0))
+  const hv = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevH?.[k]?.[day - 1]?.[h] || 0), 0) + (extraH[day - 1]?.[h] || 0)), hn = Array.from({ length: 24 }, (_, h) => keys.reduce((s, k) => s + (d.prevHN?.[k]?.[day - 1]?.[h] || 0), 0))
   const somaH = hv.reduce((a, b) => a + b, 0), temHoras = somaH > 0
   const alvos = temMeta && temHoras ? reparte(Math.round(alvoDia * 100), hv).map(c => c / 100) : hv.map(() => 0)
   const diaChegou = day <= D, temReal = diaChegou && !!d.curH
@@ -183,7 +193,8 @@ export function buildPlanoDia(d: YoYData, key: 'total' | VKey, day: number): Pla
   }) : []
   const realDia = diaChegou ? keys.reduce((s, k) => s + (d.cur[k][day - 1] || 0), 0) : null
   const ritmo = projetar(serieDe(d, key), metaOf(d, key)).ritmo
-  const projDia = day < D ? realDia : day === D ? Math.max(realDia ?? 0, ritmo * valorPrev) : ritmo * valorPrev
+  const prev4 = valorPrev - (extraD[day - 1] || 0)          // o ritmo vem das 4 verticais
+  const projDia = day < D ? realDia : day === D ? Math.max(realDia ?? 0, ritmo * prev4) : ritmo * prev4
   const ref = (x: HoraPlano) => (temMeta ? x.alvo : x.prev), forte = horas.reduce<HoraPlano | null>((b, x) => (b === null || ref(x) > ref(b) ? x : b), null)
   return { key, label: key === 'total' ? 'Operação' : VLABEL[key], day, dayPrev: rf ? +rf.slice(8, 10) : day, refDate: rf, wdCur: wdLabel(dia(day)), wdPrev: rf ? wdLabel(rf) : '', quando: day < D ? 'passou' : day === D ? 'hoje' : 'vem',
     share: valorPrev / fechPrev * 100, valorPrev, vendasPrev: hn.reduce((a, b) => a + b, 0), fechPrev, meta, temMeta, alvoDia, temReal, realDia, vendasDia: temReal ? cn.reduce((a, b) => a + b, 0) : null, horaAgora, projDia, temHoras, horas, horaForte: forte ? forte.h : null }

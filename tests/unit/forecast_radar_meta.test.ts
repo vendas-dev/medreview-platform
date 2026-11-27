@@ -53,4 +53,22 @@ t('barras por dia trazem a meta do Radar: ajustada de hoje em diante, planejada 
   for (const l of rd.linhas) assert.equal(s.days[l.day - 1].metaDia, l.day >= 27 ? l.ajustada : l.planejada)
 })
 
+t('ajuste manual: fixa a planejada de 23/11 e leva a diferença para 30/11 sem mudar o total do plano', () => {
+  const d0 = dados({ metaRadar: 1_360_000 }), base = radarOf(d0, 'total'), l23 = base.linhas[0].planejada, l30 = base.linhas[7].planejada
+  const aj = radarOf({ ...d0, ajustes: [{ dia: '2026-11-23', planejada: 5000, para: '2026-11-30' }] }, 'total')
+  assert.equal(aj.linhas[0].planejada, 5000); assert.ok(Math.abs(aj.linhas[7].planejada - (l30 + l23 - 5000)) < 0.02)
+  assert.ok(Math.abs(aj.linhas.reduce((a, l) => a + l.planejada, 0) - base.linhas.reduce((a, l) => a + l.planejada, 0)) < 0.02)
+  assert.ok(Math.abs(aj.linhas[7].metaAcum - 1_360_000) < 0.02)
+  const fora = radarOf({ ...d0, ajustes: [{ dia: '2026-10-23', planejada: 1, para: '2026-11-30' }, { dia: '2026-11-10', planejada: 1, para: '2026-11-30' }] }, 'total')      // fora do mês / antes do plano: ignora
+  assert.equal(fora.linhas[0].planejada, l23)
+  assert.equal(radarOf({ ...d0, ajustes: [{ dia: '2026-11-23', planejada: 5000, para: '2026-11-30' }] }, 'anest').linhas[0].planejada, radarOf(d0, 'anest').linhas[0].planejada)      // só a Operação tem ajuste
+})
+t('régua da Operação soma as vendas de fora das 4 verticais de 2025 (como o telão); as verticais não mudam', () => {
+  const d0 = dados({ metaRadar: 1_360_000 }), extra = new Array(30).fill(0); extra[23] = 7000; extra[26] = 20000
+  const com = radarOf({ ...d0, prevExtra: extra }, 'total'), sem = radarOf(d0, 'total')
+  assert.ok(com.refJanela - sem.refJanela === 27000); assert.ok(com.fator < sem.fator)
+  assert.ok(Math.abs(com.linhas[7].metaAcum - 1_360_000) < 0.02)
+  assert.equal(radarOf({ ...d0, prevExtra: extra }, 'anest').refJanela, radarOf(d0, 'anest').refJanela)
+})
+
 console.log(`\n${n} testes passaram`)

@@ -1,5 +1,5 @@
 import { DB_VERTICALS, VERTICAL_DB, VKEYS, daysIn, type VKey, type YoYData, type YoYMetas } from './yoy'
-import { refDates } from './projecao'
+import { refDates, type AjusteRadar } from './projecao'
 
 // Lê as vendas do mês atual e do PERÍODO EQUIVALENTE do ano passado (cada dia casado por dia da semana: 364 dias antes) e devolve a receita por dia e por vertical (horário de Brasília) e, do ano passado, também por HORA.
 // Lê em páginas de 1.000 (o Supabase corta qualquer leitura em 1.000 linhas SEM avisar). Só as 4 verticais ativas (Vasc-Review/PsiqClara nem são lidas).
@@ -47,18 +47,48 @@ async function lerMetas(admin: any, month: string): Promise<YoYMetas> {
 }
 
 // "Meta do Radar" do mês (tabela forecast_radar_meta, editada pelo superadmin): a meta que o Radar, a rota e o hora a hora usam. Sem a tabela/linha: 0 (cai na meta cadastrada).
-export async function lerMetaRadar(admin: any, month: string): Promise<number> {
-  try {
-    const { data, error } = await admin.from('forecast_radar_meta').select('meta').eq('month', month).maybeSingle()
-    if (error) return 0
-    const v = Number((data as any)?.meta); return Number.isFinite(v) && v > 0 ? v : 0
-  } catch { return 0 }
+export interface ConfigRadar { meta: number; ajustes: AjusteRadar[] }
+export function ajustesValidos(raw: unknown, month: string): AjusteRadar[] {
+  if (!Array.isArray(raw)) return []
+  const re = new RegExp(`^${month}-\\d{2}$`), out: AjusteRadar[] = []
+  for (const a of raw as any[]) { const planejada = Number(a?.planejada); if (typeof a?.dia === 'string' && typeof a?.para === 'string' && re.test(a.dia) && re.test(a.para) && a.dia !== a.para && Number.isFinite(planejada) && planejada >= 0 && planejada <= 1e9) out.push({ dia: a.dia, planejada: Math.round(planejada * 100) / 100, para: a.para }) }
+  return out.slice(0, 20)
 }
+export async function lerConfigRadar(admin: any, month: string): Promise<ConfigRadar> {
+  try {
+    let r = await admin.from('forecast_radar_meta').select('meta, ajustes').eq('month', month).maybeSingle()
+    if (r.error) r = await admin.from('forecast_radar_meta').select('meta').eq('month', month).maybeSingle()        // antes de rodar o SQL novo (coluna ajustes)
+    if (r.error) return { meta: 0, ajustes: [] }
+    const v = Number((r.data as any)?.meta); return { meta: Number.isFinite(v) && v > 0 ? v : 0, ajustes: ajustesValidos((r.data as any)?.ajustes, month) }
+  } catch { return { meta: 0, ajustes: [] } }
+}
+export const lerMetaRadar = async (admin: any, month: string): Promise<number> => (await lerConfigRadar(admin, month)).meta
+
+/** Ano passado das vendas de FORA das 4 verticais (ex.: Vasc-Review), por dia e por hora: entra só na régua do Radar da Operação (o telão soma tudo). */
+async function lerExtra(admin: any, datas: string[]): Promise<{ dia: number[]; h: number[][] }> {
+  const n = datas.length, dia = new Array(n).fill(0), h = Array.from({ length: n }, () => new Array(24).fill(0))
+  try {
+    const pos = new Map<string, number[]>(); datas.forEach((dt, i) => { const l = pos.get(dt); if (l) l.push(i); else pos.set(dt, [i]) })
+    const ordem = [...datas].sort(), de = ordem[0], fim = new Date(Date.parse(ordem[ordem.length - 1] + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)
+    for (let off = 0, i = 0; i < 400; i++) {
+      const { data, error } = await admin.from('telao_events').select('value, vertical, occurred_at').eq('event_type', 'sale').not('vertical', 'in', `(${DB_VERTICALS.join(',')})`)
+        .gte('occurred_at', startUtc(de)).lt('occurred_at', startUtc(fim)).order('occurred_at', { ascending: true }).order('id', { ascending: true }).range(off, off + 999)
+      if (error) return { dia: new Array(n).fill(0), h: Array.from({ length: n }, () => new Array(24).fill(0)) }
+      const rows = (data ?? []) as { value: number | string | null; occurred_at: string }[]
+      if (rows.length === 0) break
+      for (const r of rows) { const v = Number(r.value), idx = pos.get(spDate(r.occurred_at)); if (!idx || !Number.isFinite(v)) continue; const hh = spHour(r.occurred_at); for (const j of idx) { dia[j] += v; if (hh >= 0 && hh <= 23) h[j][hh] += v } }
+      off += rows.length
+    }
+  } catch { /* sem o extra: o Radar usa só as 4 verticais */ }
+  return { dia: dia.map(v => Math.round(v * 100) / 100), h: h.map(l => l.map(v => Math.round(v * 100) / 100)) }
+}
+
+
 
 export async function computeYoY(admin: any, now: Date = new Date()): Promise<YoYData> {
   const today = spDate(now.toISOString()), yearCur = +today.slice(0, 4), m1 = +today.slice(5, 7), month = today.slice(0, 7), N = daysIn(yearCur, m1)
   const mesAtual = Array.from({ length: N }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`), regua = refDates(month)         // regua[i] = o dia do ano passado que vale para o dia i+1 (mesmo dia da semana)
   const [cur, prev, metas] = await Promise.all([lerDatas(admin, mesAtual), lerDatas(admin, regua), lerMetas(admin, month)])
-  const metaRadar = await lerMetaRadar(admin, month)
-  return { metas, metaRadar, horaAgora: spHour(now.toISOString()), curH: cur.h, curHN: cur.n, today, month, dayOfMonth: +today.slice(8, 10), yearCur, yearPrev: +regua[0].slice(0, 4), daysInMonth: { cur: N, prev: N }, prevDates: regua, cur: cur.dia, prev: prev.dia, prevH: prev.h, prevHN: prev.n }       // hora a hora só do ano passado (é o perfil do dia forte)
+  const [cfg, extra] = await Promise.all([lerConfigRadar(admin, month), lerExtra(admin, regua)])
+  return { metas, metaRadar: cfg.meta, ajustes: cfg.ajustes, prevExtra: extra.dia, prevExtraH: extra.h, horaAgora: spHour(now.toISOString()), curH: cur.h, curHN: cur.n, today, month, dayOfMonth: +today.slice(8, 10), yearCur, yearPrev: +regua[0].slice(0, 4), daysInMonth: { cur: N, prev: N }, prevDates: regua, cur: cur.dia, prev: prev.dia, prevH: prev.h, prevHN: prev.n }       // hora a hora só do ano passado (é o perfil do dia forte)
 }

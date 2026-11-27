@@ -146,7 +146,9 @@ export interface Radar {
   linhas: RadarLinha[]; inicio: number; fator: number; realAntes: number; meta: number; refJanela: number
   hojeDia: number; dataInicio: string; dataFim: string; refInicio: string; refFim: string
 }
-export interface RadarDatas { month: string; today: string; refDates: string[] }
+/** Ajuste manual do plano: a meta PLANEJADA de `dia` vira `planejada` e a diferença vai para o dia `para` (a soma do plano não muda). */
+export interface AjusteRadar { dia: string; planejada: number; para: string }
+export interface RadarDatas { month: string; today: string; refDates: string[]; ajustes?: AjusteRadar[] }
 const r2 = (n: number) => Math.round(n * 100) / 100
 export function buildRadar(s: SerieDia, meta: number, dt: RadarDatas): Radar {
   const N = Math.max(s.N, 1), D = clampD(s), dia = (d: number) => `${dt.month}-${p2(d)}`
@@ -157,6 +159,11 @@ export function buildRadar(s: SerieDia, meta: number, dt: RadarDatas): Radar {
   if (!(refJanela > 0)) return { ...base, inicio: A, realAntes, motivo: 'O ano passado não tem vendas neste período para servir de régua.' }
   const resto = Math.max(meta - realAntes, 0), fator = resto / refJanela
   const plano = reparte(Math.round(resto * 100), s.ref.slice(A - 1, N).map(v => Math.max(v || 0, 0))).map(c => c / 100)
+  for (const aj of dt.ajustes ?? []) {       // ajustes manuais: só valem dentro do plano desta semana (os dois dias de A em diante)
+    const i = +aj.dia.slice(8, 10) - A, j = +aj.para.slice(8, 10) - A
+    if (aj.dia.slice(0, 7) !== dt.month || aj.para.slice(0, 7) !== dt.month || i < 0 || j < 0 || i >= plano.length || j >= plano.length || i === j || !(aj.planejada >= 0)) continue
+    const dif = r2(plano[i] - aj.planejada); plano[i] = r2(aj.planejada); plano[j] = r2(plano[j] + dif)
+  }
   const linhas: RadarLinha[] = []
   let metaAcum = realAntes, realAcum = realAntes, difPrev = 0, carry = 0
   for (let d = A; d <= N; d++) {
